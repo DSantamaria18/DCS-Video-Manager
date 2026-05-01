@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCS Meta — TheCylonPilot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #080c0f;
+    --bg2:      #0d1317;
+    --bg3:      #111820;
+    --panel:    #0a1219;
+    --border:   #1a2f3a;
+    --border2:  #1f3d4d;
+    --green:    #00e5a0;
+    --green2:   #00b37a;
+    --green3:   #004d34;
+    --amber:    #f0a500;
+    --amber2:   #c47d00;
+    --red:      #e03030;
+    --blue:     #2a9fd6;
+    --blue2:    #1a6a9a;
+    --text:     #c8dde8;
+    --text2:    #7a9aaa;
+    --text3:    #3a5a6a;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Rajdhani', sans-serif;
+    --body:     'Exo 2', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    height: 56px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: var(--green);
+    text-transform: uppercase;
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    border: 2px solid var(--green);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    position: relative;
+  }
+  .logo-icon::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border: 1px solid var(--green3);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .yt-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    transition: border-color 0.2s;
+  }
+  .yt-status:hover { border-color: var(--border2); }
+  .yt-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+  .yt-status.connected .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  /* ── Layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 0;
+    min-height: calc(100vh - 56px);
+  }
+
+  /* ── Left Panel ── */
+  .left-panel {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    gap: 20px;
+    overflow-y: auto;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Drop zone removed — using native browse dialog */
+
+  /* Path input */
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-group label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .field-group input, .field-group textarea, .field-group select {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+  .field-group input:focus, .field-group textarea:focus, .field-group select:focus {
+    border-color: var(--green2);
+  }
+  .field-group textarea { resize: vertical; min-height: 72px; }
+  .field-group select option { background: var(--bg3); }
+
+  /* Divider */
+  .divider {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-align: center;
+    position: relative;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 42%;
+    height: 1px;
+    background: var(--border);
+  }
+  .divider::before { left: 0; }
+  .divider::after { right: 0; }
+
+  /* Buttons */
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 3px;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    width: 100%;
+  }
+
+  .btn-primary {
+    background: var(--green);
+    color: #000;
+  }
+  .btn-primary:hover { background: #00ffb3; box-shadow: 0 0 20px rgba(0,229,160,0.3); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { background: var(--green3); color: var(--text3); cursor: not-allowed; box-shadow: none; }
+
+  .btn-upload {
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--amber2);
+  }
+  .btn-upload:hover { background: rgba(240,165,0,0.08); box-shadow: 0 0 16px rgba(240,165,0,0.15); }
+  .btn-upload:disabled { color: var(--text3); border-color: var(--border); cursor: not-allowed; }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    padding: 7px 12px;
+    width: auto;
+  }
+  .btn-secondary:hover { border-color: var(--border2); color: var(--text); }
+
+  /* ── Progress Bar ── */
+  .progress-wrap {
+    display: none;
+  }
+  .progress-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text2);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  /* ── Right Panel ── */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    gap: 0;
+  }
+  .tab {
+    padding: 14px 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+  /* Tab content */
+  .tab-content { display: none; flex: 1; overflow-y: auto; padding: 24px; }
+  .tab-content.active { display: flex; flex-direction: column; gap: 20px; }
+
+  /* Metadata output blocks */
+  .meta-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .meta-block-header {
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .meta-block-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .copy-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 1px;
+  }
+  .copy-btn:hover { color: var(--green); border-color: var(--green3); }
+  .copy-btn.copied { color: var(--green); border-color: var(--green3); }
+
+  .meta-block-body {
+    padding: 14px;
+  }
+
+  .title-display {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  .desc-display {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    line-height: 1.7;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  .tags-display {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tag-pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    color: var(--text2);
+    background: var(--bg3);
+  }
+  .tag-pill.featured {
+    color: var(--blue);
+    border-color: var(--blue2);
+  }
+
+  .chapters-display { display: flex; flex-direction: column; gap: 4px; }
+  .chapter-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .chapter-row:hover { background: var(--bg3); }
+  .chapter-time { color: var(--green); min-width: 40px; }
+  .chapter-label { color: var(--text); }
+
+  /* Detected info grid */
+  .detected-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .detected-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px 12px;
+  }
+  .detected-key {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .detected-val {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--green);
+  }
+
+  /* Empty state */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text3);
+  }
+  .empty-state .radar {
+    width: 80px; height: 80px;
+    border: 1px solid var(--border2);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .empty-state .radar::before {
+    content: '';
+    position: absolute;
+    width: 40px; height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+  }
+  .empty-state .radar-sweep {
+    position: absolute;
+    width: 50%;
+    height: 1px;
+    background: linear-gradient(90deg, var(--green), transparent);
+    transform-origin: right center;
+    right: 50%;
+    animation: sweep 3s linear infinite;
+  }
+  @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .empty-state p {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* History tab */
+  .history-list { display: flex; flex-direction: column; gap: 8px; }
+  .history-item {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .history-item:hover { border-color: var(--border2); }
+  .history-date {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    white-space: nowrap;
+  }
+  .history-title {
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .history-aircraft {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--blue);
+    white-space: nowrap;
+  }
+
+  /* Setup tab */
+  .setup-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+  }
+  .setup-section h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text);
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+  }
+  .setup-step {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .step-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    background: var(--green3);
+    border: 1px solid var(--green2);
+    border-radius: 2px;
+    width: 22px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-text {
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+  .step-text a { color: var(--blue); }
+  .step-text code {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--amber);
+  }
+
+  /* Auth code input */
+  .auth-flow { display: none; }
+  .auth-flow.visible { display: flex; flex-direction: column; gap: 10px; }
+
+  /* Alert */
+  .alert {
+    padding: 10px 14px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    display: none;
+  }
+  .alert.error { background: rgba(224,48,48,0.1); border: 1px solid var(--red); color: #ff6b6b; }
+  .alert.success { background: rgba(0,229,160,0.08); border: 1px solid var(--green3); color: var(--green); }
+  .alert.visible { display: block; }
+
+  /* Upload result */
+  .upload-result {
+    background: rgba(0,229,160,0.06);
+    border: 1px solid var(--green3);
+    border-radius: 4px;
+    padding: 16px;
+    display: none;
+  }
+  .upload-result.visible { display: block; }
+  .upload-result a {
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+  /* Editable fields */
+  .editable {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+    resize: vertical;
+  }
+  .editable:focus { border-color: var(--green2); }
+
+  .lang-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+  .lang-en { background: rgba(42,159,214,0.15); color: var(--blue); border: 1px solid var(--blue2); }
+  .lang-es { background: rgba(240,165,0,0.12); color: var(--amber); border: 1px solid var(--amber2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">CP</div>
+    DCS Meta
+  </div>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <div class="yt-status" id="ytStatus" onclick="openTab('setup')">
+      <span class="dot"></span>
+      <span id="ytStatusText">YT: NOT CONNECTED</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ── Left Panel ── -->
+  <div class="left-panel">
+
+    <div>
+      <div class="section-label">Video source</div>
+      <div class="field-group">
+        <label>Video path (MP4 · MKV · MOV · AVI)</label>
+        <div style="display:flex; gap:8px; align-items:stretch;">
+          <input type="text" id="videoPath"
+            placeholder="C:\Videos\DCS\mission.mp4"
+            oninput="onPathInput(this.value)"
+            style="flex:1; font-size:11px;">
+          <button class="btn-secondary" onclick="browseFile()"
+            style="white-space:nowrap; padding:0 14px; border-radius:3px;
+                   font-family:var(--mono); font-size:11px; letter-spacing:1px;
+                   cursor:pointer; color:var(--green); border-color:var(--green3);">
+            ⬡ BROWSE
+          </button>
+        </div>
+        <div id="fileSelectedName"
+          style="display:none; margin-top:6px; font-family:var(--mono);
+                 font-size:11px; color:var(--green); background:rgba(0,229,160,0.06);
+                 border:1px solid var(--green3); padding:6px 10px; border-radius:3px;
+                 word-break:break-all;">
+        </div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label>Mission context (optional)</label>
+      <textarea id="missionContext"
+        placeholder="e.g. A-10C II Outpost Campaign - Mission 3 - Tank Busting&#10;or: Escuadrón 111 - Operación Trueno - SEAD support"></textarea>
+    </div>
+
+    <div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-label">
+          <span id="progressMsg">Analyzing...</span>
+          <span id="progressPct">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </div>
+
+    <div id="alertBox" class="alert"></div>
+
+    <button class="btn btn-primary" id="analyzeBtn" onclick="startAnalysis()">
+      ⬡ &nbsp;ANALYZE VIDEO
+    </button>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 20px;">
+      <div class="section-label">Upload to YouTube</div>
+
+      <div class="field-group" style="margin-bottom:12px;">
+        <label>Playlists (optional — select multiple)</label>
+        <div id="playlistList" style="
+          background: var(--bg2);
+          border: 1px solid var(--border);
+          border-radius: 3px;
+          max-height: 120px;
+          overflow-y: auto;
+          padding: 4px 0;
+        ">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:8px 10px;">
+            — Connect YouTube to load playlists —
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-upload" id="uploadBtn" onclick="uploadToYouTube()" disabled>
+        ▲ &nbsp;UPLOAD AS PRIVATE
+      </button>
+
+      <div class="upload-result" id="uploadResult">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px;letter-spacing:2px;">UPLOADED ✓</div>
+        <a id="uploadLink" href="#" target="_blank"></a>
+        <div style="margin-top:8px;font-size:11px;color:var(--text2)">Status: <strong>Private</strong> — publish manually from YouTube Studio.</div>
+        <div style="margin-top:4px;font-size:11px;color:var(--text2)" id="uploadPlaylistInfo"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right Panel ── -->
+  <div class="right-panel">
+
+    <div class="tabs">
+      <div class="tab active" onclick="openTab('metadata')">Metadata</div>
+      <div class="tab" onclick="openTab('history')">History</div>
+      <div class="tab" onclick="openTab('setup')">Setup</div>
+    </div>
+
+    <!-- METADATA TAB -->
+    <div class="tab-content active" id="tab-metadata">
+
+      <div class="empty-state" id="emptyState">
+        <div class="radar">
+          <div class="radar-sweep"></div>
+        </div>
+        <p>Awaiting mission data</p>
+      </div>
+
+      <div id="metadataOutput" style="display:none; display:flex; flex-direction:column; gap:16px;">
+
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span class="detected-key" style="margin:0">Detected:</span>
+          <span class="detected-val" id="detectedAircraft" style="font-size:13px">—</span>
+          <span class="detected-key" style="margin:0">·</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--text2)" id="detectedMap">—</span>
+          <span class="detected-key" style="margin:0">·</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--text2)" id="detectedMission">—</span>
+          <span class="lang-badge" id="langBadge">EN</span>
+        </div>
+
+        <!-- Title -->
+        <div class="meta-block">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Title</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="titleCharCount">0/100</span>
+              <button class="copy-btn" onclick="copyField('titleEdit', this)">COPY</button>
+            </div>
+          </div>
+          <div class="meta-block-body">
+            <input type="text" class="editable" id="titleEdit" maxlength="100"
+                   oninput="updateCharCount()" style="font-family:var(--sans);font-size:16px;font-weight:600;">
+          </div>
+        </div>
+
+        <!-- Description -->
+        <div class="meta-block">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Description</span>
+            <button class="copy-btn" onclick="copyField('descEdit', this)">COPY</button>
+          </div>
+          <div class="meta-block-body">
+            <textarea class="editable" id="descEdit" rows="10"></textarea>
+          </div>
+        </div>
+
+        <!-- Tags -->
+        <div class="meta-block">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Tags</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="tagCount">0 tags</span>
+              <button class="copy-btn" onclick="copyTags(this)">COPY</button>
+            </div>
+          </div>
+          <div class="meta-block-body">
+            <div class="tags-display" id="tagsDisplay"></div>
+          </div>
+        </div>
+
+        <!-- Chapters -->
+        <div class="meta-block" id="chaptersBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Chapters</span>
+            <button class="copy-btn" onclick="copyChapters(this)">COPY</button>
+          </div>
+          <div class="meta-block-body">
+            <div class="chapters-display" id="chaptersDisplay"></div>
+          </div>
+        </div>
+
+        <!-- Analysis notes -->
+        <div class="meta-block" id="notesBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Analysis notes</span>
+          </div>
+          <div class="meta-block-body">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7" id="notesDisplay"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div class="tab-content" id="tab-history">
+      <div class="section-label">Recent videos</div>
+      <div class="history-list" id="historyList">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">
+          No history yet
+        </div>
+      </div>
+    </div>
+
+    <!-- SETUP TAB -->
+    <div class="tab-content" id="tab-setup">
+
+      <div class="setup-section">
+        <h3>GEMINI API KEY</h3>
+        <div class="setup-step">
+          <span class="step-num">1</span>
+          <span class="step-text">Get your <strong>free</strong> key at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com/app/apikey</a> (1500 req/day gratis)</span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">2</span>
+          <span class="step-text">
+            <strong>Windows:</strong> <code>set GEMINI_API_KEY=AIza...</code><br>
+            <strong>Mac:</strong> add <code>export GEMINI_API_KEY=AIza...</code> to your <code>~/.zshrc</code>
+          </span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">3</span>
+          <span class="step-text">Restart the terminal and run <code>python web/app.py</code> again</span>
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>YOUTUBE API SETUP</h3>
+        <div class="setup-step">
+          <span class="step-num">1</span>
+          <span class="step-text">Go to <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> → create a project</span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">2</span>
+          <span class="step-text">Enable <strong>YouTube Data API v3</strong></span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">3</span>
+          <span class="step-text">Create OAuth2 credentials (Desktop app) → download as <code>client_secret.json</code></span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">4</span>
+          <span class="step-text">Place <code>client_secret.json</code> in the <code>config/</code> folder of this project</span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">5</span>
+          <span class="step-text">Click the button below to authorize YouTube access:</span>
+        </div>
+
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn-secondary" onclick="startYouTubeAuth()" id="ytAuthBtn"
+            style="width:auto;padding:7px 16px;border-radius:3px;font-family:var(--mono);
+                   font-size:11px;letter-spacing:1px;cursor:pointer;">Authorize YouTube →</button>
+          <button class="btn-secondary" onclick="revokeYouTubeAuth()" id="ytRevokeBtn"
+            style="width:auto;padding:7px 16px;border-radius:3px;font-family:var(--mono);
+                   font-size:11px;letter-spacing:1px;cursor:pointer;display:none;
+                   color:var(--amber);border-color:var(--amber2);">Re-authorize ↺</button>
+          <span id="ytAuthStatus" style="font-family:var(--mono);font-size:11px;color:var(--text3);"></span>
+        </div>
+
+        <div class="auth-flow" id="authFlow">
+          <p class="step-text" style="margin-top:12px; color:var(--green);">
+            ✓ Browser opened — approve access on Google, then come back here.<br>
+            <span style="color:var(--text3);">The app detects the authorization automatically, no code needed.</span>
+          </p>
+        </div>
+
+        <div class="setup-step" style="margin-top:16px;">
+          <span class="step-num">!</span>
+          <span class="step-text">El navegador se abrirá automáticamente cuando pulses el botón.
+          Google redirige el token directamente — no hay que copiar ningún código.</span>
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>FFMPEG REQUIRED</h3>
+        <div class="setup-step">
+          <span class="step-num">W</span>
+          <span class="step-text"><strong>Windows:</strong> <code>winget install ffmpeg</code> or download from <a href="https://ffmpeg.org/download.html" target="_blank">ffmpeg.org</a></span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">M</span>
+          <span class="step-text"><strong>Mac:</strong> <code>brew install ffmpeg</code></span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let currentMetadata = null;
+let currentVideoPath = null;
+let currentJobId = null;
+let pollInterval = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  checkYouTubeStatus();
+  loadHistory();
+  loadPlaylists();
+});
+
+// ── File handling ─────────────────────────────────────────────────────────────
+async function browseFile() {
+  try {
+    const res = await fetch('/api/browse');
+    const data = await res.json();
+    if (data.cancelled || !data.path) return;
+    if (data.error) { showAlert(data.error, 'error'); return; }
+
+    document.getElementById('videoPath').value = data.path;
+    currentVideoPath = data.path;
+
+    const nameEl = document.getElementById('fileSelectedName');
+    nameEl.textContent = '▶ ' + data.name;
+    nameEl.style.display = 'block';
+    clearAlert();
+  } catch(e) {
+    showAlert('Browse error: ' + e.message, 'error');
+  }
+}
+
+function onPathInput(val) {
+  currentVideoPath = val.trim();
+  const nameEl = document.getElementById('fileSelectedName');
+  if (val.trim()) {
+    const parts = val.replace(/\\/g, '/').split('/');
+    nameEl.textContent = '▶ ' + parts[parts.length - 1];
+    nameEl.style.display = 'block';
+  } else {
+    nameEl.style.display = 'none';
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function openTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const tabEl = [...document.querySelectorAll('.tab')].find(t => t.getAttribute('onclick').includes(name));
+  if (tabEl) tabEl.classList.add('active');
+  const content = document.getElementById('tab-' + name);
+  if (content) content.classList.add('active');
+  if (name === 'history') loadHistory();
+}
+
+// ── Analysis ─────────────────────────────────────────────────────────────────
+async function startAnalysis() {
+  const path = document.getElementById('videoPath').value.trim();
+  const context = document.getElementById('missionContext').value.trim();
+
+  if (!path) { showAlert('Click BROWSE to select a video, or paste the full path manually.', 'error'); return; }
+
+  clearAlert();
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('metadataOutput').style.display = 'none';
+  setProgress(0, 'Sending request...');
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ video_path: path, context })
+    });
+    const data = await res.json();
+    if (!res.ok) { showAlert(data.error || 'Server error', 'error'); resetUI(); return; }
+
+    currentJobId = data.job_id;
+    pollInterval = setInterval(pollStatus, 1200);
+
+  } catch(e) {
+    showAlert('Could not connect to server: ' + e.message, 'error');
+    resetUI();
+  }
+}
+
+async function pollStatus() {
+  if (!currentJobId) return;
+  try {
+    const res = await fetch('/api/status/' + currentJobId);
+    const data = await res.json();
+
+    setProgress(data.progress || 0, data.message || '');
+
+    if (data.status === 'done') {
+      clearInterval(pollInterval);
+      currentMetadata = data.result.metadata;
+      currentVideoPath = data.result.video_path || document.getElementById('videoPath').value.trim();
+      renderMetadata(data.result.metadata);
+      resetUI(true);
+      openTab('metadata');
+    } else if (data.status === 'error') {
+      clearInterval(pollInterval);
+      showAlert(data.error || 'Analysis failed', 'error');
+      resetUI();
+    }
+  } catch(e) {
+    // Network hiccup, keep polling
+  }
+}
+
+function setProgress(pct, msg) {
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressMsg').textContent = msg;
+}
+
+function resetUI(success = false) {
+  document.getElementById('analyzeBtn').disabled = false;
+  if (success && currentMetadata) {
+    document.getElementById('uploadBtn').disabled = false;
+  }
+  if (!success) {
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'flex';
+  }
+}
+
+// ── Render metadata ───────────────────────────────────────────────────────────
+function renderMetadata(m) {
+  document.getElementById('progressWrap').style.display = 'none';
+  document.getElementById('metadataOutput').style.display = 'flex';
+
+  // Detected info
+  document.getElementById('detectedAircraft').textContent = m.aircraft || '—';
+  document.getElementById('detectedMap').textContent = m.map || '—';
+  document.getElementById('detectedMission').textContent = m.mission_type || '—';
+
+  const langBadge = document.getElementById('langBadge');
+  langBadge.textContent = (m.language || 'en').toUpperCase();
+  langBadge.className = 'lang-badge ' + (m.language === 'es' ? 'lang-es' : 'lang-en');
+
+  // Title
+  const titleEl = document.getElementById('titleEdit');
+  titleEl.value = m.title || '';
+  updateCharCount();
+
+  // Description
+  document.getElementById('descEdit').value = m.description || '';
+
+  // Tags
+  const tagsDiv = document.getElementById('tagsDisplay');
+  tagsDiv.innerHTML = '';
+  const featured = ['dcs', 'dcs world', 'thecylonpilot', 'cylon pilot', 'eagle dynamics'];
+  (m.tags || []).forEach(tag => {
+    const pill = document.createElement('span');
+    pill.className = 'tag-pill' + (featured.includes(tag.toLowerCase()) ? ' featured' : '');
+    pill.textContent = tag;
+    tagsDiv.appendChild(pill);
+  });
+  document.getElementById('tagCount').textContent = (m.tags || []).length + ' tags';
+
+  // Chapters
+  const chapters = m.chapters || [];
+  const chapBlock = document.getElementById('chaptersBlock');
+  if (chapters.length > 0) {
+    chapBlock.style.display = 'block';
+    const chapDiv = document.getElementById('chaptersDisplay');
+    chapDiv.innerHTML = chapters.map(ch =>
+      `<div class="chapter-row">
+        <span class="chapter-time">${ch.time}</span>
+        <span class="chapter-label">${ch.label}</span>
+      </div>`
+    ).join('');
+  } else {
+    chapBlock.style.display = 'none';
+  }
+
+  // Notes
+  const notes = m.analysis_notes || '';
+  const notesBlock = document.getElementById('notesBlock');
+  if (notes) {
+    notesBlock.style.display = 'block';
+    document.getElementById('notesDisplay').textContent = notes;
+  } else {
+    notesBlock.style.display = 'none';
+  }
+}
+
+function updateCharCount() {
+  const val = document.getElementById('titleEdit').value.length;
+  const el = document.getElementById('titleCharCount');
+  el.textContent = val + '/100';
+  el.style.color = val > 90 ? 'var(--amber)' : 'var(--text3)';
+}
+
+// ── Copy helpers ──────────────────────────────────────────────────────────────
+async function copyField(id, btn) {
+  const el = document.getElementById(id);
+  const text = el.value || el.textContent;
+  await navigator.clipboard.writeText(text);
+  btn.textContent = 'COPIED ✓';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+}
+
+async function copyTags(btn) {
+  if (!currentMetadata) return;
+  const tags = (currentMetadata.tags || []).join(', ');
+  await navigator.clipboard.writeText(tags);
+  btn.textContent = 'COPIED ✓';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+}
+
+async function copyChapters(btn) {
+  if (!currentMetadata) return;
+  const text = (currentMetadata.chapters || []).map(c => `${c.time} ${c.label}`).join('\n');
+  await navigator.clipboard.writeText(text);
+  btn.textContent = 'COPIED ✓';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+}
+
+// ── YouTube upload ────────────────────────────────────────────────────────────
+async function uploadToYouTube() {
+  if (!currentMetadata) return;
+
+  const path = document.getElementById('videoPath').value.trim();
+  const playlistIds = getSelectedPlaylistIds();
+
+  // Use edited values from UI
+  const metadata = {
+    ...currentMetadata,
+    title: document.getElementById('titleEdit').value,
+    description: document.getElementById('descEdit').value
+  };
+
+  document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('uploadBtn').textContent = '⟳  Uploading...';
+  clearAlert();
+
+  try {
+    const res = await fetch('/api/upload_youtube', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ video_path: path, metadata, playlist_ids: playlistIds })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (data.error && data.error.includes('Not authenticated')) {
+        showAlert('YouTube not connected. Go to Setup tab to authorize.', 'error');
+        openTab('setup');
+      } else {
+        showAlert(data.error || 'Upload failed', 'error');
+      }
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+      return;
+    }
+
+    const resultEl = document.getElementById('uploadResult');
+    const linkEl = document.getElementById('uploadLink');
+    linkEl.href = data.url;
+    linkEl.textContent = data.url;
+    const added = (data.playlists_added || []).length;
+    const playlistMsg = added > 0
+      ? `Added to ${added} playlist${added > 1 ? 's' : ''}.`
+      : 'No playlists selected.';
+    document.getElementById('uploadPlaylistInfo').textContent = playlistMsg;
+    resultEl.classList.add('visible');
+    document.getElementById('uploadBtn').textContent = '✓  Uploaded';
+
+  } catch(e) {
+    showAlert('Upload error: ' + e.message, 'error');
+    document.getElementById('uploadBtn').disabled = false;
+    document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+  }
+}
+
+// ── YouTube auth ──────────────────────────────────────────────────────────────
+async function checkYouTubeStatus() {
+  try {
+    const res = await fetch('/api/youtube/status');
+    const data = await res.json();
+    const el = document.getElementById('ytStatus');
+    const txt = document.getElementById('ytStatusText');
+    const revokeBtn = document.getElementById('ytRevokeBtn');
+    if (data.authenticated) {
+      el.classList.add('connected');
+      txt.textContent = 'YT: CONNECTED';
+      if (revokeBtn) revokeBtn.style.display = 'inline-flex';
+      loadPlaylists();
+    } else {
+      el.classList.remove('connected');
+      txt.textContent = 'YT: NOT CONNECTED';
+      if (revokeBtn) revokeBtn.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+async function revokeYouTubeAuth() {
+  const statusEl = document.getElementById('ytAuthStatus');
+  await fetch('/api/youtube/revoke', { method: 'POST' });
+  document.getElementById('ytStatus').classList.remove('connected');
+  document.getElementById('ytStatusText').textContent = 'YT: NOT CONNECTED';
+  document.getElementById('ytRevokeBtn').style.display = 'none';
+  document.getElementById('playlistList').innerHTML =
+    '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:8px 10px;">— Connect YouTube to load playlists —</div>';
+  statusEl.textContent = 'Token cleared — click Authorize YouTube to reconnect';
+  statusEl.style.color = 'var(--amber)';
+}
+
+async function startYouTubeAuth() {
+  const statusEl = document.getElementById('ytAuthStatus');
+  const btn = document.getElementById('ytAuthBtn');
+  statusEl.textContent = 'Opening browser...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/youtube/auth_url');
+    const data = await res.json();
+    if (data.error) { statusEl.textContent = 'Error: ' + data.error; btn.disabled = false; return; }
+
+    window.open(data.url, '_blank');
+    document.getElementById('authFlow').classList.add('visible');
+    statusEl.textContent = 'Waiting for Google authorization...';
+
+    // Long-poll — server blocks until callback received (max 3 min)
+    const waitRes = await fetch('/api/youtube/wait_auth');
+    const waitData = await waitRes.json();
+
+    if (waitData.ok) {
+      statusEl.textContent = '✓ Authorized!';
+      statusEl.style.color = 'var(--green)';
+      document.getElementById('authFlow').classList.remove('visible');
+      checkYouTubeStatus();
+      loadPlaylists();
+    } else {
+      statusEl.textContent = 'Failed: ' + (waitData.error || 'unknown');
+      statusEl.style.color = 'var(--red)';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    btn.disabled = false;
+  }
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history');
+    const items = await res.json();
+    const list = document.getElementById('historyList');
+    if (!items.length) {
+      list.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">No history yet</div>';
+      return;
+    }
+    list.innerHTML = [...items].reverse().map(v => `
+      <div class="history-item">
+        <span class="history-date">${v.date}</span>
+        <span class="history-title">${v.title || v.filename}</span>
+        <span class="history-aircraft">${v.aircraft || ''}</span>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+// ── Playlists ─────────────────────────────────────────────────────────────────
+async function loadPlaylists() {
+  try {
+    const res = await fetch('/api/playlists');
+    const data = await res.json();
+    const list = document.getElementById('playlistList');
+    const playlists = data.playlists || data || [];
+    if (!playlists.length) return;
+
+    list.innerHTML = '';
+    playlists.forEach(p => {
+      const row = document.createElement('label');
+      row.style.cssText = `
+        display:flex; align-items:center; gap:8px;
+        padding:5px 10px; cursor:pointer;
+        font-family:var(--mono); font-size:11px; color:var(--text2);
+        border-bottom:1px solid var(--border);
+      `;
+      row.innerHTML = `
+        <input type="checkbox" value="${p.id}"
+          style="accent-color:var(--green); width:12px; height:12px; cursor:pointer;">
+        <span>${p.title}</span>
+      `;
+      row.addEventListener('mouseenter', () => row.style.background = 'var(--bg3)');
+      row.addEventListener('mouseleave', () => row.style.background = '');
+      list.appendChild(row);
+    });
+  } catch(e) {}
+}
+
+function getSelectedPlaylistIds() {
+  return [...document.querySelectorAll('#playlistList input[type=checkbox]:checked')]
+    .map(cb => cb.value);
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+function showAlert(msg, type = 'error') {
+  const el = document.getElementById('alertBox');
+  el.textContent = msg;
+  el.className = 'alert ' + type + ' visible';
+}
+function clearAlert() {
+  document.getElementById('alertBox').className = 'alert';
+}
+</script>
+
+</body>
+</html>

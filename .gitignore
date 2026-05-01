@@ -1,0 +1,36 @@
+# ── Credentials — NEVER commit these ──────────────────────
+config/client_secret.json
+config/youtube_token.json
+config/last_folder.txt
+
+# ── API keys ───────────────────────────────────────────────
+.env
+*.env
+
+# ── Generated output ───────────────────────────────────────
+output/
+
+# ── Temp frames ───────────────────────────────────────────
+/tmp/dcs_frame_*.jpg
+
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace

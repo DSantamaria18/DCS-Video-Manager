@@ -1,0 +1,16 @@
+{
+  "channel_name": "TheCylonPilot",
+  "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C.",
+  "squadron": "Escuadrón 111 (E111)",
+  "default_links": {
+    "dcs_a10c_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6igw-XjMgNI8msORPNLAoQ",
+    "dcs_huey_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l4givZ9uAOA67mKLGFrbk7C",
+    "dcs_f18_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6M0sXB-Fv6I7tFBs6UBd3Y",
+    "twitter": "https://twitter.com/thecylonpilot",
+    "twitch": "https://www.twitch.tv/thecylonpilot",
+    "buymeacoffee": "https://www.buymeacoffee.com/pilotcylon",
+    "escuadron111": "https://www.escuadron111.eu/"
+  },
+  "frames_to_extract": 8,
+  "model": "gemini-2.5-flash"
+}
