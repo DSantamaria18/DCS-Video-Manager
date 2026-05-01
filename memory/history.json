@@ -17,6 +17,24 @@
       "aircraft": "F/A-18C Hornet",
       "map": "Persian Gulf",
       "mission_type": "Emergency Carrier Landing / Learning"
+    },
+    {
+      "date": "2026-05-01",
+      "filename": "bravo zulu_ a clean sweep!.mp4",
+      "title": "DCS World | F/A-18C Hornet | Feeling Subdued | Rise of the Persian Lion",
+      "language": "en",
+      "aircraft": "F/A-18C Hornet",
+      "map": "Persian Gulf",
+      "mission_type": "Strike"
+    },
+    {
+      "date": "2026-05-01",
+      "filename": "Fighter Jet Pilot's Secret Mission Revealed In Cockpit View.mp4",
+      "title": "DCS World | F/A-18C Hornet | Feeling Subdued | Rise of the Persian Lion",
+      "language": "en",
+      "aircraft": "F/A-18C Hornet",
+      "map": "Persian Gulf",
+      "mission_type": "Combat Patrol / Strike"
     }
   ]
 }
