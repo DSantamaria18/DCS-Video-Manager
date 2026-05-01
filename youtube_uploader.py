@@ -216,6 +216,7 @@ def upload_video(
     )
 
     response = None
+    tags_skipped = False
     try:
         while response is None:
             _, response = insert_request.next_chunk()
@@ -235,6 +236,7 @@ def upload_video(
             while response is None:
                 _, response = insert_request2.next_chunk()
             print("  ✓ Uploaded without tags — add them manually in YouTube Studio")
+            tags_skipped = True
         else:
             raise
 
@@ -244,6 +246,7 @@ def upload_video(
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "status": "uploaded",
         "privacy": privacy,
+        "tags_skipped": tags_skipped,
         "playlists_added": []
     }
 

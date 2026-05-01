@@ -585,6 +585,7 @@
   }
   .alert.error { background: rgba(224,48,48,0.1); border: 1px solid var(--red); color: #ff6b6b; }
   .alert.success { background: rgba(0,229,160,0.08); border: 1px solid var(--green3); color: var(--green); }
+  .alert.warning { background: rgba(240,165,0,0.08); border: 1px solid var(--amber2); color: var(--amber); }
   .alert.visible { display: block; }
 
   /* Upload result */
@@ -1205,6 +1206,9 @@ async function uploadToYouTube() {
     document.getElementById('uploadPlaylistInfo').textContent = playlistMsg;
     resultEl.classList.add('visible');
     document.getElementById('uploadBtn').textContent = '✓  Uploaded';
+    if (data.tags_skipped) {
+      showAlert('Tags were rejected by YouTube and skipped. Add them manually in YouTube Studio.', 'warning');
+    }
 
   } catch(e) {
     showAlert('Upload error: ' + e.message, 'error');

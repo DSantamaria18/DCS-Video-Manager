@@ -13,7 +13,7 @@
 | 3 | Progreso de subida en tiempo real | 🔴 Alta | La barra de progreso no muestra avance durante la subida — se queda fija hasta que termina |
 | 4 | No se indica el idioma del vídeo al subirlo | 🔴 Alta | El campo `defaultLanguage` no se envía a YouTube — debe ser `es` o `en` según el tipo de vídeo |
 | 5 | No se indica el idioma del título y descripción | 🔴 Alta | `defaultAudioLanguage` tampoco se envía. YouTube no puede indexar correctamente el vídeo por idioma |
-| 6 | Falta categoría 'Digital Combat Simulator World' | 🔴 Alta | El campo game/title no se envía en los metadatos. YouTube no asocia el vídeo al juego en su base de datos |
+| 6 | ~~Falta categoría 'Digital Combat Simulator World'~~ | ~~🔴 Alta~~ | ❌ No implementable: YouTube Data API v3 no expone un campo `gameTitle`. La asociación de juego solo se puede hacer manualmente desde YouTube Studio. `categoryId: "20"` (Gaming) es el máximo posible por API. |
 | 7 | El título se trunca visualmente en la UI | 🟡 Media | El campo título muestra `...` cuando supera el ancho del input |
 
 ---
