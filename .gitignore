@@ -10,6 +10,9 @@ config/last_folder.txt
 # ── Generated output ───────────────────────────────────────
 output/
 
+# ── Runtime data ───────────────────────────────────────────
+memory/history.json
+
 # ── Temp frames ───────────────────────────────────────────
 /tmp/dcs_frame_*.jpg
 
