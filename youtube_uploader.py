@@ -187,7 +187,9 @@ def upload_video(
             "title": title[:100],
             "description": _build_description_with_chapters(description, chapters or []),
             "tags": sanitized_tags,
-            "categoryId": "20"
+            "categoryId": "20",
+            "defaultLanguage": lang,
+            "defaultAudioLanguage": lang
         },
         "status": {
             "privacyStatus": privacy,
