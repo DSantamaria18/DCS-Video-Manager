@@ -213,7 +213,8 @@ def upload_youtube():
             tags=metadata.get("tags", []),
             chapters=metadata.get("chapters", []),
             privacy="private",
-            playlist_ids=playlist_ids
+            playlist_ids=playlist_ids,
+            language=metadata.get("language", "en")
         )
         return jsonify(result)
     except ImportError:

@@ -169,7 +169,8 @@ def upload_video(
     tags: list,
     chapters: list = None,
     privacy: str = "private",
-    playlist_ids: list = None
+    playlist_ids: list = None,
+    language: str = "en"
 ) -> dict:
     from googleapiclient.http import MediaFileUpload
 
@@ -178,8 +179,7 @@ def upload_video(
     print(f"  Tags count: {len(sanitized_tags)}, total chars: {sum(len(t) for t in sanitized_tags)}")
     print(f"  First 3 tags raw bytes: {[t.encode() for t in sanitized_tags[:3]]}")
 
-    # Detect language from tags to set correct defaultLanguage
-    lang = "es" if any(t in sanitized_tags for t in ["escuadron111", "e111", "simulacion aerea"]) else "en"
+    lang = language if language in ("es", "en") else "en"
 
     youtube = _build_service()
     body = {
