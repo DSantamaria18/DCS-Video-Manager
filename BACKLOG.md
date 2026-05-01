@@ -15,6 +15,7 @@
 | 5 | ~~No se indica el idioma del título y descripción~~ | ✅ | Resuelto: `defaultAudioLanguage` se envía junto con `defaultLanguage`. Bug de re-detección por tags eliminado. |
 | 6 | ~~Falta categoría 'Digital Combat Simulator World'~~ | ~~🔴 Alta~~ | ❌ No implementable: YouTube Data API v3 no expone un campo `gameTitle`. La asociación de juego solo se puede hacer manualmente desde YouTube Studio. `categoryId: "20"` (Gaming) es el máximo posible por API. |
 | 7 | ~~El título se trunca visualmente en la UI~~ | ✅ | Resuelto: `<input>` reemplazado por `<textarea rows="2" resize:none>` — el texto hace wrap y siempre es completamente visible. |
+| 30 | El resultado de subida no se resetea al seleccionar un vídeo nuevo | 🟡 Media | Al analizar un vídeo nuevo, el bloque `#uploadResult` (link, "UPLOADED ✓") y el texto del botón (`✓ Uploaded`) del vídeo anterior siguen visibles. Deben limpiarse al iniciar un nuevo análisis. |
 
 ---
 

@@ -996,6 +996,8 @@ async function startAnalysis() {
   clearAlert();
   document.getElementById('analyzeBtn').disabled = true;
   document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('uploadResult').classList.remove('visible');
+  document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('metadataOutput').style.display = 'none';
