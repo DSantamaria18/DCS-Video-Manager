@@ -35,6 +35,15 @@
       "aircraft": "F/A-18C Hornet",
       "map": "Persian Gulf",
       "mission_type": "Combat Patrol / Strike"
+    },
+    {
+      "date": "2026-05-01",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Restoring Hope | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Tank Killer",
+      "map": "Caucasus",
+      "mission_type": "CAS / Ground Attack"
     }
   ]
 }
