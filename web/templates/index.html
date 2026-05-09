@@ -396,11 +396,44 @@
     border-radius: 2px;
     color: var(--text2);
     background: var(--bg3);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
   .tag-pill.featured {
     color: var(--blue);
     border-color: var(--blue2);
   }
+  .tag-remove {
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 12px;
+    line-height: 1;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: var(--mono);
+    transition: color 0.15s;
+  }
+  .tag-remove:hover { color: var(--red); }
+  .tag-add-input {
+    font-family: var(--mono);
+    font-size: 10px;
+    background: transparent;
+    border: 1px dashed var(--border2);
+    border-radius: 2px;
+    padding: 3px 8px;
+    color: var(--text2);
+    outline: none;
+    width: 80px;
+    transition: border-color 0.2s, width 0.2s;
+  }
+  .tag-add-input:focus {
+    border-color: var(--green2);
+    border-style: solid;
+    width: 130px;
+  }
+  .tag-add-input::placeholder { color: var(--text3); }
 
   .chapters-display { display: flex; flex-direction: column; gap: 4px; }
   .chapter-row {
@@ -957,6 +990,9 @@ async function browseFile() {
     const nameEl = document.getElementById('fileSelectedName');
     nameEl.textContent = '▶ ' + data.name;
     nameEl.style.display = 'block';
+    // Reset upload result when selecting a new video
+    document.getElementById('uploadResult').classList.remove('visible');
+    document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
     clearAlert();
   } catch(e) {
     showAlert('Browse error: ' + e.message, 'error');
@@ -970,6 +1006,9 @@ function onPathInput(val) {
     const parts = val.replace(/\\/g, '/').split('/');
     nameEl.textContent = '▶ ' + parts[parts.length - 1];
     nameEl.style.display = 'block';
+    // Reset upload result when selecting a new video
+    document.getElementById('uploadResult').classList.remove('visible');
+    document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
   } else {
     nameEl.style.display = 'none';
   }
@@ -1088,13 +1127,8 @@ function renderMetadata(m) {
   // Tags
   const tagsDiv = document.getElementById('tagsDisplay');
   tagsDiv.innerHTML = '';
-  const featured = ['dcs', 'dcs world', 'thecylonpilot', 'cylon pilot', 'eagle dynamics'];
-  (m.tags || []).forEach(tag => {
-    const pill = document.createElement('span');
-    pill.className = 'tag-pill' + (featured.includes(tag.toLowerCase()) ? ' featured' : '');
-    pill.textContent = tag;
-    tagsDiv.appendChild(pill);
-  });
+  (m.tags || []).forEach(tag => tagsDiv.appendChild(createTagPill(tag)));
+  tagsDiv.appendChild(createTagInput());
   document.getElementById('tagCount').textContent = (m.tags || []).length + ' tags';
 
   // Chapters
@@ -1143,11 +1177,71 @@ async function copyField(id, btn) {
 
 async function copyTags(btn) {
   if (!currentMetadata) return;
-  const tags = (currentMetadata.tags || []).join(', ');
+  const tags = getCurrentTags().join(', ');
   await navigator.clipboard.writeText(tags);
   btn.textContent = 'COPIED ✓';
   btn.classList.add('copied');
   setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+}
+
+// ── Tag editing ───────────────────────────────────────────────────────────────
+const FEATURED_TAGS = ['dcs', 'dcs world', 'thecylonpilot', 'cylon pilot', 'eagle dynamics'];
+
+function createTagPill(tag) {
+  const pill = document.createElement('span');
+  pill.className = 'tag-pill' + (FEATURED_TAGS.includes(tag.toLowerCase()) ? ' featured' : '');
+  pill.dataset.tag = tag;
+
+  const label = document.createElement('span');
+  label.textContent = tag;
+
+  const btn = document.createElement('button');
+  btn.className = 'tag-remove';
+  btn.textContent = '×';
+  btn.title = 'Remove tag';
+  btn.onclick = () => { pill.remove(); syncTagsFromDOM(); };
+
+  pill.appendChild(label);
+  pill.appendChild(btn);
+  return pill;
+}
+
+function createTagInput() {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tag-add-input';
+  input.placeholder = '+ add tag';
+  input.maxLength = 30;
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = input.value.trim().replace(/,+$/, '');
+      if (val) { addTagToDisplay(val); input.value = ''; }
+    } else if (e.key === 'Backspace' && input.value === '') {
+      const pills = document.querySelectorAll('#tagsDisplay .tag-pill');
+      if (pills.length) { pills[pills.length - 1].remove(); syncTagsFromDOM(); }
+    }
+  };
+  return input;
+}
+
+function addTagToDisplay(tag) {
+  const tagsDiv = document.getElementById('tagsDisplay');
+  const existing = [...tagsDiv.querySelectorAll('.tag-pill')].map(p => p.dataset.tag.toLowerCase());
+  if (existing.includes(tag.toLowerCase())) return;
+  const input = tagsDiv.querySelector('.tag-add-input');
+  tagsDiv.insertBefore(createTagPill(tag), input);
+  syncTagsFromDOM();
+}
+
+function getCurrentTags() {
+  return [...document.querySelectorAll('#tagsDisplay .tag-pill')].map(p => p.dataset.tag);
+}
+
+function syncTagsFromDOM() {
+  const tags = getCurrentTags();
+  if (currentMetadata) currentMetadata.tags = tags;
+  document.getElementById('tagCount').textContent = tags.length + ' tags';
 }
 
 async function copyChapters(btn) {
