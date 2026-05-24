@@ -1,61 +1,51 @@
 # Backlog — DCS Video Manager
 
-> Última actualización: Mayo 2026
+> Last updated: May 2026
 
 ---
 
 ## Bugs
 
-| # | Título | Prioridad | Descripción |
-|---|--------|-----------|-------------|
-| 1 | Tags siguen fallando en modo Testing de OAuth | 🔴 Alta | Investigar si es un límite permanente de Google para apps no verificadas o si hay workaround |
-| 2 | ~~El retry sin tags no notifica al usuario en la UI~~ | ✅ | Resuelto: backend devuelve `tags_skipped: true`, UI muestra aviso amber con estilo `.alert.warning`. |
-| 3 | Progreso de subida en tiempo real | 🔴 Alta | La barra de progreso no muestra avance durante la subida — se queda fija hasta que termina |
-| 4 | ~~No se indica el idioma del vídeo al subirlo~~ | ✅ | Resuelto: `defaultLanguage` se envía usando el idioma detectado por Gemini, pasado desde `app.py`. |
-| 5 | ~~No se indica el idioma del título y descripción~~ | ✅ | Resuelto: `defaultAudioLanguage` se envía junto con `defaultLanguage`. Bug de re-detección por tags eliminado. |
-| 6 | ~~Falta categoría 'Digital Combat Simulator World'~~ | ~~🔴 Alta~~ | ❌ No implementable: YouTube Data API v3 no expone un campo `gameTitle`. La asociación de juego solo se puede hacer manualmente desde YouTube Studio. `categoryId: "20"` (Gaming) es el máximo posible por API. |
-| 7 | ~~El título se trunca visualmente en la UI~~ | ✅ | Resuelto: `<input>` reemplazado por `<textarea rows="2" resize:none>` — el texto hace wrap y siempre es completamente visible. |
-| 30 | ~~El resultado de subida no se resetea al seleccionar un vídeo nuevo~~ | ✅ | ~~Resuelto: se limpia el bloque #uploadResult y se resetea el texto del botón al cambiar la ruta del vídeo en onPathInput() y browseFile().~~ |
+| # | Title | Priority | Description |
+|---|-------|----------|-------------|
+| 1 | Tags fail in OAuth Testing mode | 🔴 High | Investigate whether this is a permanent Google limit for unverified apps or if there is a workaround |
+| 3 | No real-time upload progress | 🔴 High | The progress bar does not advance during upload — it stays fixed until the upload finishes |
 
 ---
 
 ## Features
 
-| # | Título | Prioridad | Descripción |
-|---|--------|-----------|-------------|
-| 8  | Descripciones adaptadas a la duración del vídeo | 🔴 Alta | Vídeos cortos (<5 min) deben tener descripción diferente a los largos — Gemini debe conocer la duración antes de generar |
-| 9  | Detección de serie/campaña y numeración de episodios | 🟡 Media | Detectar en `history.json` si el vídeo pertenece a una campaña ya iniciada y sugerir número de episodio correcto |
-| 10 | Capítulos automáticos por análisis de audio | 🟡 Media | ffmpeg detecta silencios y cambios de fase (briefing→despegue→combate→aterrizaje) para generar capítulos más precisos |
-| 11 | Sugerencia de cortes de edición | 🟢 Baja | Detectar silencios prolongados con ffmpeg y listarlos como puntos de corte sugeridos antes de editar |
-| 12 | Informe de operaciones para el E111 | 🟡 Media | Generar un resumen de misión en formato informe militar para compartir en el foro/Discord del escuadrón |
-| 13 | Generación automática de YouTube Shorts | 🟡 Media | Detectar momento de acción por picos de audio (ffmpeg) + confirmar con Gemini, recortar a 9:16 y generar metadata de Short con #Shorts |
-| 14 | Subir thumbnail personalizada | 🔴 Alta | Permitir seleccionar una imagen para usarla como thumbnail del vídeo al subir |
-| 15 | ~~Generación automática de thumbnail~~ | ✅ | 6 frames candidatos (18-78% del vídeo) puntuados por nitidez + brillo + colorido; los 4 mejores se muestran en grid 2×2 en la UI para elegir. Grade cinematográfico (+30% saturación, +15% contraste, push cálido). Overlay rediseñado: frame completo visible, gradiente solo en zona inferior, título bottom-up sobre la barra de info. DOWNLOAD descarga la seleccionada. |
-| 16 | Programar fecha y hora de publicación | 🟡 Media | Añadir selector de fecha/hora para programar la publicación en lugar de publicar manualmente desde YouTube Studio |
-| 17 | Modo batch con UI | 🟡 Media | Permitir seleccionar múltiples vídeos y procesarlos/subirlos en cola desde la interfaz web |
-| 18 | Dashboard de estadísticas del canal | 🟢 Baja | Visualizar módulos más grabados, campañas en progreso y evolución de vídeos subidos desde `history.json` |
-| 19 | Detección de duplicados | 🟢 Baja | Comparar el vídeo actual contra el historial y avisar si ya se subió una grabación de la misma misión/campaña |
-| 20 | Watcher de carpeta automático | 🟢 Baja | Detectar cuando DCS genera una nueva grabación en la carpeta configurada y lanzar el análisis automáticamente |
-| 21 | Plantillas de descripción personalizables | 🟢 Baja | Editar las plantillas de descripción (inglés/español) desde la UI sin tocar el código |
+| # | Title | Priority | Description |
+|---|-------|----------|-------------|
+| 8  | Descriptions adapted to video length | 🔴 High | Short videos (<5 min) should have a different description than long ones — Gemini must know the duration before generating |
+| 9  | Series/campaign detection and episode numbering | 🟡 Medium | Detect in `history.json` whether the video belongs to an ongoing campaign and suggest the correct episode number |
+| 10 | Automatic chapters via audio analysis | 🟡 Medium | ffmpeg detects silences and phase changes (briefing→takeoff→combat→landing) to generate more accurate chapters |
+| 11 | Edit cut suggestions | 🟢 Low | Detect prolonged silences with ffmpeg and list them as suggested cut points before editing |
+| 12 | Operations report for E111 | 🟡 Medium | Generate a mission summary in military report format to share on the squadron forum/Discord |
+| 13 | Automatic YouTube Shorts generation | 🟡 Medium | Detect action moments via audio peaks (ffmpeg) + confirm with Gemini, crop to 9:16, generate Short metadata with #Shorts |
+| 16 | Schedule publish date and time | 🟡 Medium | Add a date/time picker to schedule publication instead of doing it manually from YouTube Studio |
+| 17 | Batch mode with UI | 🟡 Medium | Allow selecting multiple videos and processing/uploading them in a queue from the web interface |
+| 18 | Channel stats dashboard | 🟢 Low | Visualise most-recorded modules, ongoing campaigns, and video upload history from `history.json` |
+| 19 | Duplicate detection | 🟢 Low | Compare the current video against the history and warn if a recording of the same mission/campaign was already uploaded |
+| 20 | Automatic folder watcher | 🟢 Low | Detect when DCS generates a new recording in the configured folder and launch analysis automatically |
+| 21 | Customisable description templates | 🟢 Low | Edit description templates (English/Spanish) from the UI without touching the code |
 
 ---
 
 ## UX
 
-| # | Título | Prioridad | Descripción |
-|---|--------|-----------|-------------|
-| 22 | ~~Vista previa de descripción formateada~~ | ✅ | Toggle EDIT/PREVIEW en el bloque Description: renderiza links, #hashtags y timestamps con estilo YouTube. Reset automático al analizar nuevo vídeo. |
-| 23 | ~~Edición de tags en la UI~~ | ✅ | Pills con botón × para eliminar e input `+ add tag` para añadir (Enter/coma confirma, Backspace elimina el último). Implementado en 4c25bd9. |
-| 24 | Historial con preview de metadata | 🟢 Baja | Al hacer clic en un vídeo del historial, mostrar su metadata completa guardada en el JSON |
-| 25 | Dark/light mode toggle | 🟢 Baja | La UI siempre está en modo oscuro. Añadir toggle para cambiar a tema claro |
+| # | Title | Priority | Description |
+|---|-------|----------|-------------|
+| 24 | History with metadata preview | 🟢 Low | Clicking a video in the history tab shows its full saved metadata from the JSON file |
+| 25 | Dark/light mode toggle | 🟢 Low | The UI is always in dark mode. Add a toggle to switch to a light theme |
 
 ---
 
 ## Infra
 
-| # | Título | Prioridad | Descripción |
-|---|--------|-----------|-------------|
-| 26 | Soporte para módulos adicionales en el prompt | 🟡 Media | Añadir F-14, UH-1H y A-10C con sus características específicas al contexto del prompt de Gemini |
-| 27 | Configuración editable desde la UI | 🟡 Media | Editar `config.json` (links, frames, modelo) desde el tab Setup sin tocar archivos manualmente |
-| 28 | Exportar metadata en formato CSV | 🟢 Baja | Exportar el historial completo como CSV para análisis o backup externo |
-| 29 | Soporte para OBS scene names en el contexto | 🟢 Baja | Leer el nombre de la escena de OBS desde los metadatos del archivo MKV y usarlo como contexto adicional para Gemini |
+| # | Title | Priority | Description |
+|---|-------|----------|-------------|
+| 26 | Support additional modules in prompt | 🟡 Medium | Add F-14, UH-1H, and A-10C with their specific characteristics to the Gemini prompt context |
+| 27 | Editable config from UI | 🟡 Medium | Edit `config.json` (links, frames, model) from the Setup tab without touching files manually |
+| 28 | Export metadata as CSV | 🟢 Low | Export the full history as CSV for analysis or external backup |
+| 29 | OBS scene names in context | 🟢 Low | Read the OBS scene name from MKV file metadata and use it as additional context for Gemini |

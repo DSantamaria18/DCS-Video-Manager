@@ -162,6 +162,15 @@ def _sanitize_tags(tags: list) -> list:
     return result
 
 
+def _upload_thumbnail(youtube, video_id: str, thumbnail_path: str) -> None:
+    """Set a custom thumbnail for an uploaded video via thumbnails.set."""
+    from googleapiclient.http import MediaFileUpload
+    import mimetypes
+    mime = mimetypes.guess_type(thumbnail_path)[0] or "image/jpeg"
+    media = MediaFileUpload(thumbnail_path, mimetype=mime, resumable=False)
+    youtube.thumbnails().set(videoId=video_id, media_body=media).execute()
+
+
 def upload_video(
     video_path: str,
     title: str,
@@ -170,7 +179,8 @@ def upload_video(
     chapters: list = None,
     privacy: str = "private",
     playlist_ids: list = None,
-    language: str = "en"
+    language: str = "en",
+    thumbnail_path: str = None
 ) -> dict:
     from googleapiclient.http import MediaFileUpload
 
@@ -266,5 +276,16 @@ def upload_video(
         except Exception as e:
             print(f"  ⚠ Could not add to playlist {pid}: {e}")
             result.setdefault("playlist_warnings", []).append(str(e))
+
+    # Upload thumbnail if provided — failure is non-fatal
+    if thumbnail_path:
+        try:
+            _upload_thumbnail(youtube, video_id, thumbnail_path)
+            result["thumbnail_set"] = True
+            print(f"  ✓ Thumbnail set: {thumbnail_path}")
+        except Exception as e:
+            result["thumbnail_set"] = False
+            result["thumbnail_warning"] = str(e)
+            print(f"  ⚠ Could not set thumbnail: {e}")
 
     return result
