@@ -44,7 +44,7 @@
 
 | # | Título | Prioridad | Descripción |
 |---|--------|-----------|-------------|
-| 22 | Vista previa de descripción formateada | 🟡 Media | Mostrar la descripción con el formato real de YouTube (emojis, saltos de línea) en lugar de texto plano en el textarea |
+| 22 | ~~Vista previa de descripción formateada~~ | ✅ | Toggle EDIT/PREVIEW en el bloque Description: renderiza links, #hashtags y timestamps con estilo YouTube. Reset automático al analizar nuevo vídeo. |
 | 23 | Edición de tags en la UI | 🟡 Media | Añadir y eliminar tags individuales haciendo clic en los pills, en lugar de que sean solo de lectura |
 | 24 | Historial con preview de metadata | 🟢 Baja | Al hacer clic en un vídeo del historial, mostrar su metadata completa guardada en el JSON |
 | 25 | Dark/light mode toggle | 🟢 Baja | La UI siempre está en modo oscuro. Añadir toggle para cambiar a tema claro |
