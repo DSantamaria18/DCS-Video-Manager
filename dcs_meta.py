@@ -576,23 +576,26 @@ def _build_imagen_prompt(metadata: dict) -> tuple[str, str]:
     action = next((v for k, v in ACTIONS.items() if k in mt_lower),
                   "low-altitude high-speed combat pass over burning target, explosions and smoke below")
 
+    # Positive prompt — self-contained for GPT-Image (restrictions folded in)
     positive = (
-        f"{ac_visual}, "
-        f"{action}, "
-        f"over {terrain}. "
+        f"Photorealistic military aviation art for a YouTube thumbnail. "
+        f"The subject is ONLY a {aircraft} — specifically: {ac_visual}. "
+        f"It must look exactly like a real {aircraft} with all its correct visual features. "
+        f"The aircraft is {action}, "
+        f"flying over {terrain}. "
         f"Dramatic cinematic golden hour lighting, deep orange and crimson sunset sky, "
-        f"volumetric light rays through clouds, high contrast shadows. "
-        f"Photorealistic military aviation art, hyper-detailed aircraft, 8K quality. "
-        f"No text, no watermarks, no HUD, no user interface."
+        f"volumetric god rays breaking through clouds, intense shadows and highlights. "
+        f"Hyper-detailed, photorealistic, 8K render quality. "
+        f"No text, no watermarks, no HUD, no UI. "
+        f"Important: {ac_negative}."
     )
 
+    # Negative prompt — used by Flux-based models that support it
     negative = (
         f"{ac_negative}, "
         f"fantasy aircraft, fictional design, sci-fi spaceship, "
-        f"cartoon, anime, illustration, painting, sketch, "
-        f"blurry, low quality, pixelated, jpeg artifacts, "
-        f"text, watermark, logo, signature, HUD overlay, game UI, "
-        f"multiple different aircraft types in same image"
+        f"cartoon, anime, illustration, low quality, blurry, "
+        f"text, watermark, HUD overlay, game UI"
     )
 
     return positive, negative
@@ -651,15 +654,17 @@ def call_imagen(prompt: str, api_key: str, negative: str = "") -> str:
     except Exception:
         pass
 
-    # ── Attempt 3: Pollinations.ai / Flux (free, no key required) ────────────
-    print("  Gemini image quota unavailable — using Pollinations.ai (Flux)...")
+    # ── Attempt 3: Pollinations.ai / gptimage (free, no key required) ───────
+    # gptimage uses OpenAI's image generation — significantly better at specific
+    # aircraft than generic Flux. Negative guidance is folded into the prompt
+    # since GPT-Image does not support a separate negative parameter.
+    print("  Gemini image quota unavailable — using Pollinations.ai (gptimage)...")
     seed = int(datetime.now().timestamp()) % 99999
-    encoded_prompt   = urllib.parse.quote(prompt[:800])
-    encoded_negative = urllib.parse.quote(negative[:400]) if negative else ""
+    combined = prompt  # negative is already folded into prompt by _build_imagen_prompt
+    encoded_prompt = urllib.parse.quote(combined[:1000])
     poll_url = (
         f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        f"?width=1280&height=720&model=flux-pro&nologo=true&seed={seed}"
-        + (f"&negative={encoded_negative}" if encoded_negative else "")
+        f"?width=1280&height=720&model=gptimage&nologo=true&seed={seed}"
     )
     req3 = urllib.request.Request(poll_url, headers={"User-Agent": "DCS-Video-Manager/1.0"})
     with urllib.request.urlopen(req3, timeout=120) as resp:
