@@ -30,7 +30,7 @@
 | 12 | Informe de operaciones para el E111 | 🟡 Media | Generar un resumen de misión en formato informe militar para compartir en el foro/Discord del escuadrón |
 | 13 | Generación automática de YouTube Shorts | 🟡 Media | Detectar momento de acción por picos de audio (ffmpeg) + confirmar con Gemini, recortar a 9:16 y generar metadata de Short con #Shorts |
 | 14 | Subir thumbnail personalizada | 🔴 Alta | Permitir seleccionar una imagen para usarla como thumbnail del vídeo al subir |
-| 15 | ~~Generación automática de thumbnail~~ | ✅ | Frame al 60% del vídeo + overlay estilo YouTube: título grande en Impact amarillo con stroke, barra oscura inferior con módulo·mapa y handle del canal. Previsualización y descarga desde la UI. Generación por IA descartada (modelos gratuitos no generan aviones fiables; Imagen 4 requiere billing). |
+| 15 | ~~Generación automática de thumbnail~~ | ✅ | 6 frames candidatos (18-78% del vídeo) puntuados por nitidez + brillo + colorido; los 4 mejores se muestran en grid 2×2 en la UI para elegir. Grade cinematográfico (+30% saturación, +15% contraste, push cálido). Overlay rediseñado: frame completo visible, gradiente solo en zona inferior, título bottom-up sobre la barra de info. DOWNLOAD descarga la seleccionada. |
 | 16 | Programar fecha y hora de publicación | 🟡 Media | Añadir selector de fecha/hora para programar la publicación en lugar de publicar manualmente desde YouTube Studio |
 | 17 | Modo batch con UI | 🟡 Media | Permitir seleccionar múltiples vídeos y procesarlos/subirlos en cola desde la interfaz web |
 | 18 | Dashboard de estadísticas del canal | 🟢 Baja | Visualizar módulos más grabados, campañas en progreso y evolución de vídeos subidos desde `history.json` |
