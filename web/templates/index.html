@@ -383,6 +383,20 @@
     overflow-y: auto;
   }
 
+  .desc-preview {
+    font-family: var(--body);
+    font-size: 13px;
+    color: var(--text);
+    white-space: pre-wrap;
+    line-height: 1.7;
+    word-break: break-word;
+    min-height: 180px;
+  }
+  .desc-preview a { color: var(--blue); text-decoration: none; }
+  .desc-preview a:hover { text-decoration: underline; }
+  .desc-preview .yt-hashtag { color: var(--blue); }
+  .desc-preview .yt-timestamp { color: var(--blue); font-family: var(--mono); }
+
   .tags-display {
     display: flex;
     flex-wrap: wrap;
@@ -820,10 +834,14 @@
         <div class="meta-block">
           <div class="meta-block-header">
             <span class="meta-block-title">Description</span>
-            <button class="copy-btn" onclick="copyField('descEdit', this)">COPY</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="copy-btn" id="descToggleBtn" onclick="toggleDescPreview()">PREVIEW</button>
+              <button class="copy-btn" onclick="copyField('descEdit', this)">COPY</button>
+            </div>
           </div>
           <div class="meta-block-body">
             <textarea class="editable" id="descEdit" rows="10"></textarea>
+            <div class="desc-preview" id="descPreview" style="display:none"></div>
           </div>
         </div>
 
@@ -1121,8 +1139,11 @@ function renderMetadata(m) {
   titleEl.value = m.title || '';
   updateCharCount();
 
-  // Description
+  // Description — always reset to edit mode on new analysis
   document.getElementById('descEdit').value = m.description || '';
+  document.getElementById('descEdit').style.display = '';
+  document.getElementById('descPreview').style.display = 'none';
+  document.getElementById('descToggleBtn').textContent = 'PREVIEW';
 
   // Tags
   const tagsDiv = document.getElementById('tagsDisplay');
@@ -1156,6 +1177,37 @@ function renderMetadata(m) {
   } else {
     notesBlock.style.display = 'none';
   }
+}
+
+// ── Description preview ───────────────────────────────────────────────────────
+function toggleDescPreview() {
+  const textarea = document.getElementById('descEdit');
+  const preview  = document.getElementById('descPreview');
+  const btn      = document.getElementById('descToggleBtn');
+  const isPreview = preview.style.display !== 'none';
+  if (isPreview) {
+    preview.style.display = 'none';
+    textarea.style.display = '';
+    btn.textContent = 'PREVIEW';
+  } else {
+    renderDescPreview();
+    textarea.style.display = 'none';
+    preview.style.display = '';
+    btn.textContent = 'EDIT';
+  }
+}
+
+function renderDescPreview() {
+  const raw = document.getElementById('descEdit').value;
+  const escaped = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const formatted = escaped
+    .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/(#\w+)/g, '<span class="yt-hashtag">$1</span>')
+    .replace(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g, '<span class="yt-timestamp">$1</span>');
+  document.getElementById('descPreview').innerHTML = formatted;
 }
 
 function updateCharCount() {
