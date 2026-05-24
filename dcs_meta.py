@@ -370,8 +370,36 @@ def _recover_json(raw: str) -> dict:
 
 # ── Thumbnail generation ──────────────────────────────────────────────────────
 
+def _score_frame(img) -> float:
+    """Score a PIL image for thumbnail suitability. Higher = better."""
+    from PIL import Image, ImageFilter, ImageStat
+    small = img.resize((320, 180), Image.LANCZOS)
+    gray = small.convert("L")
+    sharpness = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).mean[0]
+    brightness = ImageStat.Stat(gray).mean[0]
+    # Penalise frames that are too dark (<70) or too washed-out (>190)
+    b_factor = max(0.15, 1.0 - max(0.0, abs(brightness - 130) - 60) / 70.0)
+    colorfulness = sum(ImageStat.Stat(small).stddev)
+    return sharpness * b_factor + colorfulness * 0.25
+
+
+def _grade_frame(img):
+    """Cinematic colour grade: +30% saturation, +15% contrast, warm push."""
+    from PIL import ImageEnhance, Image as _Img
+    img = ImageEnhance.Color(img).enhance(1.30)
+    img = ImageEnhance.Contrast(img).enhance(1.15)
+    r, g, b = img.split()
+    r = r.point(lambda x: min(255, int(x * 1.05)))
+    b = b.point(lambda x: int(x * 0.94))
+    return _Img.merge("RGB", (r, g, b))
+
+
 def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
-    """Apply YouTube-style gradient + text overlay to a PIL RGB image (1280×720)."""
+    """Apply YouTube-style overlay to a PIL RGB image (1280×720).
+
+    Layout: full frame visible, bottom gradient for text readability,
+    title lines above the info bar (bottom-up), solid bottom info bar.
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     W, H = 1280, 720
@@ -388,8 +416,12 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
     img = img.convert("RGBA")
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ov = ImageDraw.Draw(overlay)
-    for y in range(290):
-        ov.line([(0, y), (W, y)], fill=(0, 0, 0, int(210 * (1 - y / 290) ** 0.5)))
+    # Bottom gradient: transparent at H-320, semi-opaque at H-88 (title text area)
+    grad_top, grad_bot = H - 320, H - 85
+    for y in range(grad_top, grad_bot + 1):
+        t = (y - grad_top) / (grad_bot - grad_top)
+        ov.line([(0, y), (W, y)], fill=(0, 0, 0, int(190 * t ** 1.3)))
+    # Solid bottom info bar
     ov.rectangle([(0, H - 88), (W, H)], fill=(0, 0, 0, 215))
     img = Image.alpha_composite(img, overlay).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -428,12 +460,22 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
 
     sizes  = [88, 68, 52]
     colors = [(255, 215, 0), (255, 255, 255), (200, 200, 200)]
-    y = 18
+
+    # Pre-measure all lines, then place bottom-up above the info bar
+    measured = []
     for i, line in enumerate(title_lines[:3]):
         font = fit_text(line, W - 80, sizes[min(i, len(sizes) - 1)])
-        outlined(40, y, line, font, colors[min(i, len(colors) - 1)])
         bb = draw.textbbox((0, 0), line, font=font)
-        y += (bb[3] - bb[1]) + 10
+        measured.append((line, font, bb[3] - bb[1], colors[min(i, len(colors) - 1)]))
+
+    y_cursor = H - 100
+    positions = []
+    for line, font, h, color in reversed(measured):
+        positions.insert(0, (line, font, y_cursor - h, color))
+        y_cursor = y_cursor - h - 10
+
+    for line, font, y, color in positions:
+        outlined(40, y, line, font, color)
 
     bottom = "  ·  ".join(p for p in [metadata.get("aircraft", ""), metadata.get("map", "")] if p).upper()
     outlined(36, H - 72, bottom, fit_text(bottom, W - 280, 34, 20), (255, 255, 255), stroke=3)
@@ -463,8 +505,15 @@ def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
     return path
 
 
-def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict) -> Path:
-    """Extract a frame at 60% of the video and apply the YouTube-style overlay."""
+def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
+                                  n_candidates: int = 4) -> list[Path]:
+    """Extract candidate frames from the video, score them, and return thumbnail Paths.
+
+    Samples n_candidates+2 frames across 18-78% of the video, picks the
+    n_candidates best-scoring ones (sharpness + brightness + colorfulness),
+    applies colour grading and the text overlay, and returns them sorted
+    best-first so index 0 is the recommended thumbnail.
+    """
     try:
         from PIL import Image
         import io as _io
@@ -482,41 +531,40 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict)
     except Exception as e:
         raise RuntimeError(f"ffprobe failed: {e}")
 
-    timestamp = duration * 0.60
-    tmp_path = tmp_dir / "dcs_thumb_frame.jpg"
-    try:
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", str(timestamp),
-            "-i", str(video_path),
-            "-vframes", "1", "-q:v", "2",
-            "-vf", "scale=1280:-1",
-            str(tmp_path)
-        ], capture_output=True, check=True)
-    except Exception as e:
-        raise RuntimeError(f"ffmpeg frame extraction failed: {e}")
+    n_sample = n_candidates + 2
+    offsets = [0.18 + i * 0.60 / (n_sample - 1) for i in range(n_sample)]
 
-    with open(tmp_path, "rb") as f:
-        img_bytes = f.read()
-    tmp_path.unlink(missing_ok=True)
+    scored = []
+    for idx, offset in enumerate(offsets):
+        tmp_path = tmp_dir / f"dcs_thumb_{idx}.jpg"
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(duration * offset),
+                "-i", str(video_path),
+                "-vframes", "1", "-q:v", "2",
+                "-vf", "scale=1280:-1",
+                str(tmp_path)
+            ], capture_output=True, check=True)
+            img_bytes = tmp_path.read_bytes()
+            tmp_path.unlink(missing_ok=True)
+            img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
+            scored.append((_score_frame(img), img_bytes))
+        except Exception:
+            continue
 
-    img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
-    img = _apply_thumbnail_overlay(img, metadata, config)
-    return _save_thumbnail(img, video_path, "thumb")
+    if not scored:
+        raise RuntimeError("Could not extract any frames from video")
 
+    scored.sort(key=lambda x: x[0], reverse=True)
 
-def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, config: dict) -> "Path | None":
-    """Frame-based thumbnail (fallback). Picks best frame, applies text overlay."""
-    try:
-        from PIL import Image
-        import io as _io
-    except ImportError:
-        return None
-    if not frames_b64:
-        return None
-    idx = min(int(len(frames_b64) * 0.6), len(frames_b64) - 1)
-    img = Image.open(_io.BytesIO(base64.b64decode(frames_b64[idx]))).convert("RGB")
-    img = _apply_thumbnail_overlay(img, metadata, config)
-    return _save_thumbnail(img, video_path, "thumb")
+    paths = []
+    for i, (_, img_bytes) in enumerate(scored[:n_candidates]):
+        img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
+        img = _grade_frame(img)
+        img = _apply_thumbnail_overlay(img, metadata, config)
+        paths.append(_save_thumbnail(img, video_path, f"thumb_{i}"))
+
+    return paths
 
 
 # ── Output ────────────────────────────────────────────────────────────────────

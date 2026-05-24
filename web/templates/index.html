@@ -891,8 +891,7 @@
               <button class="action-btn" id="thumbnailGenBtn" onclick="generateThumbnail()">GENERATE THUMBNAIL</button>
               <span id="thumbnailGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
             </div>
-            <img id="thumbnailImg" src="" alt="Generated thumbnail"
-                 style="width:100%;border-radius:3px;display:none;border:1px solid var(--border2);margin-top:10px">
+            <div id="thumbnailGrid" style="display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"></div>
           </div>
         </div>
 
@@ -1000,6 +999,7 @@
 // ── State ────────────────────────────────────────────────────────────────────
 let currentMetadata = null;
 let currentVideoPath = null;
+let currentThumbnailUrl = null;
 let currentJobId = null;
 let pollInterval = null;
 
@@ -1196,23 +1196,43 @@ function renderMetadata(m) {
 
   // Thumbnail — always show block with generate button, reset any previous result
   document.getElementById('thumbnailBlock').style.display = 'block';
-  document.getElementById('thumbnailImg').style.display = 'none';
-  document.getElementById('thumbnailImg').src = '';
+  document.getElementById('thumbnailGrid').style.display = 'none';
+  document.getElementById('thumbnailGrid').innerHTML = '';
   document.getElementById('thumbnailDownload').style.display = 'none';
   document.getElementById('thumbnailGenBtn').disabled = false;
   document.getElementById('thumbnailGenBtn').textContent = 'GENERATE THUMBNAIL';
   document.getElementById('thumbnailGenMsg').textContent = '';
+  currentThumbnailUrl = null;
 }
 
 // ── Thumbnail generation ──────────────────────────────────────────────────────
+function selectThumbnail(cell, url) {
+  document.querySelectorAll('#thumbnailGrid > div').forEach(c => {
+    c.querySelector('img').style.outline = 'none';
+    const chk = c.querySelector('.thumb-check');
+    if (chk) chk.style.display = 'none';
+  });
+  cell.querySelector('img').style.outline = '3px solid #1a73e8';
+  const chk = cell.querySelector('.thumb-check');
+  if (chk) chk.style.display = 'flex';
+  currentThumbnailUrl = url;
+  const dl = document.getElementById('thumbnailDownload');
+  dl.href = url;
+  dl.style.display = '';
+}
+
 async function generateThumbnail() {
   if (!currentMetadata || !currentVideoPath) return;
   const btn = document.getElementById('thumbnailGenBtn');
   const msg = document.getElementById('thumbnailGenMsg');
+  const grid = document.getElementById('thumbnailGrid');
 
   btn.disabled = true;
   btn.textContent = 'GENERATING...';
   msg.textContent = '';
+  grid.innerHTML = '';
+  grid.style.display = 'none';
+  document.getElementById('thumbnailDownload').style.display = 'none';
 
   try {
     const resp = await fetch('/api/thumbnail', {
@@ -1230,15 +1250,25 @@ async function generateThumbnail() {
       return;
     }
 
-    const img = document.getElementById('thumbnailImg');
-    img.src = data.thumbnail_url + '?t=' + Date.now();
-    img.style.display = 'block';
-    const dl = document.getElementById('thumbnailDownload');
-    dl.href = data.thumbnail_url;
-    dl.style.display = '';
+    const thumbnails = data.thumbnails || [];
+    const ts = Date.now();
+    grid.style.display = 'grid';
+    thumbnails.forEach((url, i) => {
+      const cell = document.createElement('div');
+      cell.style.cssText = 'position:relative;cursor:pointer;';
+      cell.innerHTML = `
+        <img src="${url}?t=${ts}" style="width:100%;display:block;border-radius:3px;border:1px solid var(--border2);">
+        <div class="thumb-check" style="position:absolute;top:5px;right:5px;background:#1a73e8;color:white;border-radius:50%;width:22px;height:22px;align-items:center;justify-content:center;font-size:13px;display:none;">&#10003;</div>
+      `;
+      cell.onclick = () => selectThumbnail(cell, url);
+      grid.appendChild(cell);
+      if (i === 0) selectThumbnail(cell, url);
+    });
+
     btn.textContent = 'REGENERATE';
     btn.disabled = false;
-    msg.textContent = '';
+    msg.textContent = `${thumbnails.length} candidates — click to select`;
+    msg.style.color = 'var(--text3)';
   } catch (e) {
     msg.textContent = 'Network error';
     msg.style.color = 'var(--red)';

@@ -201,11 +201,11 @@ def generate_thumbnail():
 
     cfg = dcs_meta.load_config()
     try:
-        thumb_path = dcs_meta.generate_thumbnail_on_demand(metadata, path, cfg)
+        thumb_paths = dcs_meta.generate_thumbnail_on_demand(metadata, path, cfg)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    return jsonify({"thumbnail_url": f"/output/{thumb_path.name}"})
+    return jsonify({"thumbnails": [f"/output/{p.name}" for p in thumb_paths]})
 
 
 @app.route("/output/<path:filename>")
