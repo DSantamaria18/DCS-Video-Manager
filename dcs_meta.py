@@ -13,6 +13,7 @@ import subprocess
 import argparse
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 
@@ -516,60 +517,71 @@ def _build_imagen_prompt(metadata: dict) -> str:
 
 
 def call_imagen(prompt: str, api_key: str) -> str:
-    """Generate an image via Gemini Developer API. Returns base64 PNG/JPEG.
+    """Generate an image. Returns base64-encoded JPEG/PNG.
 
-    Tries Imagen 4 (predict endpoint, best quality) first; falls back to
-    gemini-2.5-flash-image (generateContent endpoint) if unavailable.
+    Priority:
+      1. Imagen 4 via predict (best quality, requires paid Gemini plan)
+      2. gemini-2.5-flash-image via generateContent (requires paid plan)
+      3. Pollinations.ai / Flux (free, no key required — always available)
     """
-    # ── Attempt 1: Imagen 4 via predict ──────────────────────────────────────
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"imagen-4.0-generate-001:predict?key={api_key}"
-    )
-    payload = json.dumps({
-        "instances": [{"prompt": prompt}],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": "16:9",
-            "outputMimeType": "image/jpeg",
-            "outputCompressionQuality": 85,
-        }
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=payload,
-                                 headers={"Content-Type": "application/json"},
-                                 method="POST")
+    # ── Attempt 1: Imagen 4 ───────────────────────────────────────────────────
     try:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"imagen-4.0-generate-001:predict?key={api_key}"
+        )
+        payload = json.dumps({
+            "instances": [{"prompt": prompt}],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "16:9",
+                "outputMimeType": "image/jpeg",
+                "outputCompressionQuality": 85,
+            }
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload,
+                                     headers={"Content-Type": "application/json"},
+                                     method="POST")
         with urllib.request.urlopen(req, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["predictions"][0]["bytesBase64Encoded"]
-    except (urllib.error.HTTPError, KeyError, IndexError):
-        pass  # fall through to backup model
+    except Exception:
+        pass
 
-    # ── Attempt 2: gemini-2.5-flash-image via generateContent ────────────────
-    url2 = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.5-flash-image:generateContent?key={api_key}"
-    )
-    payload2 = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseModalities": ["IMAGE"], "temperature": 1.0},
-    }).encode("utf-8")
-    req2 = urllib.request.Request(url2, data=payload2,
-                                  headers={"Content-Type": "application/json"},
-                                  method="POST")
+    # ── Attempt 2: gemini-2.5-flash-image ────────────────────────────────────
     try:
+        url2 = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.5-flash-image:generateContent?key={api_key}"
+        )
+        payload2 = json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"], "temperature": 1.0},
+        }).encode("utf-8")
+        req2 = urllib.request.Request(url2, data=payload2,
+                                      headers={"Content-Type": "application/json"},
+                                      method="POST")
         with urllib.request.urlopen(req2, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         for part in data["candidates"][0]["content"]["parts"]:
             if "inlineData" in part:
                 return part["inlineData"]["data"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
-        raise RuntimeError(f"Image generation API error {e.code}: {body}")
-    except (KeyError, IndexError):
+    except Exception:
         pass
 
-    raise RuntimeError("No image returned by any available model.")
+    # ── Attempt 3: Pollinations.ai / Flux (free, no key required) ────────────
+    print("  Gemini image quota unavailable, using Pollinations.ai (Flux)...")
+    short_prompt = prompt[:500]  # URL length limit
+    encoded = urllib.parse.quote(short_prompt)
+    seed = int(datetime.now().timestamp()) % 99999
+    poll_url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        f"?width=1280&height=720&model=flux&nologo=true&seed={seed}"
+    )
+    req3 = urllib.request.Request(poll_url, headers={"User-Agent": "DCS-Video-Manager/1.0"})
+    with urllib.request.urlopen(req3, timeout=120) as resp:
+        return base64.b64encode(resp.read()).decode()
+
 
 
 def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Path:
