@@ -368,6 +368,113 @@ def _recover_json(raw: str) -> dict:
             continue
     return {}
 
+# ── Thumbnail generation ──────────────────────────────────────────────────────
+
+def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, config: dict) -> "Path | None":
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import io as _io
+    except ImportError:
+        print("  ⚠ Thumbnail skipped: pip install Pillow")
+        return None
+
+    if not frames_b64:
+        return None
+
+    # Pick frame at ~60% through — tends to show in-flight action over briefings
+    idx = min(int(len(frames_b64) * 0.6), len(frames_b64) - 1)
+    img = Image.open(_io.BytesIO(base64.b64decode(frames_b64[idx]))).convert("RGB")
+
+    W, H = 1280, 720
+    src_r, tgt_r = img.width / img.height, W / H
+    if src_r > tgt_r:
+        nw = int(img.height * tgt_r)
+        img = img.crop(((img.width - nw) // 2, 0, (img.width + nw) // 2, img.height))
+    else:
+        nh = int(img.width / tgt_r)
+        img = img.crop((0, (img.height - nh) // 2, img.width, (img.height + nh) // 2))
+    img = img.resize((W, H), Image.LANCZOS).convert("RGBA")
+
+    # Dark gradient over top third (title readability)
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ov = ImageDraw.Draw(overlay)
+    for y in range(290):
+        alpha = int(210 * (1 - y / 290) ** 0.5)
+        ov.line([(0, y), (W, y)], fill=(0, 0, 0, alpha))
+    # Dark bar at bottom
+    ov.rectangle([(0, H - 88), (W, H)], fill=(0, 0, 0, 215))
+
+    img = Image.alpha_composite(img, overlay).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    def load_font(size: int):
+        for path in [
+            "C:/Windows/Fonts/impact.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "/Library/Fonts/Impact.ttf",
+            "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+        ]:
+            try:
+                return ImageFont.truetype(path, size)
+            except (IOError, OSError):
+                continue
+        return ImageFont.load_default()
+
+    def fit_text(text: str, max_w: int, start_size: int, min_size: int = 30):
+        size = start_size
+        while size >= min_size:
+            font = load_font(size)
+            bb = draw.textbbox((0, 0), text, font=font)
+            if (bb[2] - bb[0]) <= max_w:
+                return font, size
+            size -= 4
+        return load_font(min_size), min_size
+
+    def outlined(x, y, text, font, fill, stroke=5):
+        draw.text((x, y), text, font=font, fill=fill,
+                  stroke_width=stroke, stroke_fill=(0, 0, 0))
+
+    # Build title lines: strip "DCS World | ", skip aircraft part (it's in the bottom bar)
+    raw = metadata.get("title", "").strip()
+    for prefix in ("DCS World | ", "DCS | "):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+    parts = [p.strip().upper() for p in raw.split(" | ") if p.strip()]
+    title_lines = parts[1:] if len(parts) > 1 else parts  # skip module part
+
+    # Render title lines
+    sizes   = [88, 68, 52]
+    colors  = [(255, 215, 0), (255, 255, 255), (200, 200, 200)]
+    y = 18
+    for i, line in enumerate(title_lines[:3]):
+        font, _ = fit_text(line, W - 80, sizes[min(i, len(sizes) - 1)])
+        outlined(40, y, line, font, colors[min(i, len(colors) - 1)])
+        bb = draw.textbbox((0, 0), line, font=font)
+        y += (bb[3] - bb[1]) + 10
+
+    # Bottom bar: aircraft · map
+    aircraft = metadata.get("aircraft", "")
+    map_name = metadata.get("map", "")
+    bottom = "  ·  ".join(p for p in [aircraft, map_name] if p).upper()
+    bot_font, _ = fit_text(bottom, W - 280, 34, 20)
+    outlined(36, H - 72, bottom, bot_font, (255, 255, 255), stroke=3)
+
+    # Channel handle (bottom-right)
+    handle = f"@{config.get('channel_name', 'TheCylonPilot').lower()}"
+    sm_font = load_font(22)
+    bb = draw.textbbox((0, 0), handle, font=sm_font)
+    outlined(W - (bb[2] - bb[0]) - 22, H - 66, handle, sm_font, (180, 180, 180), stroke=2)
+
+    OUTPUT_PATH.mkdir(exist_ok=True)
+    stem = video_path.stem
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    thumb_path = OUTPUT_PATH / f"{stem}_{ts}_thumb.jpg"
+    img.save(thumb_path, "JPEG", quality=95)
+    print(f"  [thumb] {thumb_path.name}")
+    return thumb_path
+
+
 # ── Output ────────────────────────────────────────────────────────────────────
 
 def format_description(metadata: dict, config: dict) -> str:

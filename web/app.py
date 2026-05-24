@@ -166,6 +166,9 @@ def analyze():
             txt_path, json_path = dcs_meta.save_output(metadata, path, cfg)
             dcs_meta.update_memory(metadata, path, mem)
 
+            thumb_path = dcs_meta.generate_thumbnail(frames, metadata, path, cfg)
+            thumbnail_url = f"/output/{thumb_path.name}" if thumb_path else None
+
             processing_status[job_id]["status"] = "done"
             processing_status[job_id]["progress"] = 100
             processing_status[job_id]["message"] = "Done!"
@@ -173,7 +176,8 @@ def analyze():
                 "metadata": metadata,
                 "txt_path": str(txt_path),
                 "json_path": str(json_path),
-                "video_name": path.name
+                "video_name": path.name,
+                "thumbnail_url": thumbnail_url
             }
 
         except Exception as e:
@@ -184,6 +188,12 @@ def analyze():
     thread.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/output/<path:filename>")
+def serve_output_file(filename):
+    output_dir = Path(__file__).parent.parent / "output"
+    return send_from_directory(str(output_dir), filename)
 
 
 @app.route("/api/status/<job_id>")

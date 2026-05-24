@@ -880,6 +880,18 @@
           </div>
         </div>
 
+        <!-- Thumbnail -->
+        <div class="meta-block" id="thumbnailBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Thumbnail</span>
+            <a id="thumbnailDownload" href="#" download class="copy-btn">DOWNLOAD</a>
+          </div>
+          <div class="meta-block-body">
+            <img id="thumbnailImg" src="" alt="Generated thumbnail"
+                 style="width:100%;border-radius:3px;display:block;border:1px solid var(--border2);">
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1090,7 +1102,7 @@ async function pollStatus() {
       clearInterval(pollInterval);
       currentMetadata = data.result.metadata;
       currentVideoPath = data.result.video_path || document.getElementById('videoPath').value.trim();
-      renderMetadata(data.result.metadata);
+      renderMetadata(data.result.metadata, data.result.thumbnail_url);
       resetUI(true);
       openTab('metadata');
     } else if (data.status === 'error') {
@@ -1121,7 +1133,7 @@ function resetUI(success = false) {
 }
 
 // ── Render metadata ───────────────────────────────────────────────────────────
-function renderMetadata(m) {
+function renderMetadata(m, thumbnailUrl) {
   document.getElementById('progressWrap').style.display = 'none';
   document.getElementById('metadataOutput').style.display = 'flex';
 
@@ -1176,6 +1188,17 @@ function renderMetadata(m) {
     document.getElementById('notesDisplay').textContent = notes;
   } else {
     notesBlock.style.display = 'none';
+  }
+
+  // Thumbnail
+  const thumbBlock = document.getElementById('thumbnailBlock');
+  if (thumbnailUrl) {
+    const img = document.getElementById('thumbnailImg');
+    img.src = thumbnailUrl + '?t=' + Date.now();
+    document.getElementById('thumbnailDownload').href = thumbnailUrl;
+    thumbBlock.style.display = 'block';
+  } else {
+    thumbBlock.style.display = 'none';
   }
 }
 
