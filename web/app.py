@@ -186,6 +186,34 @@ def analyze():
     return jsonify({"job_id": job_id})
 
 
+@app.route("/api/thumbnail", methods=["POST"])
+def generate_thumbnail():
+    data = request.get_json()
+    video_path = data.get("video_path", "").strip()
+    metadata = data.get("metadata", {})
+
+    if not video_path or not metadata:
+        return jsonify({"error": "Missing video_path or metadata"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    cfg = dcs_meta.load_config()
+    try:
+        thumb_paths = dcs_meta.generate_thumbnail_on_demand(metadata, path, cfg)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"thumbnails": [f"/output/{p.name}" for p in thumb_paths]})
+
+
+@app.route("/output/<path:filename>")
+def serve_output_file(filename):
+    output_dir = Path(__file__).parent.parent / "output"
+    return send_from_directory(str(output_dir), filename)
+
+
 @app.route("/api/status/<job_id>")
 def job_status(job_id):
     if job_id not in processing_status:
