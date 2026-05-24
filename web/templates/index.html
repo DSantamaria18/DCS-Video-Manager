@@ -789,9 +789,9 @@
   <div class="right-panel">
 
     <div class="tabs">
-      <div class="tab active" onclick="openTab('metadata')">Metadata</div>
-      <div class="tab" onclick="openTab('history')">History</div>
-      <div class="tab" onclick="openTab('setup')">Setup</div>
+      <div class="tab active" data-tab="metadata" onclick="openTab('metadata')">Metadata</div>
+      <div class="tab" data-tab="history" onclick="openTab('history')">History</div>
+      <div class="tab" data-tab="setup" onclick="openTab('setup')">Setup</div>
     </div>
 
     <!-- METADATA TAB -->
@@ -804,7 +804,7 @@
         <p>Awaiting mission data</p>
       </div>
 
-      <div id="metadataOutput" style="display:none; display:flex; flex-direction:column; gap:16px;">
+      <div id="metadataOutput" style="display:none; flex-direction:column; gap:16px;">
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
           <span class="detected-key" style="margin:0">Detected:</span>
@@ -998,6 +998,7 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
+const UPLOAD_BTN_LABEL = '▲  UPLOAD AS PRIVATE';
 let currentMetadata = null;
 let currentVideoPath = null;
 let currentThumbnailUrl = null;
@@ -1053,7 +1054,7 @@ function onPathInput(val) {
 function openTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  const tabEl = [...document.querySelectorAll('.tab')].find(t => t.getAttribute('onclick').includes(name));
+  const tabEl = document.querySelector(`.tab[data-tab="${name}"]`);
   if (tabEl) tabEl.classList.add('active');
   const content = document.getElementById('tab-' + name);
   if (content) content.classList.add('active');
@@ -1317,22 +1318,22 @@ function updateCharCount() {
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────────────────
-async function copyField(id, btn) {
-  const el = document.getElementById(id);
-  const text = el.value || el.textContent;
-  await navigator.clipboard.writeText(text);
+function flashCopied(btn) {
   btn.textContent = 'COPIED ✓';
   btn.classList.add('copied');
   setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
 }
 
+async function copyField(id, btn) {
+  const el = document.getElementById(id);
+  await navigator.clipboard.writeText(el.value || el.textContent);
+  flashCopied(btn);
+}
+
 async function copyTags(btn) {
   if (!currentMetadata) return;
-  const tags = getCurrentTags().join(', ');
-  await navigator.clipboard.writeText(tags);
-  btn.textContent = 'COPIED ✓';
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+  await navigator.clipboard.writeText(getCurrentTags().join(', '));
+  flashCopied(btn);
 }
 
 // ── Tag editing ───────────────────────────────────────────────────────────────
@@ -1399,9 +1400,7 @@ async function copyChapters(btn) {
   if (!currentMetadata) return;
   const text = (currentMetadata.chapters || []).map(c => `${c.time} ${c.label}`).join('\n');
   await navigator.clipboard.writeText(text);
-  btn.textContent = 'COPIED ✓';
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+  flashCopied(btn);
 }
 
 // ── YouTube upload ────────────────────────────────────────────────────────────
@@ -1438,7 +1437,7 @@ async function uploadToYouTube() {
         showAlert(data.error || 'Upload failed', 'error');
       }
       document.getElementById('uploadBtn').disabled = false;
-      document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+      document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
       return;
     }
 
@@ -1468,7 +1467,7 @@ async function uploadToYouTube() {
   } catch(e) {
     showAlert('Upload error: ' + e.message, 'error');
     document.getElementById('uploadBtn').disabled = false;
-    document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+    document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
   }
 }
 

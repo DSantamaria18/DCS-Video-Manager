@@ -20,8 +20,18 @@ import dcs_meta
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4GB max upload
 
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
+
 # ── State (in-memory, per session) ──────────────────────────────────────────
 processing_status = {}   # job_id -> {status, progress, message, result}
+_MAX_STATUS_ENTRIES = 50
+
+
+def _evict_old_jobs() -> None:
+    """Keep processing_status bounded; drop oldest entries beyond the cap."""
+    if len(processing_status) > _MAX_STATUS_ENTRIES:
+        for key in list(processing_status.keys())[:-_MAX_STATUS_ENTRIES]:
+            del processing_status[key]
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -128,6 +138,7 @@ def analyze():
     if not os.environ.get("GEMINI_API_KEY"):
         return jsonify({"error": "GEMINI_API_KEY not set. Get a free key at https://aistudio.google.com/app/apikey"}), 500
 
+    _evict_old_jobs()
     job_id = str(uuid.uuid4())[:8]
     processing_status[job_id] = {
         "status": "running",
@@ -154,7 +165,7 @@ def analyze():
             processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Claude..."
             processing_status[job_id]["progress"] = 50
 
-            metadata = dcs_meta.generate_metadata(path, context, cfg, mem)
+            metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames)
             if not metadata:
                 processing_status[job_id]["status"] = "error"
                 processing_status[job_id]["error"] = "Claude returned empty metadata. Try adding more context."
@@ -164,7 +175,7 @@ def analyze():
             processing_status[job_id]["progress"] = 80
 
             txt_path, json_path = dcs_meta.save_output(metadata, path, cfg)
-            dcs_meta.update_memory(metadata, path, mem)
+            dcs_meta.update_memory(metadata, path)
 
             processing_status[job_id]["status"] = "done"
             processing_status[job_id]["progress"] = 100
@@ -210,8 +221,7 @@ def generate_thumbnail():
 
 @app.route("/output/<path:filename>")
 def serve_output_file(filename):
-    output_dir = Path(__file__).parent.parent / "output"
-    return send_from_directory(str(output_dir), filename)
+    return send_from_directory(str(OUTPUT_DIR), filename)
 
 
 @app.route("/api/status/<job_id>")
@@ -236,7 +246,7 @@ def upload_youtube():
     # Resolve the thumbnail URL (/output/filename.jpg) to a local filesystem path
     thumbnail_path = None
     if thumbnail_url.startswith("/output/"):
-        candidate = Path(__file__).parent.parent / "output" / Path(thumbnail_url).name
+        candidate = OUTPUT_DIR / Path(thumbnail_url).name
         if candidate.exists():
             thumbnail_path = str(candidate)
 
@@ -273,12 +283,6 @@ def youtube_auth_url():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/youtube/auth_callback", methods=["POST"])
-def youtube_auth_callback():
-    """Legacy endpoint — kept for compatibility."""
-    return jsonify({"error": "Use the new auth flow — click 'Authorize YouTube' button."}), 400
-
-
 @app.route("/api/youtube/wait_auth")
 def youtube_wait_auth():
     """Long-poll: waits until Google redirects back with the token."""
@@ -293,7 +297,6 @@ def youtube_wait_auth():
 @app.route("/api/youtube/revoke", methods=["POST"])
 def youtube_revoke():
     """Delete saved token to force re-authorization."""
-    from pathlib import Path
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     if token_path.exists():
         token_path.unlink()

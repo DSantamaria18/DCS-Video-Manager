@@ -11,6 +11,7 @@ import json
 import base64
 import subprocess
 import argparse
+import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -39,6 +40,17 @@ DEFAULT_CONFIG = {
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
+
+# Lock for thread-safe memory read-modify-write in concurrent analysis jobs
+_memory_lock = threading.Lock()
+
+# Font search paths for thumbnail overlay (Impact preferred, Arial Bold fallback)
+_FONT_PATHS = [
+    "C:/Windows/Fonts/impact.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+    "/Library/Fonts/Impact.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+]
 
 # ── Config & memory ──────────────────────────────────────────────────────────
 
@@ -70,6 +82,15 @@ def is_squadron_video(user_context: str) -> bool:
     ctx = user_context.lower()
     return any(k in ctx for k in SQUADRON_KEYWORDS)
 
+
+def _get_video_duration(video_path: Path) -> float:
+    """Return video duration in seconds using ffprobe. Raises on failure."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
+        capture_output=True, text=True, check=True
+    )
+    return float(json.loads(result.stdout)["format"]["duration"])
+
 # ── Frame extraction ─────────────────────────────────────────────────────────
 
 def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
@@ -77,11 +98,7 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
     tmp_dir = Path(os.environ.get("TEMP", "/tmp"))
 
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
-            capture_output=True, text=True, check=True
-        )
-        duration = float(json.loads(result.stdout)["format"]["duration"])
+        duration = _get_video_duration(video_path)
     except Exception as e:
         print(f"  ⚠ Could not read video duration: {e}")
         print("  → Make sure ffmpeg/ffprobe is installed (https://ffmpeg.org)")
@@ -290,7 +307,13 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
 
 # ── Main analysis ─────────────────────────────────────────────────────────────
 
-def generate_metadata(video_path: Path, user_context: str, config: dict, memory: dict) -> dict:
+def generate_metadata(video_path: Path, user_context: str, config: dict, memory: dict,
+                      frames: list = None) -> dict:
+    """Analyse a video and return YouTube metadata via Gemini.
+
+    Pass `frames` (list of base64 JPEG strings) to skip re-extraction when
+    the caller has already extracted frames (avoids running ffmpeg twice).
+    """
     print(f"\n{'─'*60}")
     print(f"  Processing: {video_path.name}")
     print(f"{'─'*60}")
@@ -298,8 +321,9 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     is_squadron = is_squadron_video(user_context)
     print(f"  Mode: {'🇪🇸 Squadron (E111)' if is_squadron else '🇬🇧 Solo / Campaign'}")
 
-    print(f"  Extracting {config['frames_to_extract']} frames...")
-    frames = extract_frames(video_path, config["frames_to_extract"])
+    if frames is None:
+        print(f"  Extracting {config['frames_to_extract']} frames...")
+        frames = extract_frames(video_path, config["frames_to_extract"])
     if not frames:
         print("  ✗ Could not extract frames. Check ffmpeg installation.")
         return {}
@@ -370,8 +394,34 @@ def _recover_json(raw: str) -> dict:
 
 # ── Thumbnail generation ──────────────────────────────────────────────────────
 
+def _load_font(size: int):
+    """Load Impact (or Arial Bold fallback) at the given point size."""
+    from PIL import ImageFont
+    for p in _FONT_PATHS:
+        try:
+            return ImageFont.truetype(p, size)
+        except (IOError, OSError):
+            continue
+    return ImageFont.load_default()
+
+
+def _fit_text(draw, text: str, max_w: int, start_size: int, min_size: int = 30):
+    """Return the largest font that fits `text` within `max_w` pixels."""
+    size = start_size
+    while size >= min_size:
+        font = _load_font(size)
+        bb = draw.textbbox((0, 0), text, font=font)
+        if (bb[2] - bb[0]) <= max_w:
+            return font
+        size -= 4
+    return _load_font(min_size)
+
+
 def _score_frame(img) -> float:
-    """Score a PIL image for thumbnail suitability. Higher = better."""
+    """Score a PIL image for thumbnail suitability. Higher = better.
+
+    Caller must have already imported PIL (Image, ImageFilter, ImageStat).
+    """
     from PIL import Image, ImageFilter, ImageStat
     small = img.resize((320, 180), Image.LANCZOS)
     gray = small.convert("L")
@@ -384,7 +434,10 @@ def _score_frame(img) -> float:
 
 
 def _grade_frame(img):
-    """Cinematic colour grade: +30% saturation, +15% contrast, warm push."""
+    """Cinematic colour grade: +30% saturation, +15% contrast, warm push.
+
+    Caller must have already imported PIL (ImageEnhance, Image).
+    """
     from PIL import ImageEnhance, Image as _Img
     img = ImageEnhance.Color(img).enhance(1.30)
     img = ImageEnhance.Contrast(img).enhance(1.15)
@@ -400,7 +453,7 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
     Layout: full frame visible, bottom gradient for text readability,
     title lines above the info bar (bottom-up), solid bottom info bar.
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     W, H = 1280, 720
     if img.size != (W, H):
@@ -426,26 +479,6 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
     img = Image.alpha_composite(img, overlay).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    def load_font(size: int):
-        for p in ["C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/arialbd.ttf",
-                  "/Library/Fonts/Impact.ttf",
-                  "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf"]:
-            try:
-                return ImageFont.truetype(p, size)
-            except (IOError, OSError):
-                continue
-        return ImageFont.load_default()
-
-    def fit_text(text, max_w, start_size, min_size=30):
-        size = start_size
-        while size >= min_size:
-            font = load_font(size)
-            bb = draw.textbbox((0, 0), text, font=font)
-            if (bb[2] - bb[0]) <= max_w:
-                return font
-            size -= 4
-        return load_font(min_size)
-
     def outlined(x, y, text, font, fill, stroke=5):
         draw.text((x, y), text, font=font, fill=fill,
                   stroke_width=stroke, stroke_fill=(0, 0, 0))
@@ -464,7 +497,7 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
     # Pre-measure all lines, then place bottom-up above the info bar
     measured = []
     for i, line in enumerate(title_lines[:3]):
-        font = fit_text(line, W - 80, sizes[min(i, len(sizes) - 1)])
+        font = _fit_text(draw, line, W - 80, sizes[min(i, len(sizes) - 1)])
         bb = draw.textbbox((0, 0), line, font=font)
         measured.append((line, font, bb[3] - bb[1], colors[min(i, len(colors) - 1)]))
 
@@ -478,10 +511,10 @@ def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
         outlined(40, y, line, font, color)
 
     bottom = "  ·  ".join(p for p in [metadata.get("aircraft", ""), metadata.get("map", "")] if p).upper()
-    outlined(36, H - 72, bottom, fit_text(bottom, W - 280, 34, 20), (255, 255, 255), stroke=3)
+    outlined(36, H - 72, bottom, _fit_text(draw, bottom, W - 280, 34, 20), (255, 255, 255), stroke=3)
 
     handle = f"@{config.get('channel_name', 'TheCylonPilot').lower()}"
-    sm_font = load_font(22)
+    sm_font = _load_font(22)
     bb = draw.textbbox((0, 0), handle, font=sm_font)
     outlined(W - (bb[2] - bb[0]) - 22, H - 66, handle, sm_font, (180, 180, 180), stroke=2)
 
@@ -523,11 +556,7 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
     tmp_dir = Path(os.environ.get("TEMP", "/tmp"))
 
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
-            capture_output=True, text=True, check=True
-        )
-        duration = float(json.loads(result.stdout)["format"]["duration"])
+        duration = _get_video_duration(video_path)
     except Exception as e:
         raise RuntimeError(f"ffprobe failed: {e}")
 
@@ -629,18 +658,21 @@ def save_output(metadata: dict, video_path: Path, config: dict):
     return txt_path, json_path
 
 
-def update_memory(metadata: dict, video_path: Path, memory: dict):
-    memory["videos"].append({
-        "date": datetime.now().strftime("%Y-%m-%d"),
-        "filename": video_path.name,
-        "title": metadata.get("title", ""),
-        "language": metadata.get("language", ""),
-        "aircraft": metadata.get("aircraft", ""),
-        "map": metadata.get("map", ""),
-        "mission_type": metadata.get("mission_type", "")
-    })
-    memory["videos"] = memory["videos"][-50:]
-    save_memory(memory)
+def update_memory(metadata: dict, video_path: Path) -> None:
+    """Append analysis result to history. Thread-safe: re-reads disk under lock."""
+    with _memory_lock:
+        memory = load_memory()
+        memory["videos"].append({
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "filename": video_path.name,
+            "title": metadata.get("title", ""),
+            "language": metadata.get("language", ""),
+            "aircraft": metadata.get("aircraft", ""),
+            "map": metadata.get("map", ""),
+            "mission_type": metadata.get("mission_type", "")
+        })
+        memory["videos"] = memory["videos"][-50:]
+        save_memory(memory)
 
 
 def print_preview(metadata: dict):
@@ -709,7 +741,7 @@ Examples:
         if not args.no_preview:
             print_preview(metadata)
         save_output(metadata, video, config)
-        update_memory(metadata, video, memory)
+        update_memory(metadata, video)
 
     print(f"\n✓ Done. Check the output/ folder.\n")
 

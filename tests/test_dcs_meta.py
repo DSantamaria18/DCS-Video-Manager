@@ -117,25 +117,26 @@ SAMPLE_META = {
 
 def test_update_memory_adds_entry(tmp_path, monkeypatch):
     monkeypatch.setattr(dcs_meta, "MEMORY_PATH", tmp_path / "history.json")
-    memory = {"videos": []}
-    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"), memory)
-    assert len(memory["videos"]) == 1
-    assert memory["videos"][0]["title"] == SAMPLE_META["title"]
-    assert memory["videos"][0]["aircraft"] == "A-10C"
+    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"))
+    saved = dcs_meta.load_memory()
+    assert len(saved["videos"]) == 1
+    assert saved["videos"][0]["title"] == SAMPLE_META["title"]
+    assert saved["videos"][0]["aircraft"] == "A-10C"
 
 
 def test_update_memory_caps_at_50(tmp_path, monkeypatch):
-    monkeypatch.setattr(dcs_meta, "MEMORY_PATH", tmp_path / "history.json")
-    memory = {"videos": [{"title": f"v{i}"} for i in range(55)]}
-    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"), memory)
-    assert len(memory["videos"]) == 50
+    history_file = tmp_path / "history.json"
+    history_file.write_text(json.dumps({"videos": [{"title": f"v{i}"} for i in range(55)]}))
+    monkeypatch.setattr(dcs_meta, "MEMORY_PATH", history_file)
+    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"))
+    saved = dcs_meta.load_memory()
+    assert len(saved["videos"]) == 50
 
 
 def test_update_memory_persists_to_disk(tmp_path, monkeypatch):
     history_file = tmp_path / "history.json"
     monkeypatch.setattr(dcs_meta, "MEMORY_PATH", history_file)
-    memory = {"videos": []}
-    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"), memory)
+    dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"))
     saved = json.loads(history_file.read_text())
     assert saved["videos"][0]["title"] == SAMPLE_META["title"]
 

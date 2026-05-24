@@ -2,6 +2,7 @@ import os
 import pytest
 from unittest.mock import patch
 from app import app as flask_app
+import app as app_module
 
 
 @pytest.fixture
@@ -80,13 +81,17 @@ def test_status_known_job_returns_state(client, tmp_path, monkeypatch):
     video = tmp_path / "test.mp4"
     video.write_bytes(b"fake")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
-    resp = client.post("/api/analyze", json={"video_path": str(video)})
-    job_id = resp.json["job_id"]
 
+    # Freeze the background thread so the job stays in "running" state
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/analyze", json={"video_path": str(video)})
+
+    job_id = resp.json["job_id"]
     status = client.get(f"/api/status/{job_id}")
     assert status.status_code == 200
-    assert "status" in status.json
-    assert "progress" in status.json
+    assert status.json["status"] == "running"
+    assert status.json["progress"] == 0
 
 
 # ── POST /api/upload_youtube ──────────────────────────────────────────────────
@@ -101,7 +106,7 @@ def test_upload_youtube_missing_metadata_returns_400(client):
     assert resp.status_code == 400
 
 
-def test_upload_youtube_no_uploader_returns_500(client):
+def test_upload_youtube_not_authenticated_returns_500(client):
     resp = client.post("/api/upload_youtube", json={
         "video_path": "/some/video.mp4",
         "metadata": {"title": "Test", "description": "desc", "tags": []}
@@ -113,7 +118,7 @@ def test_upload_youtube_no_uploader_returns_500(client):
 
 def test_upload_youtube_passes_thumbnail_path(client, tmp_path):
     """Endpoint must resolve /output/file.jpg to a local path and pass it to upload_video."""
-    output_dir = (tmp_path / "output")
+    output_dir = tmp_path / "output"
     output_dir.mkdir()
     thumb = output_dir / "test_thumb.jpg"
     thumb.write_bytes(b"\xff\xd8\xff")
@@ -124,31 +129,16 @@ def test_upload_youtube_passes_thumbnail_path(client, tmp_path):
                      "thumbnail_set": True}
 
     with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv, \
-         patch("app.Path") as mock_path_cls:
-        # Make Path(__file__).parent.parent / "output" / name resolve to our tmp thumb
-        mock_path_cls.return_value.parent.parent.__truediv__ = lambda s, x: (
-            output_dir if x == "output" else tmp_path / x
-        )
-        # Bypass Path resolution — patch the candidate directly
-        pass
+         patch.object(app_module, "OUTPUT_DIR", output_dir):
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "thumbnail_url": "/output/test_thumb.jpg",
+        })
 
-    # Simpler approach: patch the output dir constant in app
-    import app as flask_app_module
-    original_file = flask_app_module.__file__
-    with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
-        with patch.object(flask_app_module, "__file__",
-                          str(tmp_path / "web" / "app.py")):
-            (tmp_path / "web").mkdir(exist_ok=True)
-            (tmp_path / "output").mkdir(exist_ok=True)
-            (tmp_path / "output" / "test_thumb.jpg").write_bytes(b"\xff\xd8\xff")
-            resp = client.post("/api/upload_youtube", json={
-                "video_path": "/fake/video.mp4",
-                "metadata": {"title": "T", "description": "D", "tags": []},
-                "thumbnail_url": "/output/test_thumb.jpg"
-            })
-    # The upload_video mock may or may not be called depending on path resolution,
-    # but the endpoint should not return 400/500 from missing fields
-    assert resp.status_code in (200, 500)
+    assert resp.status_code == 200
+    mock_uv.assert_called_once()
+    assert mock_uv.call_args.kwargs["thumbnail_path"] == str(thumb)
 
 
 def test_upload_youtube_missing_thumbnail_file_ignored(client):
