@@ -201,7 +201,7 @@ def generate_thumbnail():
 
     cfg = dcs_meta.load_config()
     try:
-        thumb_path = dcs_meta.generate_ai_thumbnail(metadata, path, cfg)
+        thumb_path = dcs_meta.generate_thumbnail_on_demand(metadata, path, cfg)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -13,7 +13,6 @@ import subprocess
 import argparse
 import urllib.request
 import urllib.error
-import urllib.parse
 from pathlib import Path
 from datetime import datetime
 
@@ -464,233 +463,45 @@ def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
     return path
 
 
-def _build_imagen_prompt(metadata: dict) -> tuple[str, str]:
-    """Return (positive_prompt, negative_prompt) for AI image generation."""
-    aircraft = metadata.get("aircraft", "military aircraft")
-    map_name = metadata.get("map", "")
-    mission  = metadata.get("mission_type", "")
-    ac_lower = aircraft.lower()
-
-    # ── Aircraft: highly specific visual descriptions ─────────────────────────
-    # Each entry: (visual_description, what_it_is_not)
-    AIRCRAFT = [
-        (
-            ("a-10c", "a-10", "warthog", "thunderbolt"),
-            (
-                "A-10C Thunderbolt II Warthog ground-attack aircraft, "
-                "straight unswept high-aspect-ratio wings, "
-                "two General Electric TF34 turbofan engines mounted HIGH on the upper REAR fuselage "
-                "(not under the wings), "
-                "massive 30mm GAU-8 Avenger rotary cannon protruding from the nose tip offset to port, "
-                "twin tail fins on a twin-boom empennage, "
-                "boxy angular gray fuselage, tricycle landing gear, "
-                "AGM-65 Maverick missiles and Mk-82 bombs on underwing pylons"
-            ),
-            "no swept wings, no single tail fin, not an F-16, not an F-18, not a fighter jet",
-        ),
-        (
-            ("f/a-18c", "f/a-18", "f-18", "hornet"),
-            (
-                "F/A-18C Hornet carrier-based multirole fighter jet, "
-                "large delta wings with prominent leading-edge root extensions (LERX strakes), "
-                "two canted outward-angled vertical stabilizers, "
-                "twin General Electric F404 afterburning turbofan engines "
-                "with rectangular intakes under the fuselage, "
-                "gray-blue naval paint scheme, "
-                "AIM-9 Sidewinder missiles on wingtips, GBU bombs on pylons"
-            ),
-            "no straight wings, not an A-10, not a single-engine aircraft, not an F-16",
-        ),
-        (
-            ("f-16c", "f-16", "viper", "falcon"),
-            (
-                "F-16C Fighting Falcon Viper multirole fighter, "
-                "single Pratt & Whitney F100 turbofan engine, "
-                "large blended-body cranked-arrow delta wing, "
-                "distinctive large frameless bubble canopy giving 360-degree visibility, "
-                "single ventral chin intake under the nose, "
-                "single swept vertical stabilizer, "
-                "lightweight agile single-seat aircraft"
-            ),
-            "no twin engines, no twin tails, not an F-18, not an A-10",
-        ),
-        (
-            ("f-14", "tomcat"),
-            (
-                "F-14 Tomcat variable-sweep wing naval interceptor, "
-                "long flat slab-sided fuselage with tunnel between twin Pratt & Whitney TF30 engines, "
-                "variable-geometry swing wings spread wide in low-speed configuration, "
-                "two canted inward vertical stabilizers with partial-span rudders, "
-                "large AWG-9 radar dome nose, "
-                "AIM-54 Phoenix missiles on glove pylons"
-            ),
-            "no fixed wings, not an F-18, not an F-16, not an A-10",
-        ),
-        (
-            ("uh-1h", "uh-1", "huey", "iroquois"),
-            (
-                "UH-1H Iroquois Huey military helicopter, "
-                "single two-blade semi-rigid main rotor, "
-                "elongated egg-shaped pod fuselage, "
-                "long thin tail boom with single two-blade tail rotor, "
-                "skid landing gear (no wheels), "
-                "olive drab military green paint, "
-                "open side doors with door gunner position"
-            ),
-            "not a fixed-wing aircraft, no jet engines, not an Apache, not a Black Hawk",
-        ),
-    ]
-
-    ac_visual = f"{aircraft} military aircraft flying in combat"
-    ac_negative = "wrong aircraft type"
-    for keys, visual, neg in AIRCRAFT:
-        if any(k in ac_lower for k in keys):
-            ac_visual  = visual
-            ac_negative = neg
-            break
-
-    # ── Map / terrain ─────────────────────────────────────────────────────────
-    TERRAINS = {
-        "caucasus":       "Caucasus mountain range, Georgia, snow-capped jagged peaks, dark green forested valleys, winding rivers, late afternoon light",
-        "persian gulf":   "Persian Gulf coast, flat golden sand desert stretching to a calm turquoise sea, oil refineries in the distance, hazy horizon",
-        "nevada":         "Nevada NTTR desert, vast dry salt lake beds (playas), sparse scrubland, reddish arid mountains, bright harsh sunlight",
-        "syria":          "Syrian rocky desert plateau, tan and ochre terrain, sparse vegetation, ancient stone ruins, Mediterranean coast in the distance",
-        "marianas":       "Pacific Ocean, volcanic tropical islands, dense jungle, coral reefs visible through deep blue water, towering cumulus clouds",
-        "sinai":          "Sinai Peninsula desert, red and brown rocky mountains, flat sand plains, Red Sea glittering coastline",
-        "south atlantic": "South Atlantic Ocean, grey choppy sea, Falkland Islands coastline, overcast stormy sky, dramatic light on water",
-    }
-    terrain = next((v for k, v in TERRAINS.items() if k in map_name.lower()),
-                   f"{map_name} terrain" if map_name else "dramatic mountain and coastal military landscape")
-
-    # ── Mission action ────────────────────────────────────────────────────────
-    ACTIONS = {
-        "cas":       "flying extremely low over burning enemy armored column, GAU-8 tracers or bomb explosions below, smoke and fire rising",
-        "sead":      "firing AGM-88 HARM anti-radiation missile at enemy radar site, radar dish exploding in fireball",
-        "strike":    "releasing precision-guided bombs, massive explosion and smoke column erupting from target below",
-        "bvr":       "launching AIM-120 AMRAAM missile, long contrail streaking toward distant target in open sky",
-        "aaa":       "banking hard to evade flak bursts, black anti-aircraft explosions surrounding the aircraft",
-        "intercept": "full afterburner climb intercept, bright blue-white afterburner cone visible",
-        "training":  "tight banking turn through dramatic cumulonimbus cloud tower, sunlight breaking through",
-    }
-    mt_lower = (mission or "").lower()
-    action = next((v for k, v in ACTIONS.items() if k in mt_lower),
-                  "low-altitude high-speed combat pass over burning target, explosions and smoke below")
-
-    # Positive prompt — self-contained for GPT-Image (restrictions folded in)
-    positive = (
-        f"Photorealistic military aviation art for a YouTube thumbnail. "
-        f"The subject is ONLY a {aircraft} — specifically: {ac_visual}. "
-        f"It must look exactly like a real {aircraft} with all its correct visual features. "
-        f"The aircraft is {action}, "
-        f"flying over {terrain}. "
-        f"Dramatic cinematic golden hour lighting, deep orange and crimson sunset sky, "
-        f"volumetric god rays breaking through clouds, intense shadows and highlights. "
-        f"Hyper-detailed, photorealistic, 8K render quality. "
-        f"No text, no watermarks, no HUD, no UI. "
-        f"Important: {ac_negative}."
-    )
-
-    # Negative prompt — used by Flux-based models that support it
-    negative = (
-        f"{ac_negative}, "
-        f"fantasy aircraft, fictional design, sci-fi spaceship, "
-        f"cartoon, anime, illustration, low quality, blurry, "
-        f"text, watermark, HUD overlay, game UI"
-    )
-
-    return positive, negative
-
-
-def call_imagen(prompt: str, api_key: str, negative: str = "") -> str:
-    """Generate an image. Returns base64-encoded JPEG/PNG.
-
-    Priority:
-      1. Imagen 4 via predict (best quality, requires paid Gemini plan)
-      2. gemini-2.5-flash-image via generateContent (requires paid plan)
-      3. Pollinations.ai / Flux (free, no key required — always available)
-    """
-    # ── Attempt 1: Imagen 4 ───────────────────────────────────────────────────
-    try:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"imagen-4.0-generate-001:predict?key={api_key}"
-        )
-        payload = json.dumps({
-            "instances": [{"prompt": prompt}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": "16:9",
-                "outputMimeType": "image/jpeg",
-                "outputCompressionQuality": 85,
-            }
-        }).encode("utf-8")
-        req = urllib.request.Request(url, data=payload,
-                                     headers={"Content-Type": "application/json"},
-                                     method="POST")
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return data["predictions"][0]["bytesBase64Encoded"]
-    except Exception:
-        pass
-
-    # ── Attempt 2: gemini-2.5-flash-image ────────────────────────────────────
-    try:
-        url2 = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash-image:generateContent?key={api_key}"
-        )
-        payload2 = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseModalities": ["IMAGE"], "temperature": 1.0},
-        }).encode("utf-8")
-        req2 = urllib.request.Request(url2, data=payload2,
-                                      headers={"Content-Type": "application/json"},
-                                      method="POST")
-        with urllib.request.urlopen(req2, timeout=90) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        for part in data["candidates"][0]["content"]["parts"]:
-            if "inlineData" in part:
-                return part["inlineData"]["data"]
-    except Exception:
-        pass
-
-    # ── Attempt 3: Pollinations.ai / gptimage (free, no key required) ───────
-    # gptimage uses OpenAI's image generation — significantly better at specific
-    # aircraft than generic Flux. Negative guidance is folded into the prompt
-    # since GPT-Image does not support a separate negative parameter.
-    print("  Gemini image quota unavailable — using Pollinations.ai (gptimage)...")
-    seed = int(datetime.now().timestamp()) % 99999
-    combined = prompt  # negative is already folded into prompt by _build_imagen_prompt
-    encoded_prompt = urllib.parse.quote(combined[:1000])
-    poll_url = (
-        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        f"?width=1280&height=720&model=gptimage&nologo=true&seed={seed}"
-    )
-    req3 = urllib.request.Request(poll_url, headers={"User-Agent": "DCS-Video-Manager/1.0"})
-    with urllib.request.urlopen(req3, timeout=120) as resp:
-        return base64.b64encode(resp.read()).decode()
-
-
-
-def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Path:
-    """Generate a YouTube thumbnail using Imagen 3 AI + Pillow text overlay."""
+def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict) -> Path:
+    """Extract a frame at 60% of the video and apply the YouTube-style overlay."""
     try:
         from PIL import Image
         import io as _io
     except ImportError:
         raise RuntimeError("Pillow not installed: pip install Pillow")
 
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY not set")
+    tmp_dir = Path(os.environ.get("TEMP", "/tmp"))
 
-    positive, negative = _build_imagen_prompt(metadata)
-    print(f"  Generating AI thumbnail ({metadata.get('aircraft','?')} / {metadata.get('map','?')})...")
-    img_b64 = call_imagen(positive, api_key, negative)
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
+            capture_output=True, text=True, check=True
+        )
+        duration = float(json.loads(result.stdout)["format"]["duration"])
+    except Exception as e:
+        raise RuntimeError(f"ffprobe failed: {e}")
 
-    img = Image.open(_io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
+    timestamp = duration * 0.60
+    tmp_path = tmp_dir / "dcs_thumb_frame.jpg"
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(timestamp),
+            "-i", str(video_path),
+            "-vframes", "1", "-q:v", "2",
+            "-vf", "scale=1280:-1",
+            str(tmp_path)
+        ], capture_output=True, check=True)
+    except Exception as e:
+        raise RuntimeError(f"ffmpeg frame extraction failed: {e}")
+
+    with open(tmp_path, "rb") as f:
+        img_bytes = f.read()
+    tmp_path.unlink(missing_ok=True)
+
+    img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
     img = _apply_thumbnail_overlay(img, metadata, config)
-    return _save_thumbnail(img, video_path, "ai_thumb")
+    return _save_thumbnail(img, video_path, "thumb")
 
 
 def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, config: dict) -> "Path | None":
