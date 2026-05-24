@@ -516,39 +516,60 @@ def _build_imagen_prompt(metadata: dict) -> str:
 
 
 def call_imagen(prompt: str, api_key: str) -> str:
-    """Generate an image via Gemini image generation (AI Studio key). Returns base64 PNG/JPEG."""
-    model = "gemini-2.0-flash-preview-image-generation"
+    """Generate an image via Gemini Developer API. Returns base64 PNG/JPEG.
+
+    Tries Imagen 4 (predict endpoint, best quality) first; falls back to
+    gemini-2.5-flash-image (generateContent endpoint) if unavailable.
+    """
+    # ── Attempt 1: Imagen 4 via predict ──────────────────────────────────────
     url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={api_key}"
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"imagen-4.0-generate-001:predict?key={api_key}"
     )
     payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseModalities": ["IMAGE"],
-            "temperature": 1.0,
+        "instances": [{"prompt": prompt}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "16:9",
+            "outputMimeType": "image/jpeg",
+            "outputCompressionQuality": 85,
         }
     }).encode("utf-8")
-
-    req = urllib.request.Request(
-        url, data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
+    req = urllib.request.Request(url, data=payload,
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
-        raise RuntimeError(f"Image generation API error {e.code}: {body}")
+        return data["predictions"][0]["bytesBase64Encoded"]
+    except (urllib.error.HTTPError, KeyError, IndexError):
+        pass  # fall through to backup model
 
+    # ── Attempt 2: gemini-2.5-flash-image via generateContent ────────────────
+    url2 = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.5-flash-image:generateContent?key={api_key}"
+    )
+    payload2 = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseModalities": ["IMAGE"], "temperature": 1.0},
+    }).encode("utf-8")
+    req2 = urllib.request.Request(url2, data=payload2,
+                                  headers={"Content-Type": "application/json"},
+                                  method="POST")
     try:
+        with urllib.request.urlopen(req2, timeout=90) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
         for part in data["candidates"][0]["content"]["parts"]:
             if "inlineData" in part:
                 return part["inlineData"]["data"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8")
+        raise RuntimeError(f"Image generation API error {e.code}: {body}")
     except (KeyError, IndexError):
         pass
-    raise RuntimeError(f"No image in response: {json.dumps(data)[:300]}")
+
+    raise RuntimeError("No image returned by any available model.")
 
 
 def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Path:
