@@ -516,18 +516,17 @@ def _build_imagen_prompt(metadata: dict) -> str:
 
 
 def call_imagen(prompt: str, api_key: str) -> str:
-    """Call Imagen 3 via Gemini Developer API. Returns base64-encoded JPEG string."""
+    """Generate an image via Gemini image generation (AI Studio key). Returns base64 PNG/JPEG."""
+    model = "gemini-2.0-flash-preview-image-generation"
     url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"imagen-3.0-generate-002:predict?key={api_key}"
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={api_key}"
     )
     payload = json.dumps({
-        "instances": [{"prompt": prompt}],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": "16:9",
-            "outputMimeType": "image/jpeg",
-            "outputCompressionQuality": 85,
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["IMAGE"],
+            "temperature": 1.0,
         }
     }).encode("utf-8")
 
@@ -541,12 +540,15 @@ def call_imagen(prompt: str, api_key: str) -> str:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
-        raise RuntimeError(f"Imagen API error {e.code}: {body}")
+        raise RuntimeError(f"Image generation API error {e.code}: {body}")
 
     try:
-        return data["predictions"][0]["bytesBase64Encoded"]
+        for part in data["candidates"][0]["content"]["parts"]:
+            if "inlineData" in part:
+                return part["inlineData"]["data"]
     except (KeyError, IndexError):
-        raise RuntimeError(f"Unexpected Imagen response: {data}")
+        pass
+    raise RuntimeError(f"No image in response: {json.dumps(data)[:300]}")
 
 
 def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Path:
