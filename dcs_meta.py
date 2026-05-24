@@ -475,6 +475,38 @@ def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, 
     return thumb_path
 
 
+def generate_thumbnail_on_demand(video_path: Path, metadata: dict, config: dict) -> "Path | None":
+    """Extract one frame on demand and generate a thumbnail. Used by the web UI button."""
+    tmp_path = Path(os.environ.get("TEMP", "/tmp")) / "dcs_thumb_frame.jpg"
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
+            capture_output=True, text=True, check=True
+        )
+        duration = float(json.loads(result.stdout)["format"]["duration"])
+    except Exception as e:
+        print(f"  Could not read duration for thumbnail: {e}")
+        return None
+
+    timestamp = duration * 0.6
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(timestamp),
+            "-i", str(video_path),
+            "-vframes", "1", "-q:v", "2",
+            "-vf", "scale=1920:-1",
+            str(tmp_path)
+        ], capture_output=True, check=True)
+        with open(tmp_path, "rb") as f:
+            frame_b64 = base64.standard_b64encode(f.read()).decode()
+        tmp_path.unlink(missing_ok=True)
+    except Exception as e:
+        print(f"  Frame extraction failed for thumbnail: {e}")
+        return None
+
+    return generate_thumbnail([frame_b64], metadata, video_path, config)
+
+
 # ── Output ────────────────────────────────────────────────────────────────────
 
 def format_description(metadata: dict, config: dict) -> str:

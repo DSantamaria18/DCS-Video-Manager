@@ -166,9 +166,6 @@ def analyze():
             txt_path, json_path = dcs_meta.save_output(metadata, path, cfg)
             dcs_meta.update_memory(metadata, path, mem)
 
-            thumb_path = dcs_meta.generate_thumbnail(frames, metadata, path, cfg)
-            thumbnail_url = f"/output/{thumb_path.name}" if thumb_path else None
-
             processing_status[job_id]["status"] = "done"
             processing_status[job_id]["progress"] = 100
             processing_status[job_id]["message"] = "Done!"
@@ -176,8 +173,7 @@ def analyze():
                 "metadata": metadata,
                 "txt_path": str(txt_path),
                 "json_path": str(json_path),
-                "video_name": path.name,
-                "thumbnail_url": thumbnail_url
+                "video_name": path.name
             }
 
         except Exception as e:
@@ -188,6 +184,27 @@ def analyze():
     thread.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/thumbnail", methods=["POST"])
+def generate_thumbnail():
+    data = request.get_json()
+    video_path = data.get("video_path", "").strip()
+    metadata = data.get("metadata", {})
+
+    if not video_path or not metadata:
+        return jsonify({"error": "Missing video_path or metadata"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    cfg = dcs_meta.load_config()
+    thumb_path = dcs_meta.generate_thumbnail_on_demand(path, metadata, cfg)
+    if not thumb_path:
+        return jsonify({"error": "Could not generate thumbnail. Is ffmpeg installed?"}), 500
+
+    return jsonify({"thumbnail_url": f"/output/{thumb_path.name}"})
 
 
 @app.route("/output/<path:filename>")

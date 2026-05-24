@@ -884,11 +884,15 @@
         <div class="meta-block" id="thumbnailBlock" style="display:none">
           <div class="meta-block-header">
             <span class="meta-block-title">Thumbnail</span>
-            <a id="thumbnailDownload" href="#" download class="copy-btn">DOWNLOAD</a>
+            <a id="thumbnailDownload" href="#" download class="copy-btn" style="display:none">DOWNLOAD</a>
           </div>
           <div class="meta-block-body">
+            <div id="thumbnailGenWrap" style="display:flex;align-items:center;gap:12px;padding:4px 0">
+              <button class="action-btn" id="thumbnailGenBtn" onclick="generateThumbnail()">GENERATE THUMBNAIL</button>
+              <span id="thumbnailGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+            </div>
             <img id="thumbnailImg" src="" alt="Generated thumbnail"
-                 style="width:100%;border-radius:3px;display:block;border:1px solid var(--border2);">
+                 style="width:100%;border-radius:3px;display:none;border:1px solid var(--border2);margin-top:10px">
           </div>
         </div>
 
@@ -1102,7 +1106,7 @@ async function pollStatus() {
       clearInterval(pollInterval);
       currentMetadata = data.result.metadata;
       currentVideoPath = data.result.video_path || document.getElementById('videoPath').value.trim();
-      renderMetadata(data.result.metadata, data.result.thumbnail_url);
+      renderMetadata(data.result.metadata);
       resetUI(true);
       openTab('metadata');
     } else if (data.status === 'error') {
@@ -1133,7 +1137,7 @@ function resetUI(success = false) {
 }
 
 // ── Render metadata ───────────────────────────────────────────────────────────
-function renderMetadata(m, thumbnailUrl) {
+function renderMetadata(m) {
   document.getElementById('progressWrap').style.display = 'none';
   document.getElementById('metadataOutput').style.display = 'flex';
 
@@ -1190,15 +1194,56 @@ function renderMetadata(m, thumbnailUrl) {
     notesBlock.style.display = 'none';
   }
 
-  // Thumbnail
-  const thumbBlock = document.getElementById('thumbnailBlock');
-  if (thumbnailUrl) {
+  // Thumbnail — always show block with generate button, reset any previous result
+  document.getElementById('thumbnailBlock').style.display = 'block';
+  document.getElementById('thumbnailImg').style.display = 'none';
+  document.getElementById('thumbnailImg').src = '';
+  document.getElementById('thumbnailDownload').style.display = 'none';
+  document.getElementById('thumbnailGenBtn').disabled = false;
+  document.getElementById('thumbnailGenBtn').textContent = 'GENERATE THUMBNAIL';
+  document.getElementById('thumbnailGenMsg').textContent = '';
+}
+
+// ── Thumbnail generation ──────────────────────────────────────────────────────
+async function generateThumbnail() {
+  if (!currentMetadata || !currentVideoPath) return;
+  const btn = document.getElementById('thumbnailGenBtn');
+  const msg = document.getElementById('thumbnailGenMsg');
+
+  btn.disabled = true;
+  btn.textContent = 'GENERATING...';
+  msg.textContent = '';
+
+  try {
+    const resp = await fetch('/api/thumbnail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_path: currentVideoPath, metadata: currentMetadata })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) {
+      msg.textContent = data.error || 'Error generating thumbnail';
+      msg.style.color = 'var(--red)';
+      btn.disabled = false;
+      btn.textContent = 'RETRY';
+      return;
+    }
+
     const img = document.getElementById('thumbnailImg');
-    img.src = thumbnailUrl + '?t=' + Date.now();
-    document.getElementById('thumbnailDownload').href = thumbnailUrl;
-    thumbBlock.style.display = 'block';
-  } else {
-    thumbBlock.style.display = 'none';
+    img.src = data.thumbnail_url + '?t=' + Date.now();
+    img.style.display = 'block';
+    const dl = document.getElementById('thumbnailDownload');
+    dl.href = data.thumbnail_url;
+    dl.style.display = '';
+    btn.textContent = 'REGENERATE';
+    btn.disabled = false;
+    msg.textContent = '';
+  } catch (e) {
+    msg.textContent = 'Network error';
+    msg.style.color = 'var(--red)';
+    btn.disabled = false;
+    btn.textContent = 'RETRY';
   }
 }
 
