@@ -200,9 +200,10 @@ def generate_thumbnail():
         return jsonify({"error": f"File not found: {video_path}"}), 404
 
     cfg = dcs_meta.load_config()
-    thumb_path = dcs_meta.generate_thumbnail_on_demand(path, metadata, cfg)
-    if not thumb_path:
-        return jsonify({"error": "Could not generate thumbnail. Is ffmpeg installed?"}), 500
+    try:
+        thumb_path = dcs_meta.generate_ai_thumbnail(metadata, path, cfg)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
     return jsonify({"thumbnail_url": f"/output/{thumb_path.name}"})
 

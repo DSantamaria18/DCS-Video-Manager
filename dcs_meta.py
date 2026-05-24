@@ -370,141 +370,219 @@ def _recover_json(raw: str) -> dict:
 
 # ── Thumbnail generation ──────────────────────────────────────────────────────
 
-def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, config: dict) -> "Path | None":
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        import io as _io
-    except ImportError:
-        print("  ⚠ Thumbnail skipped: pip install Pillow")
-        return None
-
-    if not frames_b64:
-        return None
-
-    # Pick frame at ~60% through — tends to show in-flight action over briefings
-    idx = min(int(len(frames_b64) * 0.6), len(frames_b64) - 1)
-    img = Image.open(_io.BytesIO(base64.b64decode(frames_b64[idx]))).convert("RGB")
+def _apply_thumbnail_overlay(img, metadata: dict, config: dict):
+    """Apply YouTube-style gradient + text overlay to a PIL RGB image (1280×720)."""
+    from PIL import Image, ImageDraw, ImageFont
 
     W, H = 1280, 720
-    src_r, tgt_r = img.width / img.height, W / H
-    if src_r > tgt_r:
-        nw = int(img.height * tgt_r)
-        img = img.crop(((img.width - nw) // 2, 0, (img.width + nw) // 2, img.height))
-    else:
-        nh = int(img.width / tgt_r)
-        img = img.crop((0, (img.height - nh) // 2, img.width, (img.height + nh) // 2))
-    img = img.resize((W, H), Image.LANCZOS).convert("RGBA")
+    if img.size != (W, H):
+        src_r, tgt_r = img.width / img.height, W / H
+        if src_r > tgt_r:
+            nw = int(img.height * tgt_r)
+            img = img.crop(((img.width - nw) // 2, 0, (img.width + nw) // 2, img.height))
+        else:
+            nh = int(img.width / tgt_r)
+            img = img.crop((0, (img.height - nh) // 2, img.width, (img.height + nh) // 2))
+        img = img.resize((W, H), Image.LANCZOS)
 
-    # Dark gradient over top third (title readability)
+    img = img.convert("RGBA")
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ov = ImageDraw.Draw(overlay)
     for y in range(290):
-        alpha = int(210 * (1 - y / 290) ** 0.5)
-        ov.line([(0, y), (W, y)], fill=(0, 0, 0, alpha))
-    # Dark bar at bottom
+        ov.line([(0, y), (W, y)], fill=(0, 0, 0, int(210 * (1 - y / 290) ** 0.5)))
     ov.rectangle([(0, H - 88), (W, H)], fill=(0, 0, 0, 215))
-
     img = Image.alpha_composite(img, overlay).convert("RGB")
     draw = ImageDraw.Draw(img)
 
     def load_font(size: int):
-        for path in [
-            "C:/Windows/Fonts/impact.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "/Library/Fonts/Impact.ttf",
-            "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
-        ]:
+        for p in ["C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/arialbd.ttf",
+                  "/Library/Fonts/Impact.ttf",
+                  "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf"]:
             try:
-                return ImageFont.truetype(path, size)
+                return ImageFont.truetype(p, size)
             except (IOError, OSError):
                 continue
         return ImageFont.load_default()
 
-    def fit_text(text: str, max_w: int, start_size: int, min_size: int = 30):
+    def fit_text(text, max_w, start_size, min_size=30):
         size = start_size
         while size >= min_size:
             font = load_font(size)
             bb = draw.textbbox((0, 0), text, font=font)
             if (bb[2] - bb[0]) <= max_w:
-                return font, size
+                return font
             size -= 4
-        return load_font(min_size), min_size
+        return load_font(min_size)
 
     def outlined(x, y, text, font, fill, stroke=5):
         draw.text((x, y), text, font=font, fill=fill,
                   stroke_width=stroke, stroke_fill=(0, 0, 0))
 
-    # Build title lines: strip "DCS World | ", skip aircraft part (it's in the bottom bar)
     raw = metadata.get("title", "").strip()
     for prefix in ("DCS World | ", "DCS | "):
         if raw.startswith(prefix):
             raw = raw[len(prefix):]
             break
     parts = [p.strip().upper() for p in raw.split(" | ") if p.strip()]
-    title_lines = parts[1:] if len(parts) > 1 else parts  # skip module part
+    title_lines = parts[1:] if len(parts) > 1 else parts
 
-    # Render title lines
-    sizes   = [88, 68, 52]
-    colors  = [(255, 215, 0), (255, 255, 255), (200, 200, 200)]
+    sizes  = [88, 68, 52]
+    colors = [(255, 215, 0), (255, 255, 255), (200, 200, 200)]
     y = 18
     for i, line in enumerate(title_lines[:3]):
-        font, _ = fit_text(line, W - 80, sizes[min(i, len(sizes) - 1)])
+        font = fit_text(line, W - 80, sizes[min(i, len(sizes) - 1)])
         outlined(40, y, line, font, colors[min(i, len(colors) - 1)])
         bb = draw.textbbox((0, 0), line, font=font)
         y += (bb[3] - bb[1]) + 10
 
-    # Bottom bar: aircraft · map
-    aircraft = metadata.get("aircraft", "")
-    map_name = metadata.get("map", "")
-    bottom = "  ·  ".join(p for p in [aircraft, map_name] if p).upper()
-    bot_font, _ = fit_text(bottom, W - 280, 34, 20)
-    outlined(36, H - 72, bottom, bot_font, (255, 255, 255), stroke=3)
+    bottom = "  ·  ".join(p for p in [metadata.get("aircraft", ""), metadata.get("map", "")] if p).upper()
+    outlined(36, H - 72, bottom, fit_text(bottom, W - 280, 34, 20), (255, 255, 255), stroke=3)
 
-    # Channel handle (bottom-right)
     handle = f"@{config.get('channel_name', 'TheCylonPilot').lower()}"
     sm_font = load_font(22)
     bb = draw.textbbox((0, 0), handle, font=sm_font)
     outlined(W - (bb[2] - bb[0]) - 22, H - 66, handle, sm_font, (180, 180, 180), stroke=2)
 
+    return img
+
+
+def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
+    """Save thumbnail JPEG under 2 MB, reducing quality if needed."""
+    import io
     OUTPUT_PATH.mkdir(exist_ok=True)
-    stem = video_path.stem
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    thumb_path = OUTPUT_PATH / f"{stem}_{ts}_thumb.jpg"
-    img.save(thumb_path, "JPEG", quality=95)
-    print(f"  [thumb] {thumb_path.name}")
-    return thumb_path
+    path = OUTPUT_PATH / f"{video_path.stem}_{ts}_{suffix}.jpg"
+    for quality in (90, 80, 70, 60, 50):
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=quality)
+        if buf.tell() < 2 * 1024 * 1024:
+            path.write_bytes(buf.getvalue())
+            print(f"  [thumb] {path.name} ({buf.tell() // 1024} KB, q={quality})")
+            return path
+    path.write_bytes(buf.getvalue())
+    return path
 
 
-def generate_thumbnail_on_demand(video_path: Path, metadata: dict, config: dict) -> "Path | None":
-    """Extract one frame on demand and generate a thumbnail. Used by the web UI button."""
-    tmp_path = Path(os.environ.get("TEMP", "/tmp")) / "dcs_thumb_frame.jpg"
+def _build_imagen_prompt(metadata: dict) -> str:
+    aircraft  = metadata.get("aircraft", "military aircraft")
+    map_name  = metadata.get("map", "")
+    mission   = metadata.get("mission_type", "")
+
+    terrain_map = {
+        "caucasus":       "Caucasus mountains, snow-capped peaks, deep green valleys, Georgian rivers",
+        "persian gulf":   "Persian Gulf coastline, vast golden desert, turquoise sea",
+        "nevada":         "Nevada desert, dry salt lake beds, arid mountains",
+        "syria":          "Syrian desert, rocky plateaus, ancient ruins, Mediterranean coast",
+        "marianas":       "Pacific Ocean, tropical volcanic islands, deep blue water",
+        "sinai":          "Sinai desert, red rocky mountains, Red Sea coast",
+        "south atlantic": "South Atlantic ocean, Falkland Islands coastline, grey stormy sea",
+    }
+    terrain = next((v for k, v in terrain_map.items() if k in map_name.lower()),
+                   f"{map_name} dramatic terrain" if map_name else "dramatic mountain and coastal landscape")
+
+    aircraft_map = {
+        "a-10c":  "A-10C Thunderbolt II Warthog, GAU-8 cannon firing bright tracers, AGM-65 Mavericks under wing",
+        "f/a-18": "F/A-18C Hornet multirole fighter, afterburner cones blazing, Mk-83 bombs loaded",
+        "f-18":   "F/A-18C Hornet fighter jet, twin afterburners lit, weapons bay full",
+        "f-16":   "F-16C Fighting Falcon, cranked arrow delta wing, lit afterburner cone",
+        "f-14":   "F-14 Tomcat, swing wings fully spread, Phoenix missiles on rails",
+        "uh-1":   "UH-1H Huey helicopter, door gunner firing, rotor wash kicking up dust",
+    }
+    ac_lower = aircraft.lower()
+    ac_desc = next((v for k, v in aircraft_map.items() if k in ac_lower), f"{aircraft} military aircraft")
+
+    action_map = {
+        "cas":       "low-level strafing run, enemy tank column burning below, shrapnel and fire",
+        "sead":      "HARM anti-radiation missile streak, enemy radar site exploding in fireball",
+        "strike":    "precision bombing run, massive explosion and smoke column on target",
+        "bvr":       "beyond-visual-range air combat, AIM-120 missile contrails crossing sky",
+        "aaa":       "evading flak bursts, explosive anti-aircraft fire surrounding aircraft",
+        "intercept": "full afterburner intercept, enemy aircraft silhouette ahead",
+        "training":  "dramatic formation flight through towering cumulonimbus clouds",
+    }
+    mt_lower = (mission or "").lower()
+    action = next((v for k, v in action_map.items() if k in mt_lower),
+                  "intense low-altitude combat pass, explosions and rising smoke trails")
+
+    return (
+        f"Epic YouTube gaming thumbnail background, photorealistic military aviation concept art. "
+        f"{ac_desc} flying fast and low over {terrain}, {action}. "
+        f"Dramatic golden hour cinematic lighting, deep orange and crimson sky, "
+        f"volumetric god rays through clouds, dark silhouettes, high contrast. "
+        f"Ultra-detailed military hardware, hyper-realistic, 8K render quality. "
+        f"No text, no watermarks, no HUD, no UI elements. "
+        f"16:9 widescreen composition, lower quarter slightly darker for subtitle overlay."
+    )
+
+
+def call_imagen(prompt: str, api_key: str) -> str:
+    """Call Imagen 3 via Gemini Developer API. Returns base64-encoded JPEG string."""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"imagen-3.0-generate-002:predict?key={api_key}"
+    )
+    payload = json.dumps({
+        "instances": [{"prompt": prompt}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "16:9",
+            "outputMimeType": "image/jpeg",
+            "outputCompressionQuality": 85,
+        }
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
-            capture_output=True, text=True, check=True
-        )
-        duration = float(json.loads(result.stdout)["format"]["duration"])
-    except Exception as e:
-        print(f"  Could not read duration for thumbnail: {e}")
-        return None
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8")
+        raise RuntimeError(f"Imagen API error {e.code}: {body}")
 
-    timestamp = duration * 0.6
     try:
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", str(timestamp),
-            "-i", str(video_path),
-            "-vframes", "1", "-q:v", "2",
-            "-vf", "scale=1920:-1",
-            str(tmp_path)
-        ], capture_output=True, check=True)
-        with open(tmp_path, "rb") as f:
-            frame_b64 = base64.standard_b64encode(f.read()).decode()
-        tmp_path.unlink(missing_ok=True)
-    except Exception as e:
-        print(f"  Frame extraction failed for thumbnail: {e}")
-        return None
+        return data["predictions"][0]["bytesBase64Encoded"]
+    except (KeyError, IndexError):
+        raise RuntimeError(f"Unexpected Imagen response: {data}")
 
-    return generate_thumbnail([frame_b64], metadata, video_path, config)
+
+def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Path:
+    """Generate a YouTube thumbnail using Imagen 3 AI + Pillow text overlay."""
+    try:
+        from PIL import Image
+        import io as _io
+    except ImportError:
+        raise RuntimeError("Pillow not installed: pip install Pillow")
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+
+    prompt = _build_imagen_prompt(metadata)
+    print(f"  Calling Imagen 3...")
+    img_b64 = call_imagen(prompt, api_key)
+
+    img = Image.open(_io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
+    img = _apply_thumbnail_overlay(img, metadata, config)
+    return _save_thumbnail(img, video_path, "ai_thumb")
+
+
+def generate_thumbnail(frames_b64: list[str], metadata: dict, video_path: Path, config: dict) -> "Path | None":
+    """Frame-based thumbnail (fallback). Picks best frame, applies text overlay."""
+    try:
+        from PIL import Image
+        import io as _io
+    except ImportError:
+        return None
+    if not frames_b64:
+        return None
+    idx = min(int(len(frames_b64) * 0.6), len(frames_b64) - 1)
+    img = Image.open(_io.BytesIO(base64.b64decode(frames_b64[idx]))).convert("RGB")
+    img = _apply_thumbnail_overlay(img, metadata, config)
+    return _save_thumbnail(img, video_path, "thumb")
 
 
 # ── Output ────────────────────────────────────────────────────────────────────
