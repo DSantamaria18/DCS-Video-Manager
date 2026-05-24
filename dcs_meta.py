@@ -464,59 +464,141 @@ def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
     return path
 
 
-def _build_imagen_prompt(metadata: dict) -> str:
-    aircraft  = metadata.get("aircraft", "military aircraft")
-    map_name  = metadata.get("map", "")
-    mission   = metadata.get("mission_type", "")
-
-    terrain_map = {
-        "caucasus":       "Caucasus mountains, snow-capped peaks, deep green valleys, Georgian rivers",
-        "persian gulf":   "Persian Gulf coastline, vast golden desert, turquoise sea",
-        "nevada":         "Nevada desert, dry salt lake beds, arid mountains",
-        "syria":          "Syrian desert, rocky plateaus, ancient ruins, Mediterranean coast",
-        "marianas":       "Pacific Ocean, tropical volcanic islands, deep blue water",
-        "sinai":          "Sinai desert, red rocky mountains, Red Sea coast",
-        "south atlantic": "South Atlantic ocean, Falkland Islands coastline, grey stormy sea",
-    }
-    terrain = next((v for k, v in terrain_map.items() if k in map_name.lower()),
-                   f"{map_name} dramatic terrain" if map_name else "dramatic mountain and coastal landscape")
-
-    aircraft_map = {
-        "a-10c":  "A-10C Thunderbolt II Warthog, GAU-8 cannon firing bright tracers, AGM-65 Mavericks under wing",
-        "f/a-18": "F/A-18C Hornet multirole fighter, afterburner cones blazing, Mk-83 bombs loaded",
-        "f-18":   "F/A-18C Hornet fighter jet, twin afterburners lit, weapons bay full",
-        "f-16":   "F-16C Fighting Falcon, cranked arrow delta wing, lit afterburner cone",
-        "f-14":   "F-14 Tomcat, swing wings fully spread, Phoenix missiles on rails",
-        "uh-1":   "UH-1H Huey helicopter, door gunner firing, rotor wash kicking up dust",
-    }
+def _build_imagen_prompt(metadata: dict) -> tuple[str, str]:
+    """Return (positive_prompt, negative_prompt) for AI image generation."""
+    aircraft = metadata.get("aircraft", "military aircraft")
+    map_name = metadata.get("map", "")
+    mission  = metadata.get("mission_type", "")
     ac_lower = aircraft.lower()
-    ac_desc = next((v for k, v in aircraft_map.items() if k in ac_lower), f"{aircraft} military aircraft")
 
-    action_map = {
-        "cas":       "low-level strafing run, enemy tank column burning below, shrapnel and fire",
-        "sead":      "HARM anti-radiation missile streak, enemy radar site exploding in fireball",
-        "strike":    "precision bombing run, massive explosion and smoke column on target",
-        "bvr":       "beyond-visual-range air combat, AIM-120 missile contrails crossing sky",
-        "aaa":       "evading flak bursts, explosive anti-aircraft fire surrounding aircraft",
-        "intercept": "full afterburner intercept, enemy aircraft silhouette ahead",
-        "training":  "dramatic formation flight through towering cumulonimbus clouds",
+    # ── Aircraft: highly specific visual descriptions ─────────────────────────
+    # Each entry: (visual_description, what_it_is_not)
+    AIRCRAFT = [
+        (
+            ("a-10c", "a-10", "warthog", "thunderbolt"),
+            (
+                "A-10C Thunderbolt II Warthog ground-attack aircraft, "
+                "straight unswept high-aspect-ratio wings, "
+                "two General Electric TF34 turbofan engines mounted HIGH on the upper REAR fuselage "
+                "(not under the wings), "
+                "massive 30mm GAU-8 Avenger rotary cannon protruding from the nose tip offset to port, "
+                "twin tail fins on a twin-boom empennage, "
+                "boxy angular gray fuselage, tricycle landing gear, "
+                "AGM-65 Maverick missiles and Mk-82 bombs on underwing pylons"
+            ),
+            "no swept wings, no single tail fin, not an F-16, not an F-18, not a fighter jet",
+        ),
+        (
+            ("f/a-18c", "f/a-18", "f-18", "hornet"),
+            (
+                "F/A-18C Hornet carrier-based multirole fighter jet, "
+                "large delta wings with prominent leading-edge root extensions (LERX strakes), "
+                "two canted outward-angled vertical stabilizers, "
+                "twin General Electric F404 afterburning turbofan engines "
+                "with rectangular intakes under the fuselage, "
+                "gray-blue naval paint scheme, "
+                "AIM-9 Sidewinder missiles on wingtips, GBU bombs on pylons"
+            ),
+            "no straight wings, not an A-10, not a single-engine aircraft, not an F-16",
+        ),
+        (
+            ("f-16c", "f-16", "viper", "falcon"),
+            (
+                "F-16C Fighting Falcon Viper multirole fighter, "
+                "single Pratt & Whitney F100 turbofan engine, "
+                "large blended-body cranked-arrow delta wing, "
+                "distinctive large frameless bubble canopy giving 360-degree visibility, "
+                "single ventral chin intake under the nose, "
+                "single swept vertical stabilizer, "
+                "lightweight agile single-seat aircraft"
+            ),
+            "no twin engines, no twin tails, not an F-18, not an A-10",
+        ),
+        (
+            ("f-14", "tomcat"),
+            (
+                "F-14 Tomcat variable-sweep wing naval interceptor, "
+                "long flat slab-sided fuselage with tunnel between twin Pratt & Whitney TF30 engines, "
+                "variable-geometry swing wings spread wide in low-speed configuration, "
+                "two canted inward vertical stabilizers with partial-span rudders, "
+                "large AWG-9 radar dome nose, "
+                "AIM-54 Phoenix missiles on glove pylons"
+            ),
+            "no fixed wings, not an F-18, not an F-16, not an A-10",
+        ),
+        (
+            ("uh-1h", "uh-1", "huey", "iroquois"),
+            (
+                "UH-1H Iroquois Huey military helicopter, "
+                "single two-blade semi-rigid main rotor, "
+                "elongated egg-shaped pod fuselage, "
+                "long thin tail boom with single two-blade tail rotor, "
+                "skid landing gear (no wheels), "
+                "olive drab military green paint, "
+                "open side doors with door gunner position"
+            ),
+            "not a fixed-wing aircraft, no jet engines, not an Apache, not a Black Hawk",
+        ),
+    ]
+
+    ac_visual = f"{aircraft} military aircraft flying in combat"
+    ac_negative = "wrong aircraft type"
+    for keys, visual, neg in AIRCRAFT:
+        if any(k in ac_lower for k in keys):
+            ac_visual  = visual
+            ac_negative = neg
+            break
+
+    # ── Map / terrain ─────────────────────────────────────────────────────────
+    TERRAINS = {
+        "caucasus":       "Caucasus mountain range, Georgia, snow-capped jagged peaks, dark green forested valleys, winding rivers, late afternoon light",
+        "persian gulf":   "Persian Gulf coast, flat golden sand desert stretching to a calm turquoise sea, oil refineries in the distance, hazy horizon",
+        "nevada":         "Nevada NTTR desert, vast dry salt lake beds (playas), sparse scrubland, reddish arid mountains, bright harsh sunlight",
+        "syria":          "Syrian rocky desert plateau, tan and ochre terrain, sparse vegetation, ancient stone ruins, Mediterranean coast in the distance",
+        "marianas":       "Pacific Ocean, volcanic tropical islands, dense jungle, coral reefs visible through deep blue water, towering cumulus clouds",
+        "sinai":          "Sinai Peninsula desert, red and brown rocky mountains, flat sand plains, Red Sea glittering coastline",
+        "south atlantic": "South Atlantic Ocean, grey choppy sea, Falkland Islands coastline, overcast stormy sky, dramatic light on water",
+    }
+    terrain = next((v for k, v in TERRAINS.items() if k in map_name.lower()),
+                   f"{map_name} terrain" if map_name else "dramatic mountain and coastal military landscape")
+
+    # ── Mission action ────────────────────────────────────────────────────────
+    ACTIONS = {
+        "cas":       "flying extremely low over burning enemy armored column, GAU-8 tracers or bomb explosions below, smoke and fire rising",
+        "sead":      "firing AGM-88 HARM anti-radiation missile at enemy radar site, radar dish exploding in fireball",
+        "strike":    "releasing precision-guided bombs, massive explosion and smoke column erupting from target below",
+        "bvr":       "launching AIM-120 AMRAAM missile, long contrail streaking toward distant target in open sky",
+        "aaa":       "banking hard to evade flak bursts, black anti-aircraft explosions surrounding the aircraft",
+        "intercept": "full afterburner climb intercept, bright blue-white afterburner cone visible",
+        "training":  "tight banking turn through dramatic cumulonimbus cloud tower, sunlight breaking through",
     }
     mt_lower = (mission or "").lower()
-    action = next((v for k, v in action_map.items() if k in mt_lower),
-                  "intense low-altitude combat pass, explosions and rising smoke trails")
+    action = next((v for k, v in ACTIONS.items() if k in mt_lower),
+                  "low-altitude high-speed combat pass over burning target, explosions and smoke below")
 
-    return (
-        f"Epic YouTube gaming thumbnail background, photorealistic military aviation concept art. "
-        f"{ac_desc} flying fast and low over {terrain}, {action}. "
-        f"Dramatic golden hour cinematic lighting, deep orange and crimson sky, "
-        f"volumetric god rays through clouds, dark silhouettes, high contrast. "
-        f"Ultra-detailed military hardware, hyper-realistic, 8K render quality. "
-        f"No text, no watermarks, no HUD, no UI elements. "
-        f"16:9 widescreen composition, lower quarter slightly darker for subtitle overlay."
+    positive = (
+        f"{ac_visual}, "
+        f"{action}, "
+        f"over {terrain}. "
+        f"Dramatic cinematic golden hour lighting, deep orange and crimson sunset sky, "
+        f"volumetric light rays through clouds, high contrast shadows. "
+        f"Photorealistic military aviation art, hyper-detailed aircraft, 8K quality. "
+        f"No text, no watermarks, no HUD, no user interface."
     )
 
+    negative = (
+        f"{ac_negative}, "
+        f"fantasy aircraft, fictional design, sci-fi spaceship, "
+        f"cartoon, anime, illustration, painting, sketch, "
+        f"blurry, low quality, pixelated, jpeg artifacts, "
+        f"text, watermark, logo, signature, HUD overlay, game UI, "
+        f"multiple different aircraft types in same image"
+    )
 
-def call_imagen(prompt: str, api_key: str) -> str:
+    return positive, negative
+
+
+def call_imagen(prompt: str, api_key: str, negative: str = "") -> str:
     """Generate an image. Returns base64-encoded JPEG/PNG.
 
     Priority:
@@ -570,13 +652,14 @@ def call_imagen(prompt: str, api_key: str) -> str:
         pass
 
     # ── Attempt 3: Pollinations.ai / Flux (free, no key required) ────────────
-    print("  Gemini image quota unavailable, using Pollinations.ai (Flux)...")
-    short_prompt = prompt[:500]  # URL length limit
-    encoded = urllib.parse.quote(short_prompt)
+    print("  Gemini image quota unavailable — using Pollinations.ai (Flux)...")
     seed = int(datetime.now().timestamp()) % 99999
+    encoded_prompt   = urllib.parse.quote(prompt[:800])
+    encoded_negative = urllib.parse.quote(negative[:400]) if negative else ""
     poll_url = (
-        f"https://image.pollinations.ai/prompt/{encoded}"
-        f"?width=1280&height=720&model=flux&nologo=true&seed={seed}"
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        f"?width=1280&height=720&model=flux-pro&nologo=true&seed={seed}"
+        + (f"&negative={encoded_negative}" if encoded_negative else "")
     )
     req3 = urllib.request.Request(poll_url, headers={"User-Agent": "DCS-Video-Manager/1.0"})
     with urllib.request.urlopen(req3, timeout=120) as resp:
@@ -596,9 +679,9 @@ def generate_ai_thumbnail(metadata: dict, video_path: Path, config: dict) -> Pat
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
 
-    prompt = _build_imagen_prompt(metadata)
-    print(f"  Calling Imagen 3...")
-    img_b64 = call_imagen(prompt, api_key)
+    positive, negative = _build_imagen_prompt(metadata)
+    print(f"  Generating AI thumbnail ({metadata.get('aircraft','?')} / {metadata.get('map','?')})...")
+    img_b64 = call_imagen(positive, api_key, negative)
 
     img = Image.open(_io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
     img = _apply_thumbnail_overlay(img, metadata, config)
