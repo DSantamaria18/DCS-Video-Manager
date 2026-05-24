@@ -228,9 +228,17 @@ def upload_youtube():
     video_path = data.get("video_path", "").strip()
     metadata = data.get("metadata", {})
     playlist_ids = data.get("playlist_ids", [])  # list of playlist IDs
+    thumbnail_url = data.get("thumbnail_url", "").strip()
 
     if not video_path or not metadata:
         return jsonify({"error": "Missing video_path or metadata"}), 400
+
+    # Resolve the thumbnail URL (/output/filename.jpg) to a local filesystem path
+    thumbnail_path = None
+    if thumbnail_url.startswith("/output/"):
+        candidate = Path(__file__).parent.parent / "output" / Path(thumbnail_url).name
+        if candidate.exists():
+            thumbnail_path = str(candidate)
 
     try:
         from youtube_uploader import upload_video
@@ -242,7 +250,8 @@ def upload_youtube():
             chapters=metadata.get("chapters", []),
             privacy="private",
             playlist_ids=playlist_ids,
-            language=metadata.get("language", "en")
+            language=metadata.get("language", "en"),
+            thumbnail_path=thumbnail_path
         )
         return jsonify(result)
     except ImportError:

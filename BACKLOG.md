@@ -23,7 +23,6 @@
 | 11 | Edit cut suggestions | 🟢 Low | Detect prolonged silences with ffmpeg and list them as suggested cut points before editing |
 | 12 | Operations report for E111 | 🟡 Medium | Generate a mission summary in military report format to share on the squadron forum/Discord |
 | 13 | Automatic YouTube Shorts generation | 🟡 Medium | Detect action moments via audio peaks (ffmpeg) + confirm with Gemini, crop to 9:16, generate Short metadata with #Shorts |
-| 14 | Upload custom thumbnail | 🔴 High | Allow selecting an image to use as the video thumbnail when uploading |
 | 16 | Schedule publish date and time | 🟡 Medium | Add a date/time picker to schedule publication instead of doing it manually from YouTube Studio |
 | 17 | Batch mode with UI | 🟡 Medium | Allow selecting multiple videos and processing/uploading them in a queue from the web interface |
 | 18 | Channel stats dashboard | 🟢 Low | Visualise most-recorded modules, ongoing campaigns, and video upload history from `history.json` |

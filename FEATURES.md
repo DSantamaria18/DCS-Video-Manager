@@ -34,6 +34,7 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 - **Playlist assignment** — loads the channel's playlists and allows assigning the video to one or more before uploading.
 - **Tag-less fallback** — if the app is not Google-verified and tags fail (403 error), the upload is retried without tags and the user is notified with an amber warning.
 - **Upload result** — displays the published video URL with a direct link to YouTube Studio.
+- **Thumbnail upload** — if a thumbnail was generated and selected in the UI, it is automatically set on the video via `thumbnails.set` after upload. Failure is non-fatal: the video is still published and a warning is shown in the result block.
 - **Reset on new video** — the upload result block is cleared automatically when a new video is selected.
 
 ---
