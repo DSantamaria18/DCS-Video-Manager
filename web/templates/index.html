@@ -576,6 +576,18 @@
     letter-spacing: 1px;
     margin: 14px 0 10px;
   }
+  .tpl-key-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    background: var(--green3);
+    border: 1px solid var(--green2);
+    color: var(--green);
+    margin-left: 8px;
+  }
+  .tpl-key-badge.custom { background: var(--amber2); border-color: var(--amber); color: var(--amber); }
 
   /* Setup tab */
   .setup-section {
@@ -1004,6 +1016,50 @@
       </div>
 
       <div class="setup-section">
+        <h3>DESCRIPTION TEMPLATES
+          <span class="tpl-key-badge" id="tplBadge" style="display:none;"></span>
+        </h3>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">
+          Override the description structure Gemini uses per video length and language.
+          Leave empty to use the built-in default.
+        </p>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+          <div class="field-group" style="margin:0;flex:1;min-width:200px;">
+            <label>Template</label>
+            <select id="tplSelect" onchange="onTemplateSelect()">
+              <option value="en_short">English — Short (&lt;10 min)</option>
+              <option value="en_medium">English — Medium (10–30 min)</option>
+              <option value="en_long">English — Long (&gt;30 min)</option>
+              <option value="es_short">Spanish — Short (&lt;10 min)</option>
+              <option value="es_medium">Spanish — Medium (10–30 min)</option>
+              <option value="es_long">Spanish — Long (&gt;30 min)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Template content</label>
+          <textarea id="tplContent" rows="16"
+            placeholder="Loading…"
+            style="font-family:var(--mono);font-size:11px;line-height:1.5;resize:vertical;min-height:200px;"></textarea>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="saveTemplate()"
+            style="width:auto;padding:8px 18px;font-size:11px;letter-spacing:1px;">
+            SAVE TEMPLATE
+          </button>
+          <button class="btn btn-secondary" onclick="resetTemplate()"
+            style="width:auto;padding:7px 14px;font-size:11px;letter-spacing:1px;
+                   color:var(--amber);border-color:var(--amber2);">
+            RESET TO DEFAULT
+          </button>
+          <span id="tplSaveStatus" style="font-family:var(--mono);font-size:11px;"></span>
+        </div>
+      </div>
+
+      <div class="setup-section">
         <h3>GEMINI API KEY</h3>
         <div class="setup-step">
           <span class="step-num">1</span>
@@ -1102,6 +1158,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadHistory();
   loadPlaylists();
   loadConfigForm();
+  loadDescriptionTemplates();
 });
 
 // ── File handling ─────────────────────────────────────────────────────────────
@@ -1151,7 +1208,7 @@ function openTab(name) {
   const content = document.getElementById('tab-' + name);
   if (content) content.classList.add('active');
   if (name === 'history') loadHistory();
-  if (name === 'setup') loadConfigForm();
+  if (name === 'setup') { loadConfigForm(); loadDescriptionTemplates(); }
 }
 
 // ── Analysis ─────────────────────────────────────────────────────────────────
@@ -1748,6 +1805,87 @@ async function saveConfig() {
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = '✓ Saved';
       setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
+}
+
+// ── Description template editor ──────────────────────────────────────────────
+let _templateData = { templates: {}, customised: [] };
+
+async function loadDescriptionTemplates() {
+  try {
+    const resp = await fetch('/api/description_templates');
+    if (!resp.ok) return;
+    _templateData = await resp.json();
+    onTemplateSelect();
+  } catch(e) {
+    console.error('Could not load description templates:', e);
+  }
+}
+
+function onTemplateSelect() {
+  const key = document.getElementById('tplSelect').value;
+  const content = _templateData.templates[key] || '';
+  document.getElementById('tplContent').value = content;
+  const badge = document.getElementById('tplBadge');
+  const isCustom = _templateData.customised.includes(key);
+  badge.textContent = isCustom ? 'CUSTOM' : 'DEFAULT';
+  badge.className = 'tpl-key-badge' + (isCustom ? ' custom' : '');
+  badge.style.display = '';
+}
+
+async function saveTemplate() {
+  const key = document.getElementById('tplSelect').value;
+  const content = document.getElementById('tplContent').value;
+  const statusEl = document.getElementById('tplSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Saving…';
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ description_templates: { [key]: content } })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.error || 'Save failed');
+    } else {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      await loadDescriptionTemplates();
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
+}
+
+async function resetTemplate() {
+  const key = document.getElementById('tplSelect').value;
+  const statusEl = document.getElementById('tplSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Resetting…';
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ description_templates: { [key]: '' } })
+    });
+    if (resp.ok) {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Reset to default';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      await loadDescriptionTemplates();
+    } else {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ Reset failed';
     }
   } catch(e) {
     statusEl.style.color = 'var(--red)';

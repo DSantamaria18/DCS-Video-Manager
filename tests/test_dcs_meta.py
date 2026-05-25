@@ -471,6 +471,54 @@ def test_update_memory_video_id_no_match_is_safe(tmp_path, monkeypatch):
     assert saved["videos"][0]["video_id"] == ""
 
 
+# ── _build_description_rules with custom templates ────────────────────────────
+
+def test_build_description_rules_returns_hardcoded_when_no_config():
+    result = dcs_meta._build_description_rules(False, "medium")
+    assert "full training video" in result
+
+
+def test_build_description_rules_uses_custom_template_from_config():
+    cfg = {"description_templates": {"en_medium": "MY CUSTOM TEMPLATE"}}
+    result = dcs_meta._build_description_rules(False, "medium", cfg)
+    assert result == "MY CUSTOM TEMPLATE"
+
+
+def test_build_description_rules_falls_back_when_custom_empty():
+    cfg = {"description_templates": {"en_medium": ""}}
+    result = dcs_meta._build_description_rules(False, "medium", cfg)
+    assert "full training video" in result
+
+
+def test_build_description_rules_custom_key_mapping():
+    """es_long should be used for is_squadron=True, category='long'."""
+    cfg = {"description_templates": {"es_long": "CUSTOM LONG SPANISH"}}
+    result = dcs_meta._build_description_rules(True, "long", cfg)
+    assert result == "CUSTOM LONG SPANISH"
+
+
+@pytest.mark.parametrize("is_sq,cat,expected_key", [
+    (False, "short",  "en_short"),
+    (False, "medium", "en_medium"),
+    (False, "long",   "en_long"),
+    (True,  "short",  "es_short"),
+    (True,  "medium", "es_medium"),
+    (True,  "long",   "es_long"),
+])
+def test_build_description_rules_correct_key_for_all_combinations(is_sq, cat, expected_key):
+    sentinel = f"SENTINEL_{expected_key}"
+    cfg = {"description_templates": {expected_key: sentinel}}
+    result = dcs_meta._build_description_rules(is_sq, cat, cfg)
+    assert result == sentinel
+
+
+def test_valid_template_keys_covers_all_combinations():
+    assert dcs_meta.VALID_TEMPLATE_KEYS == {
+        "en_short", "en_medium", "en_long",
+        "es_short", "es_medium", "es_long",
+    }
+
+
 def test_update_memory_video_id_patches_most_recent_matching(tmp_path, monkeypatch):
     history_file = tmp_path / "history.json"
     history_file.write_text(json.dumps({"videos": [

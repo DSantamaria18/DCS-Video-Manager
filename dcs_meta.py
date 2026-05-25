@@ -38,7 +38,8 @@ DEFAULT_CONFIG = {
         "escuadron111":      "https://www.escuadron111.eu/"
     },
     "frames_to_extract": 8,
-    "model": "gemini-2.5-flash"
+    "model": "gemini-2.5-flash",
+    "description_templates": {}
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
@@ -242,8 +243,23 @@ def _video_length_category(duration_seconds: float) -> str:
     return "long"
 
 
-def _build_description_rules(is_squadron: bool, category: str) -> str:
-    """Return length-adapted description template for the Gemini prompt."""
+VALID_TEMPLATE_KEYS = {
+    "en_short", "en_medium", "en_long",
+    "es_short", "es_medium", "es_long",
+}
+
+
+def _build_description_rules(is_squadron: bool, category: str, config: dict = None) -> str:
+    """Return length-adapted description template for the Gemini prompt.
+
+    If config contains a non-empty custom template for this (lang, category)
+    combination it is returned as-is; otherwise the hardcoded default is used.
+    """
+    key = f"{'es' if is_squadron else 'en'}_{category}"
+    if config:
+        custom = config.get("description_templates", {}).get(key, "")
+        if custom:
+            return custom
     if category == "short":
         if is_squadron:
             return """\
@@ -463,7 +479,7 @@ Tone: mission report style, proud of the team, mention callsigns/roles if visibl
         lang_instructions = """LANGUAGE: English. Tone: enthusiastic learner, honest about mistakes, technically interested.
 This is a solo/campaign video. The pilot is learning DCS and shares both successes and failures to help other beginners."""
 
-    description_rules = _build_description_rules(is_squadron, category)
+    description_rules = _build_description_rules(is_squadron, category, config)
 
     chapters_rule = {
         "short":  "Do NOT include chapters — video is too short (<10 min). Return empty array [].",

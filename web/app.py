@@ -109,7 +109,8 @@ def browse_file():
 
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
-                        "default_links", "frames_to_extract", "model"}
+                        "default_links", "frames_to_extract", "model",
+                        "description_templates"}
 
 
 @app.route("/api/config")
@@ -137,7 +138,21 @@ def save_config():
         return jsonify({"error": f"Invalid model. Allowed: {', '.join(sorted(VALID_MODELS))}"}), 400
 
     existing = dcs_meta.load_config()
-    for key in _CONFIG_ALLOWED_KEYS:
+
+    # description_templates uses merge semantics so individual keys can be saved
+    # without overwriting unrelated templates.
+    if "description_templates" in data:
+        incoming = data.pop("description_templates")
+        if not isinstance(incoming, dict):
+            return jsonify({"error": "description_templates must be an object"}), 400
+        merged = dict(existing.get("description_templates", {}))
+        for k, v in incoming.items():
+            if k not in dcs_meta.VALID_TEMPLATE_KEYS:
+                return jsonify({"error": f"Invalid template key: {k}"}), 400
+            merged[k] = v  # empty string is valid — means "reset to default"
+        existing["description_templates"] = merged
+
+    for key in _CONFIG_ALLOWED_KEYS - {"description_templates"}:
         if key in data:
             existing[key] = data[key]
 
@@ -146,6 +161,22 @@ def save_config():
         json.dump(existing, f, indent=2, ensure_ascii=False)
 
     return jsonify(existing)
+
+
+@app.route("/api/description_templates")
+def get_description_templates():
+    """Return all 6 effective description templates (custom override or hardcoded default)."""
+    cfg = dcs_meta.load_config()
+    templates = {}
+    custom = cfg.get("description_templates", {})
+    for is_sq, lang in [(False, "en"), (True, "es")]:
+        for cat in ("short", "medium", "long"):
+            key = f"{lang}_{cat}"
+            templates[key] = dcs_meta._build_description_rules(is_sq, cat, cfg)
+    return jsonify({
+        "templates": templates,
+        "customised": [k for k, v in custom.items() if v],
+    })
 
 
 @app.route("/api/history")

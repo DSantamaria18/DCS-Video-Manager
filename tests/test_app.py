@@ -275,6 +275,75 @@ def test_post_config_all_valid_gemini_models_accepted(client, tmp_path, monkeypa
         assert resp.status_code == 200, f"Expected 200 for model {model}"
 
 
+# ── GET /api/description_templates ───────────────────────────────────────────
+
+def test_get_description_templates_returns_all_six_keys(client):
+    with patch("dcs_meta.load_config", return_value={"description_templates": {}}):
+        resp = client.get("/api/description_templates")
+    assert resp.status_code == 200
+    data = resp.json
+    assert set(data["templates"].keys()) == {
+        "en_short", "en_medium", "en_long",
+        "es_short", "es_medium", "es_long",
+    }
+
+
+def test_get_description_templates_reflects_custom_override(client):
+    cfg = {"description_templates": {"en_medium": "MY CUSTOM"}}
+    with patch("dcs_meta.load_config", return_value=cfg):
+        resp = client.get("/api/description_templates")
+    assert resp.json["templates"]["en_medium"] == "MY CUSTOM"
+    assert "en_medium" in resp.json["customised"]
+
+
+def test_get_description_templates_empty_custom_not_in_customised(client):
+    cfg = {"description_templates": {"en_medium": ""}}
+    with patch("dcs_meta.load_config", return_value=cfg):
+        resp = client.get("/api/description_templates")
+    assert "en_medium" not in resp.json["customised"]
+
+
+# ── POST /api/config — description_templates merge ────────────────────────────
+
+def test_post_config_saves_single_template_without_overwriting_others(client, tmp_path, monkeypatch):
+    existing = {**VALID_CONFIG_PAYLOAD,
+                "description_templates": {"en_long": "EXISTING LONG"}}
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    with patch("dcs_meta.load_config", return_value=existing):
+        resp = client.post("/api/config", json={
+            "description_templates": {"en_medium": "NEW MEDIUM"}
+        })
+    assert resp.status_code == 200
+    dt = resp.json["description_templates"]
+    assert dt["en_medium"] == "NEW MEDIUM"
+    assert dt["en_long"] == "EXISTING LONG"
+
+
+def test_post_config_rejects_invalid_template_key(client):
+    resp = client.post("/api/config", json={
+        "description_templates": {"xx_invalid": "content"}
+    })
+    assert resp.status_code == 400
+    assert "Invalid template key" in resp.json["error"]
+
+
+def test_post_config_rejects_non_dict_description_templates(client):
+    resp = client.post("/api/config", json={"description_templates": "not a dict"})
+    assert resp.status_code == 400
+
+
+def test_post_config_accepts_empty_string_to_reset_template(client, tmp_path, monkeypatch):
+    existing = {**VALID_CONFIG_PAYLOAD,
+                "description_templates": {"en_short": "CUSTOM"}}
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    with patch("dcs_meta.load_config", return_value=existing):
+        resp = client.post("/api/config", json={
+            "description_templates": {"en_short": ""}
+        })
+    assert resp.status_code == 200
+    assert resp.json["description_templates"]["en_short"] == ""
+
+
 # ── GET / ─────────────────────────────────────────────────────────────────────
 
 def test_index_returns_html(client):
