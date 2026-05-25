@@ -134,11 +134,14 @@ def is_squadron_video(user_context: str) -> bool:
 
 def _get_video_duration(video_path: Path) -> float:
     """Return video duration in seconds using ffprobe. Raises on failure."""
-    result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
-        capture_output=True, text=True, check=True
-    )
-    return float(json.loads(result.stdout)["format"]["duration"])
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
+            capture_output=True, text=True, check=True
+        )
+        return float(json.loads(result.stdout)["format"]["duration"])
+    except FileNotFoundError:
+        raise RuntimeError("ffprobe not found — install ffmpeg (https://ffmpeg.org)")
 
 # ── Frame extraction ─────────────────────────────────────────────────────────
 
@@ -249,40 +252,8 @@ VALID_TEMPLATE_KEYS = {
 }
 
 
-def _build_description_rules(is_squadron: bool, category: str, config: dict = None) -> str:
-    """Return length-adapted description template for the Gemini prompt.
-
-    If config contains a non-empty custom template for this (lang, category)
-    combination it is returned as-is; otherwise the hardcoded default is used.
-    """
-    key = f"{'es' if is_squadron else 'en'}_{category}"
-    if config:
-        custom = config.get("description_templates", {}).get(key, "")
-        if custom:
-            return custom
-    if category == "short":
-        if is_squadron:
-            return """\
-DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
-[1 frase directa y contundente describiendo la acción principal]
-
-✈ Aeronave: [nombre]
-🗺 Mapa: [mapa]
-🎯 Tipo de misión: [tipo]
-👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
-
-[1-2 frases: el momento clave o conclusión táctica — qué salió bien o mal]
-
-📺 MÁS VÍDEOS DCS
-[playlists relevantes]
-
-🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
-
-#DCSWorld #[Aeronave] #[tags relevantes]"""
-        else:
-            return """\
+_DESCRIPTION_TEMPLATES: dict[str, str] = {
+    "en_short": """\
 DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
 [1 punchy sentence — lead with the action, no buildup]
 
@@ -300,36 +271,9 @@ Twitter: [link]
 Twitch: [link]
 Support: [link]
 
-#DCSWorld #[Aircraft] #[relevant tags]"""
+#DCSWorld #[Aircraft] #[relevant tags]""",
 
-    if category == "medium":
-        if is_squadron:
-            return """\
-DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
-[Hook: 1-2 frases describiendo la misión con tono de informe]
-
-✈ Aeronave: [nombre]
-🗺 Mapa: [mapa]
-🎯 Tipo de misión: [tipo]
-👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
-
-[2-3 frases narrando la misión: fases principales, momentos clave, errores o éxitos]
-
----
-🕐 CAPÍTULOS
-[si el video dura más de 5 min]
-
----
-📺 MÁS VÍDEOS DCS
-[playlists relevantes]
-
-🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
-
-#DCSWorld #[Aeronave] #[tags relevantes]"""
-        else:
-            return """\
+    "en_medium": """\
 DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
 [1-2 sentence engaging hook describing the mission/action]
 
@@ -353,40 +297,9 @@ Twitter: [link]
 Twitch: [link]
 Support: [link]
 
-#DCSWorld #[Aircraft] #[relevant tags]"""
+#DCSWorld #[Aircraft] #[relevant tags]""",
 
-    # long
-    if is_squadron:
-        return """\
-DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
-[2 frases de hook: qué era la misión + el momento culminante o resultado]
-
-✈ Aeronave: [nombre]
-🗺 Mapa: [mapa]
-🎯 Tipo de misión: [tipo]
-👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
-
-[Resumen de misión: 1 frase de overview]
-
-[3-4 frases con desglose detallado: fases de la misión, compromisos clave, errores y éxitos, momentos memorables]
-
-💬 ¿Cómo lo habrías hecho tú? Déjanos tu análisis en los comentarios.
-
----
-🕐 CAPÍTULOS
-[OBLIGATORIO para vídeos largos — incluir siempre aunque sea con tiempos aproximados]
-
----
-📺 MÁS VÍDEOS DCS
-[playlists relevantes]
-
-🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
-
-#DCSWorld #[Aeronave] #[tags relevantes]"""
-    else:
-        return """\
+    "en_long": """\
 DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
 [2-sentence hook: what the mission was + the dramatic moment or outcome]
 
@@ -414,7 +327,95 @@ Twitter: [link]
 Twitch: [link]
 Support: [link]
 
-#DCSWorld #[Aircraft] #[relevant tags]"""
+#DCSWorld #[Aircraft] #[relevant tags]""",
+
+    "es_short": """\
+DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
+[1 frase directa y contundente describiendo la acción principal]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[1-2 frases: el momento clave o conclusión táctica — qué salió bien o mal]
+
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]""",
+
+    "es_medium": """\
+DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
+[Hook: 1-2 frases describiendo la misión con tono de informe]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[2-3 frases narrando la misión: fases principales, momentos clave, errores o éxitos]
+
+---
+🕐 CAPÍTULOS
+[si el video dura más de 5 min]
+
+---
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]""",
+
+    "es_long": """\
+DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
+[2 frases de hook: qué era la misión + el momento culminante o resultado]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[Resumen de misión: 1 frase de overview]
+
+[3-4 frases con desglose detallado: fases de la misión, compromisos clave, errores y éxitos, momentos memorables]
+
+💬 ¿Cómo lo habrías hecho tú? Déjanos tu análisis en los comentarios.
+
+---
+🕐 CAPÍTULOS
+[OBLIGATORIO para vídeos largos — incluir siempre aunque sea con tiempos aproximados]
+
+---
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]""",
+}
+
+
+def _build_description_rules(is_squadron: bool, category: str, config: dict = None) -> str:
+    """Return length-adapted description template for the Gemini prompt.
+
+    Returns a non-empty custom override from config if present, otherwise the hardcoded default.
+    """
+    key = f"{'es' if is_squadron else 'en'}_{category}"
+    if config:
+        custom = config.get("description_templates", {}).get(key, "")
+        if custom:
+            return custom
+    return _DESCRIPTION_TEMPLATES[key]
 
 
 def _build_module_guide() -> str:

@@ -8,6 +8,7 @@ Then open: http://localhost:5000
 import os
 import sys
 import json
+import subprocess
 import threading
 import webbrowser
 from pathlib import Path
@@ -41,24 +42,12 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/browse")
-def browse_file():
-    """Open native OS file picker and return the selected path."""
-    import subprocess, sys
-
-    # Remember last folder used
-    last_folder_path = Path(__file__).parent.parent / "config" / "last_folder.txt"
-    initial_dir = ""
-    if last_folder_path.exists():
-        initial_dir = last_folder_path.read_text().strip()
-
-    selected = None
-
+def _open_file_dialog(initial_dir: str) -> str | None:
+    """Open a native OS file-picker dialog and return the selected path, or None if cancelled."""
     if sys.platform == "win32":
-        # PowerShell OpenFileDialog
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
-            f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
+            "$f = New-Object System.Windows.Forms.OpenFileDialog;"
             f"$f.InitialDirectory = '{initial_dir}';"
             "$f.Filter = 'Video files|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v|All files|*.*';"
             "$f.Title = 'Select DCS video';"
@@ -68,22 +57,21 @@ def browse_file():
             ["powershell", "-NoProfile", "-Command", ps_script],
             capture_output=True, text=True
         )
-        selected = result.stdout.strip() or None
+        return result.stdout.strip() or None
 
     elif sys.platform == "darwin":
-        # macOS osascript
         extensions = "mp4, mkv, mov, avi, webm, m4v"
         script = (
-            f'tell application "Finder"\n'
-            f'set f to choose file with prompt "Select DCS video" '
+            'tell application "Finder"\n'
+            'set f to choose file with prompt "Select DCS video" '
             f'of type {{"{extensions}"}}\n'
-            f'POSIX path of f\nend tell'
+            'POSIX path of f\nend tell'
         )
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-        selected = result.stdout.strip() or None
+        return result.stdout.strip() or None
 
     else:
-        # Linux: try zenity or kdialog
+        # Linux: try zenity
         try:
             result = subprocess.run(
                 ["zenity", "--file-selection",
@@ -92,17 +80,27 @@ def browse_file():
                  f"--filename={initial_dir}/"],
                 capture_output=True, text=True
             )
-            selected = result.stdout.strip() or None
+            return result.stdout.strip() or None
         except FileNotFoundError:
-            return jsonify({"error": "File picker not available on this Linux. Paste path manually."}), 400
+            raise RuntimeError("File picker not available on this Linux — paste path manually.")
+
+
+@app.route("/api/browse")
+def browse_file():
+    """Open native OS file picker and return the selected path."""
+    last_folder_path = Path(__file__).parent.parent / "config" / "last_folder.txt"
+    initial_dir = last_folder_path.read_text().strip() if last_folder_path.exists() else ""
+
+    try:
+        selected = _open_file_dialog(initial_dir)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
 
     if not selected:
         return jsonify({"cancelled": True})
 
-    # Save folder for next time
-    folder = str(Path(selected).parent)
     last_folder_path.parent.mkdir(exist_ok=True)
-    last_folder_path.write_text(folder)
+    last_folder_path.write_text(str(Path(selected).parent))
 
     return jsonify({"path": selected, "name": Path(selected).name})
 
@@ -197,7 +195,7 @@ def analyze():
     if not video_path:
         return jsonify({"error": "No video path provided"}), 400
 
-    path = Path(video_path)
+    path = Path(video_path).resolve()
     if not path.exists():
         return jsonify({"error": f"File not found: {video_path}"}), 404
 
@@ -301,7 +299,7 @@ def job_status(job_id):
 def upload_youtube():
     """Upload video to YouTube with generated metadata."""
     data = request.get_json()
-    video_path = data.get("video_path", "").strip()
+    video_path = str(Path(data.get("video_path", "").strip()).resolve())
     metadata = data.get("metadata", {})
     playlist_ids = data.get("playlist_ids", [])  # list of playlist IDs
     thumbnail_url = data.get("thumbnail_url", "").strip()
