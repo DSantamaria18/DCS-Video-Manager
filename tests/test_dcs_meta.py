@@ -230,3 +230,79 @@ def test_format_description_new_aircraft_falls_through_to_generic(aircraft):
     result = dcs_meta.format_description(meta, BASE_CONFIG)
     assert "https://youtube.com/playlist?list=F18" in result
     assert "https://youtube.com/playlist?list=A10" in result
+
+
+# ── _video_length_category ────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("seconds,expected", [
+    (0,    "short"),
+    (300,  "short"),
+    (599,  "short"),
+    (600,  "medium"),
+    (900,  "medium"),
+    (1799, "medium"),
+    (1800, "long"),
+    (3600, "long"),
+])
+def test_video_length_category(seconds, expected):
+    assert dcs_meta._video_length_category(seconds) == expected
+
+
+# ── build_prompt length-adapted description rules ─────────────────────────────
+
+def test_build_prompt_short_video_uses_quick_breakdown():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=300)
+    assert "quick tactical breakdown" in prompt
+    assert "SHORT VIDEO" in prompt
+
+
+def test_build_prompt_medium_video_uses_full_training():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=900)
+    assert "full training video" in prompt
+    assert "MEDIUM VIDEO" in prompt
+
+
+def test_build_prompt_long_video_uses_complete_debrief():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=2400)
+    assert "complete mission debrief" in prompt
+    assert "LONG VIDEO" in prompt
+
+
+def test_build_prompt_short_video_chapters_rule_says_do_not_include():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=300)
+    assert "Do NOT include chapters" in prompt
+
+
+def test_build_prompt_long_video_chapters_rule_says_mandatory():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=2400)
+    assert "ALWAYS include chapters" in prompt or "mandatory" in prompt.lower()
+
+
+def test_build_prompt_no_duration_defaults_to_medium():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []})
+    assert "MEDIUM VIDEO" in prompt or "full training video" in prompt
+
+
+def test_build_prompt_duration_hint_shows_minutes():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []},
+                                   duration_seconds=900)
+    assert "15 min" in prompt
+
+
+def test_build_prompt_squadron_short_uses_spanish_template():
+    prompt = dcs_meta.build_prompt("e111 op", {}, is_squadron=True, memory={"videos": []},
+                                   duration_seconds=300)
+    assert "quick tactical breakdown" in prompt
+    assert "Aeronave" in prompt
+
+
+def test_build_prompt_squadron_long_uses_spanish_debrief():
+    prompt = dcs_meta.build_prompt("e111 op", {}, is_squadron=True, memory={"videos": []},
+                                   duration_seconds=2400)
+    assert "complete mission debrief" in prompt
+    assert "OBLIGATORIO" in prompt

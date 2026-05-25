@@ -176,6 +176,174 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
 
 # ── Prompt ───────────────────────────────────────────────────────────────────
 
+def _video_length_category(duration_seconds: float) -> str:
+    """Return 'short' (<10 min), 'medium' (10-30 min), or 'long' (>30 min)."""
+    if duration_seconds < 600:
+        return "short"
+    if duration_seconds < 1800:
+        return "medium"
+    return "long"
+
+
+def _build_description_rules(is_squadron: bool, category: str) -> str:
+    """Return length-adapted description template for the Gemini prompt."""
+    if category == "short":
+        if is_squadron:
+            return """\
+DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
+[1 frase directa y contundente describiendo la acción principal]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[1-2 frases: el momento clave o conclusión táctica — qué salió bien o mal]
+
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]"""
+        else:
+            return """\
+DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
+[1 punchy sentence — lead with the action, no buildup]
+
+✈ Aircraft: [full name]
+🗺 Map: [map name]
+🎯 Mission type: [CAS / BVR / AAR / SEAD / Strike / Training / etc.]
+
+[1-2 sentences: the key moment or takeaway — what went right or wrong]
+
+📺 MORE DCS VIDEOS
+[relevant playlists]
+
+🔗 FOLLOW
+Twitter: [link]
+Twitch: [link]
+Support: [link]
+
+#DCSWorld #[Aircraft] #[relevant tags]"""
+
+    if category == "medium":
+        if is_squadron:
+            return """\
+DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
+[Hook: 1-2 frases describiendo la misión con tono de informe]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[2-3 frases narrando la misión: fases principales, momentos clave, errores o éxitos]
+
+---
+🕐 CAPÍTULOS
+[si el video dura más de 5 min]
+
+---
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]"""
+        else:
+            return """\
+DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
+[1-2 sentence engaging hook describing the mission/action]
+
+✈ Aircraft: [full name]
+🗺 Map: [map name]
+🎯 Mission type: [CAS / BVR / AAR / SEAD / Strike / Training / etc.]
+📋 Campaign: [if applicable]
+
+[2-3 sentences of honest narrative: what happened, key moments, mistakes or wins]
+
+---
+🕐 CHAPTERS
+[list chapters here if more than 5 min]
+
+---
+📺 MORE DCS VIDEOS
+[relevant playlists]
+
+🔗 FOLLOW
+Twitter: [link]
+Twitch: [link]
+Support: [link]
+
+#DCSWorld #[Aircraft] #[relevant tags]"""
+
+    # long
+    if is_squadron:
+        return """\
+DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
+[2 frases de hook: qué era la misión + el momento culminante o resultado]
+
+✈ Aeronave: [nombre]
+🗺 Mapa: [mapa]
+🎯 Tipo de misión: [tipo]
+👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
+
+[Resumen de misión: 1 frase de overview]
+
+[3-4 frases con desglose detallado: fases de la misión, compromisos clave, errores y éxitos, momentos memorables]
+
+💬 ¿Cómo lo habrías hecho tú? Déjanos tu análisis en los comentarios.
+
+---
+🕐 CAPÍTULOS
+[OBLIGATORIO para vídeos largos — incluir siempre aunque sea con tiempos aproximados]
+
+---
+📺 MÁS VÍDEOS DCS
+[playlists relevantes]
+
+🔗 SÍGUENOS
+Twitter: https://twitter.com/thecylonpilot
+Twitch: https://www.twitch.tv/thecylonpilot
+
+#DCSWorld #[Aeronave] #[tags relevantes]"""
+    else:
+        return """\
+DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
+[2-sentence hook: what the mission was + the dramatic moment or outcome]
+
+✈ Aircraft: [full name]
+🗺 Map: [map name]
+🎯 Mission type: [CAS / BVR / AAR / SEAD / Strike / Training / etc.]
+📋 Campaign: [if applicable]
+
+[Mission summary: 1-sentence overview of the full sortie]
+
+[3-4 sentences of detailed narrative: mission phases, key engagements, mistakes and wins, memorable moments]
+
+💬 Drop a comment with your tactics — what would you have done differently?
+
+---
+🕐 CHAPTERS
+[MANDATORY for long videos — always include, use rough time estimates if needed]
+
+---
+📺 MORE DCS VIDEOS
+[relevant playlists]
+
+🔗 FOLLOW
+Twitter: [link]
+Twitch: [link]
+Support: [link]
+
+#DCSWorld #[Aircraft] #[relevant tags]"""
+
+
 def _build_module_guide() -> str:
     lines = []
     for module, data in MODULE_PROFILES.items():
@@ -188,13 +356,20 @@ def _build_module_guide() -> str:
     return "\n".join(lines)
 
 
-def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict) -> str:
+def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict,
+                 duration_seconds: float = None) -> str:
     recent = memory["videos"][-5:] if memory["videos"] else []
     memory_block = ""
     if recent:
         memory_block = "\n\nRECENT VIDEOS (for style consistency):\n"
         for v in recent:
             memory_block += f"- [{v['date']}] {v['title']} ({v['language']})\n"
+
+    category = _video_length_category(duration_seconds) if duration_seconds is not None else "medium"
+    duration_hint = ""
+    if duration_seconds is not None:
+        minutes = int(duration_seconds // 60)
+        duration_hint = f"\nVIDEO DURATION: ~{minutes} min — apply the {category.upper()} video format below."
 
     if is_squadron:
         lang_instructions = """LANGUAGE: Spanish (Spain). Formal but warm tone.
@@ -204,6 +379,14 @@ Tone: mission report style, proud of the team, mention callsigns/roles if visibl
         lang_instructions = """LANGUAGE: English. Tone: enthusiastic learner, honest about mistakes, technically interested.
 This is a solo/campaign video. The pilot is learning DCS and shares both successes and failures to help other beginners."""
 
+    description_rules = _build_description_rules(is_squadron, category)
+
+    chapters_rule = {
+        "short":  "Do NOT include chapters — video is too short (<10 min). Return empty array [].",
+        "medium": "Include chapters only if you can reasonably infer time progression from the frames. If uncertain, return [].",
+        "long":   "ALWAYS include chapters — mandatory for long videos. Generate chapters even with rough time estimates.",
+    }[category]
+
     return f"""You are a YouTube metadata specialist for the DCS World simulation channel "TheCylonPilot".
 
 CHANNEL IDENTITY:
@@ -212,7 +395,7 @@ CHANNEL IDENTITY:
 - Philosophy: Learning through mistakes, helping beginners
 - Squadron: Escuadrón 111 (E111) — veteran Spanish virtual aviation community
 
-{lang_instructions}
+{lang_instructions}{duration_hint}
 
 USER CONTEXT FOR THIS VIDEO:
 {user_context if user_context else "(none provided — infer everything from video frames)"}
@@ -256,54 +439,7 @@ TITLE RULES:
   Example: "DCS World | F/A-18C Hornet | Operación Trueno | E111"
 - Max 70 characters. No clickbait. No ALL CAPS.
 
-DESCRIPTION RULES (English solo):
-[1-2 sentence engaging hook describing the mission/action]
-
-✈ Aircraft: [full name]
-🗺 Map: [map name]
-🎯 Mission type: [CAS / BVR / AAR / SEAD / Strike / Training / etc.]
-📋 Campaign: [if applicable]
-
-[2-3 sentences of honest narrative: what happened, key moments, mistakes or wins]
-
----
-🕐 CHAPTERS
-[list chapters here if more than 5 min]
-
----
-📺 MORE DCS VIDEOS
-[relevant playlists]
-
-🔗 FOLLOW
-Twitter: [link]
-Twitch: [link]
-Support: [link]
-
-#DCSWorld #[Aircraft] #[relevant tags]
-
-DESCRIPTION RULES (Spanish squadron):
-[Hook: 1-2 frases describiendo la misión con tono de informe]
-
-✈ Aeronave: [nombre]
-🗺 Mapa: [mapa]
-🎯 Tipo de misión: [tipo]
-👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/
-
-[2-3 frases narrando la misión]
-
----
-🕐 CAPÍTULOS
-[si el video dura más de 5 min]
-
----
-📺 MÁS VÍDEOS DCS
-[playlists relevantes]
-
-🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
-
-#DCSWorld #[Aeronave] #[tags relevantes]
+{description_rules}
 
 TAGS RULES:
 - 30-40 tags total
@@ -315,8 +451,7 @@ TAGS RULES:
 - If squadron video: include escuadron111, e111, escuadron virtual, simulacion aerea
 
 CHAPTERS:
-- Only include if you can reasonably infer time progression from the frames
-- If uncertain, return empty array []
+- {chapters_rule}
 - Format times as "0:00", "1:30", "12:45"
 """
 
@@ -384,6 +519,15 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     is_squadron = is_squadron_video(user_context)
     print(f"  Mode: {'🇪🇸 Squadron (E111)' if is_squadron else '🇬🇧 Solo / Campaign'}")
 
+    try:
+        duration_seconds = _get_video_duration(video_path)
+        minutes = int(duration_seconds // 60)
+        category = _video_length_category(duration_seconds)
+        print(f"  Duration: {minutes} min → {category} video format")
+    except Exception:
+        duration_seconds = None
+        print("  Duration: unknown — using medium format")
+
     if frames is None:
         print(f"  Extracting {config['frames_to_extract']} frames...")
         frames = extract_frames(video_path, config["frames_to_extract"])
@@ -392,7 +536,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         return {}
 
     model = config.get("model", "gemini-1.5-flash")
-    prompt = build_prompt(user_context, config, is_squadron, memory)
+    prompt = build_prompt(user_context, config, is_squadron, memory, duration_seconds)
     print(f"  Calling Gemini API ({model})...")
 
     try:
