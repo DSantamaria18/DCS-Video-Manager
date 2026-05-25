@@ -567,6 +567,28 @@
     white-space: nowrap;
   }
 
+  /* Setup tab — config form */
+  .cfg-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cfg-links-header {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 1px;
+    margin: 14px 0 10px;
+  }
+  .tpl-key-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    background: var(--green3);
+    border: 1px solid var(--green2);
+    color: var(--green);
+    margin-left: 8px;
+  }
+  .tpl-key-badge.custom { background: var(--amber2); border-color: var(--amber); color: var(--amber); }
+
   /* Setup tab */
   .setup-section {
     background: var(--bg2);
@@ -755,7 +777,11 @@
       <div class="section-label">Upload to YouTube</div>
 
       <div class="field-group" style="margin-bottom:12px;">
-        <label>Playlists (optional — select multiple)</label>
+        <label style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Playlists (optional — select multiple)</span>
+          <span id="playlistAutoHint" style="font-family:var(--mono);font-size:10px;
+            color:var(--green);display:none;"></span>
+        </label>
         <div id="playlistList" style="
           background: var(--bg2);
           border: 1px solid var(--border);
@@ -789,9 +815,9 @@
   <div class="right-panel">
 
     <div class="tabs">
-      <div class="tab active" onclick="openTab('metadata')">Metadata</div>
-      <div class="tab" onclick="openTab('history')">History</div>
-      <div class="tab" onclick="openTab('setup')">Setup</div>
+      <div class="tab active" data-tab="metadata" onclick="openTab('metadata')">Metadata</div>
+      <div class="tab" data-tab="history" onclick="openTab('history')">History</div>
+      <div class="tab" data-tab="setup" onclick="openTab('setup')">Setup</div>
     </div>
 
     <!-- METADATA TAB -->
@@ -804,7 +830,7 @@
         <p>Awaiting mission data</p>
       </div>
 
-      <div id="metadataOutput" style="display:none; display:flex; flex-direction:column; gap:16px;">
+      <div id="metadataOutput" style="display:none; flex-direction:column; gap:16px;">
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
           <span class="detected-key" style="margin:0">Detected:</span>
@@ -912,6 +938,131 @@
     <!-- SETUP TAB -->
     <div class="tab-content" id="tab-setup">
 
+      <div class="setup-section" id="configSection">
+        <h3>CHANNEL CONFIGURATION</h3>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:16px;">
+          Edit <code>config/config.json</code> without touching files manually.
+          Changes apply to the next analysis.
+        </p>
+
+        <div class="cfg-grid-2">
+          <div class="field-group">
+            <label>Channel name</label>
+            <input type="text" id="cfg_channel_name" placeholder="TheCylonPilot">
+          </div>
+          <div class="field-group">
+            <label>Squadron</label>
+            <input type="text" id="cfg_squadron" placeholder="Escuadrón 111 (E111)">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Channel description</label>
+          <textarea id="cfg_channel_description" rows="3"
+            placeholder="DCS World simulation — learning through mistakes…"></textarea>
+        </div>
+
+        <div class="cfg-grid-2" style="grid-template-columns:140px 1fr;">
+          <div class="field-group">
+            <label>Frames to extract</label>
+            <input type="number" id="cfg_frames" min="1" max="20" placeholder="8">
+          </div>
+          <div class="field-group">
+            <label>Gemini model</label>
+            <select id="cfg_model">
+              <option value="gemini-2.5-flash">gemini-2.5-flash (recommended)</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+              <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cfg-links-header">LINKS</div>
+        <div class="cfg-grid-2">
+          <div class="field-group">
+            <label>F/A-18C playlist</label>
+            <input type="url" id="cfg_link_dcs_f18_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>A-10C playlist</label>
+            <input type="url" id="cfg_link_dcs_a10c_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>Huey playlist</label>
+            <input type="url" id="cfg_link_dcs_huey_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>Twitter / X</label>
+            <input type="url" id="cfg_link_twitter" placeholder="https://twitter.com/…">
+          </div>
+          <div class="field-group">
+            <label>Twitch</label>
+            <input type="url" id="cfg_link_twitch" placeholder="https://www.twitch.tv/…">
+          </div>
+          <div class="field-group">
+            <label>Buy Me a Coffee</label>
+            <input type="url" id="cfg_link_buymeacoffee" placeholder="https://…">
+          </div>
+          <div class="field-group">
+            <label>Squadron website</label>
+            <input type="url" id="cfg_link_escuadron111" placeholder="https://…">
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:14px;margin-top:16px;">
+          <button class="btn btn-primary" onclick="saveConfig()"
+            style="width:auto;padding:8px 20px;font-size:11px;letter-spacing:1px;">
+            SAVE CONFIG
+          </button>
+          <span id="configSaveStatus" style="font-family:var(--mono);font-size:11px;"></span>
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>DESCRIPTION TEMPLATES
+          <span class="tpl-key-badge" id="tplBadge" style="display:none;"></span>
+        </h3>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">
+          Override the description structure Gemini uses per video length and language.
+          Leave empty to use the built-in default.
+        </p>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+          <div class="field-group" style="margin:0;flex:1;min-width:200px;">
+            <label>Template</label>
+            <select id="tplSelect" onchange="onTemplateSelect()">
+              <option value="en_short">English — Short (&lt;10 min)</option>
+              <option value="en_medium">English — Medium (10–30 min)</option>
+              <option value="en_long">English — Long (&gt;30 min)</option>
+              <option value="es_short">Spanish — Short (&lt;10 min)</option>
+              <option value="es_medium">Spanish — Medium (10–30 min)</option>
+              <option value="es_long">Spanish — Long (&gt;30 min)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Template content</label>
+          <textarea id="tplContent" rows="16"
+            placeholder="Loading…"
+            style="font-family:var(--mono);font-size:11px;line-height:1.5;resize:vertical;min-height:200px;"></textarea>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="saveTemplate()"
+            style="width:auto;padding:8px 18px;font-size:11px;letter-spacing:1px;">
+            SAVE TEMPLATE
+          </button>
+          <button class="btn btn-secondary" onclick="resetTemplate()"
+            style="width:auto;padding:7px 14px;font-size:11px;letter-spacing:1px;
+                   color:var(--amber);border-color:var(--amber2);">
+            RESET TO DEFAULT
+          </button>
+          <span id="tplSaveStatus" style="font-family:var(--mono);font-size:11px;"></span>
+        </div>
+      </div>
+
       <div class="setup-section">
         <h3>GEMINI API KEY</h3>
         <div class="setup-step">
@@ -998,6 +1149,7 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
+const UPLOAD_BTN_LABEL = '▲  UPLOAD AS PRIVATE';
 let currentMetadata = null;
 let currentVideoPath = null;
 let currentThumbnailUrl = null;
@@ -1009,6 +1161,8 @@ document.addEventListener('DOMContentLoaded', () => {
   checkYouTubeStatus();
   loadHistory();
   loadPlaylists();
+  loadConfigForm();
+  loadDescriptionTemplates();
 });
 
 // ── File handling ─────────────────────────────────────────────────────────────
@@ -1028,6 +1182,7 @@ async function browseFile() {
     // Reset upload result when selecting a new video
     document.getElementById('uploadResult').classList.remove('visible');
     document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+    document.getElementById('playlistAutoHint').style.display = 'none';
     clearAlert();
   } catch(e) {
     showAlert('Browse error: ' + e.message, 'error');
@@ -1053,11 +1208,12 @@ function onPathInput(val) {
 function openTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  const tabEl = [...document.querySelectorAll('.tab')].find(t => t.getAttribute('onclick').includes(name));
+  const tabEl = document.querySelector(`.tab[data-tab="${name}"]`);
   if (tabEl) tabEl.classList.add('active');
   const content = document.getElementById('tab-' + name);
   if (content) content.classList.add('active');
   if (name === 'history') loadHistory();
+  if (name === 'setup') { loadConfigForm(); loadDescriptionTemplates(); }
 }
 
 // ── Analysis ─────────────────────────────────────────────────────────────────
@@ -1108,6 +1264,7 @@ async function pollStatus() {
       currentMetadata = data.result.metadata;
       currentVideoPath = data.result.video_path || document.getElementById('videoPath').value.trim();
       renderMetadata(data.result.metadata);
+      autoSelectPlaylists(data.result.metadata);
       resetUI(true);
       openTab('metadata');
     } else if (data.status === 'error') {
@@ -1317,22 +1474,22 @@ function updateCharCount() {
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────────────────
-async function copyField(id, btn) {
-  const el = document.getElementById(id);
-  const text = el.value || el.textContent;
-  await navigator.clipboard.writeText(text);
+function flashCopied(btn) {
   btn.textContent = 'COPIED ✓';
   btn.classList.add('copied');
   setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
 }
 
+async function copyField(id, btn) {
+  const el = document.getElementById(id);
+  await navigator.clipboard.writeText(el.value || el.textContent);
+  flashCopied(btn);
+}
+
 async function copyTags(btn) {
   if (!currentMetadata) return;
-  const tags = getCurrentTags().join(', ');
-  await navigator.clipboard.writeText(tags);
-  btn.textContent = 'COPIED ✓';
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+  await navigator.clipboard.writeText(getCurrentTags().join(', '));
+  flashCopied(btn);
 }
 
 // ── Tag editing ───────────────────────────────────────────────────────────────
@@ -1399,9 +1556,7 @@ async function copyChapters(btn) {
   if (!currentMetadata) return;
   const text = (currentMetadata.chapters || []).map(c => `${c.time} ${c.label}`).join('\n');
   await navigator.clipboard.writeText(text);
-  btn.textContent = 'COPIED ✓';
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+  flashCopied(btn);
 }
 
 // ── YouTube upload ────────────────────────────────────────────────────────────
@@ -1438,7 +1593,7 @@ async function uploadToYouTube() {
         showAlert(data.error || 'Upload failed', 'error');
       }
       document.getElementById('uploadBtn').disabled = false;
-      document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+      document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
       return;
     }
 
@@ -1468,7 +1623,7 @@ async function uploadToYouTube() {
   } catch(e) {
     showAlert('Upload error: ' + e.message, 'error');
     document.getElementById('uploadBtn').disabled = false;
-    document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+    document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
   }
 }
 
@@ -1594,6 +1749,191 @@ async function loadPlaylists() {
 function getSelectedPlaylistIds() {
   return [...document.querySelectorAll('#playlistList input[type=checkbox]:checked')]
     .map(cb => cb.value);
+}
+
+function _extractMatchTerms(text) {
+  if (!text) return [];
+  return text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 2);
+}
+
+function autoSelectPlaylists(metadata) {
+  const terms = new Set([
+    ..._extractMatchTerms(metadata.aircraft || ''),
+    ..._extractMatchTerms(metadata.mission_type || ''),
+    ..._extractMatchTerms(metadata.campaign || ''),
+  ]);
+  if (!terms.size) return 0;
+
+  const hint = document.getElementById('playlistAutoHint');
+  const checkboxes = document.querySelectorAll('#playlistList input[type=checkbox]');
+  if (!checkboxes.length) { hint.style.display = 'none'; return 0; }
+
+  let matched = 0;
+  checkboxes.forEach(cb => {
+    const label = cb.closest('label');
+    const titleEl = label.querySelector('span');
+    const titleLower = (titleEl ? titleEl.textContent : '').toLowerCase();
+    const match = [...terms].some(t => titleLower.includes(t));
+    cb.checked = match;
+    label.style.background = match ? 'rgba(0,229,160,0.05)' : '';
+    if (match) matched++;
+  });
+
+  if (matched > 0) {
+    hint.textContent = `⬡ ${matched} auto-selected`;
+    hint.style.display = '';
+  } else {
+    hint.style.display = 'none';
+  }
+  return matched;
+}
+
+// ── Config editor ────────────────────────────────────────────────────────────
+async function loadConfigForm() {
+  try {
+    const resp = await fetch('/api/config');
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    document.getElementById('cfg_channel_name').value = cfg.channel_name || '';
+    document.getElementById('cfg_channel_description').value = cfg.channel_description || '';
+    document.getElementById('cfg_squadron').value = cfg.squadron || '';
+    document.getElementById('cfg_frames').value = cfg.frames_to_extract ?? 8;
+    document.getElementById('cfg_model').value = cfg.model || 'gemini-2.5-flash';
+    const links = cfg.default_links || {};
+    document.getElementById('cfg_link_dcs_f18_playlist').value = links.dcs_f18_playlist || '';
+    document.getElementById('cfg_link_dcs_a10c_playlist').value = links.dcs_a10c_playlist || '';
+    document.getElementById('cfg_link_dcs_huey_playlist').value = links.dcs_huey_playlist || '';
+    document.getElementById('cfg_link_twitter').value = links.twitter || '';
+    document.getElementById('cfg_link_twitch').value = links.twitch || '';
+    document.getElementById('cfg_link_buymeacoffee').value = links.buymeacoffee || '';
+    document.getElementById('cfg_link_escuadron111').value = links.escuadron111 || '';
+  } catch(e) {
+    console.error('Could not load config form:', e);
+  }
+}
+
+async function saveConfig() {
+  const statusEl = document.getElementById('configSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Saving…';
+
+  const payload = {
+    channel_name: document.getElementById('cfg_channel_name').value.trim(),
+    channel_description: document.getElementById('cfg_channel_description').value.trim(),
+    squadron: document.getElementById('cfg_squadron').value.trim(),
+    frames_to_extract: parseInt(document.getElementById('cfg_frames').value, 10),
+    model: document.getElementById('cfg_model').value,
+    default_links: {
+      dcs_f18_playlist:  document.getElementById('cfg_link_dcs_f18_playlist').value.trim(),
+      dcs_a10c_playlist: document.getElementById('cfg_link_dcs_a10c_playlist').value.trim(),
+      dcs_huey_playlist: document.getElementById('cfg_link_dcs_huey_playlist').value.trim(),
+      twitter:           document.getElementById('cfg_link_twitter').value.trim(),
+      twitch:            document.getElementById('cfg_link_twitch').value.trim(),
+      buymeacoffee:      document.getElementById('cfg_link_buymeacoffee').value.trim(),
+      escuadron111:      document.getElementById('cfg_link_escuadron111').value.trim(),
+    }
+  };
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.error || 'Save failed');
+    } else {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
+}
+
+// ── Description template editor ──────────────────────────────────────────────
+let _templateData = { templates: {}, customised: [] };
+
+async function loadDescriptionTemplates() {
+  try {
+    const resp = await fetch('/api/description_templates');
+    if (!resp.ok) return;
+    _templateData = await resp.json();
+    onTemplateSelect();
+  } catch(e) {
+    console.error('Could not load description templates:', e);
+  }
+}
+
+function onTemplateSelect() {
+  const key = document.getElementById('tplSelect').value;
+  const content = _templateData.templates[key] || '';
+  document.getElementById('tplContent').value = content;
+  const badge = document.getElementById('tplBadge');
+  const isCustom = _templateData.customised.includes(key);
+  badge.textContent = isCustom ? 'CUSTOM' : 'DEFAULT';
+  badge.className = 'tpl-key-badge' + (isCustom ? ' custom' : '');
+  badge.style.display = '';
+}
+
+async function saveTemplate() {
+  const key = document.getElementById('tplSelect').value;
+  const content = document.getElementById('tplContent').value;
+  const statusEl = document.getElementById('tplSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Saving…';
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ description_templates: { [key]: content } })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.error || 'Save failed');
+    } else {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      await loadDescriptionTemplates();
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
+}
+
+async function resetTemplate() {
+  const key = document.getElementById('tplSelect').value;
+  const statusEl = document.getElementById('tplSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Resetting…';
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ description_templates: { [key]: '' } })
+    });
+    if (resp.ok) {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Reset to default';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      await loadDescriptionTemplates();
+    } else {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ Reset failed';
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
 }
 
 // ── Alerts ────────────────────────────────────────────────────────────────────

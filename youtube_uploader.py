@@ -5,6 +5,7 @@ Credential type: Desktop app (InstalledAppFlow)
 """
 
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -158,7 +159,6 @@ def _sanitize_tags(tags: list) -> list:
         result.append(t)
         total += cost
 
-    print(f"  Tags repr: {[repr(t) for t in result]}")
     return result
 
 
@@ -169,6 +169,17 @@ def _upload_thumbnail(youtube, video_id: str, thumbnail_path: str) -> None:
     mime = mimetypes.guess_type(thumbnail_path)[0] or "image/jpeg"
     media = MediaFileUpload(thumbnail_path, mimetype=mime, resumable=False)
     youtube.thumbnails().set(videoId=video_id, media_body=media).execute()
+
+
+def _do_insert(youtube, body: dict, video_path: str) -> dict:
+    """Execute a resumable video insert and return the completed API response."""
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(video_path, mimetype="video/*", resumable=True, chunksize=10 * 1024 * 1024)
+    req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+    response = None
+    while response is None:
+        _, response = req.next_chunk()
+    return response
 
 
 def upload_video(
@@ -182,14 +193,11 @@ def upload_video(
     language: str = "en",
     thumbnail_path: str = None
 ) -> dict:
-    from googleapiclient.http import MediaFileUpload
-
     sanitized_tags = _sanitize_tags(tags)
-    print(f"  Uploading: {title[:60]}")
-    print(f"  Tags count: {len(sanitized_tags)}, total chars: {sum(len(t) for t in sanitized_tags)}")
-    print(f"  First 3 tags raw bytes: {[t.encode() for t in sanitized_tags[:3]]}")
-
     lang = language if language in ("es", "en") else "en"
+
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file not found: {video_path}")
 
     youtube = _build_service()
     body = {
@@ -207,48 +215,17 @@ def upload_video(
         }
     }
 
-    import os
-    print(f"  Video path: {video_path}")
-    print(f"  File exists: {os.path.exists(video_path)}")
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(f"Video file not found: {video_path}")
-
-    media = MediaFileUpload(
-        video_path, mimetype="video/*",
-        resumable=True, chunksize=10 * 1024 * 1024
-    )
-
-    print(f"  Body snippet keys: {list(body['snippet'].keys())}")
-    print(f"  Description length: {len(body['snippet']['description'])}")
-
-    insert_request = youtube.videos().insert(
-        part="snippet,status", body=body, media_body=media
-    )
-
-    response = None
     tags_skipped = False
     try:
-        while response is None:
-            _, response = insert_request.next_chunk()
+        response = _do_insert(youtube, body, video_path)
     except Exception as e:
-        error_str = str(e)
-        if "invalidTags" in error_str:
-            print("  ⚠ invalidTags error — retrying without tags...")
-            body["snippet"]["tags"] = []
-            media2 = MediaFileUpload(
-                video_path, mimetype="video/*",
-                resumable=True, chunksize=10 * 1024 * 1024
-            )
-            insert_request2 = youtube.videos().insert(
-                part="snippet,status", body=body, media_body=media2
-            )
-            response = None
-            while response is None:
-                _, response = insert_request2.next_chunk()
-            print("  ✓ Uploaded without tags — add them manually in YouTube Studio")
-            tags_skipped = True
-        else:
+        if "invalidTags" not in str(e):
             raise
+        print("  ⚠ invalidTags error — retrying without tags...")
+        body["snippet"]["tags"] = []
+        response = _do_insert(youtube, body, video_path)
+        print("  ✓ Uploaded without tags — add them manually in YouTube Studio")
+        tags_skipped = True
 
     video_id = response["id"]
     result = {

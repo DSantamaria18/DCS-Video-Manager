@@ -20,8 +20,18 @@ import dcs_meta
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4GB max upload
 
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
+
 # ── State (in-memory, per session) ──────────────────────────────────────────
 processing_status = {}   # job_id -> {status, progress, message, result}
+_MAX_STATUS_ENTRIES = 50
+
+
+def _evict_old_jobs() -> None:
+    """Keep processing_status bounded; drop oldest entries beyond the cap."""
+    if len(processing_status) > _MAX_STATUS_ENTRIES:
+        for key in list(processing_status.keys())[:-_MAX_STATUS_ENTRIES]:
+            del processing_status[key]
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -97,10 +107,76 @@ def browse_file():
     return jsonify({"path": selected, "name": Path(selected).name})
 
 
+VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
+_CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
+                        "default_links", "frames_to_extract", "model",
+                        "description_templates"}
+
+
 @app.route("/api/config")
 def get_config():
     cfg = dcs_meta.load_config()
     return jsonify(cfg)
+
+
+@app.route("/api/config", methods=["POST"])
+def save_config():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    if "frames_to_extract" in data:
+        try:
+            n = int(data["frames_to_extract"])
+            if not (1 <= n <= 20):
+                raise ValueError
+            data["frames_to_extract"] = n
+        except (ValueError, TypeError):
+            return jsonify({"error": "frames_to_extract must be an integer between 1 and 20"}), 400
+
+    if "model" in data and data["model"] not in VALID_MODELS:
+        return jsonify({"error": f"Invalid model. Allowed: {', '.join(sorted(VALID_MODELS))}"}), 400
+
+    existing = dcs_meta.load_config()
+
+    # description_templates uses merge semantics so individual keys can be saved
+    # without overwriting unrelated templates.
+    if "description_templates" in data:
+        incoming = data.pop("description_templates")
+        if not isinstance(incoming, dict):
+            return jsonify({"error": "description_templates must be an object"}), 400
+        merged = dict(existing.get("description_templates", {}))
+        for k, v in incoming.items():
+            if k not in dcs_meta.VALID_TEMPLATE_KEYS:
+                return jsonify({"error": f"Invalid template key: {k}"}), 400
+            merged[k] = v  # empty string is valid — means "reset to default"
+        existing["description_templates"] = merged
+
+    for key in _CONFIG_ALLOWED_KEYS - {"description_templates"}:
+        if key in data:
+            existing[key] = data[key]
+
+    dcs_meta.CONFIG_PATH.parent.mkdir(exist_ok=True)
+    with open(dcs_meta.CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    return jsonify(existing)
+
+
+@app.route("/api/description_templates")
+def get_description_templates():
+    """Return all 6 effective description templates (custom override or hardcoded default)."""
+    cfg = dcs_meta.load_config()
+    templates = {}
+    custom = cfg.get("description_templates", {})
+    for is_sq, lang in [(False, "en"), (True, "es")]:
+        for cat in ("short", "medium", "long"):
+            key = f"{lang}_{cat}"
+            templates[key] = dcs_meta._build_description_rules(is_sq, cat, cfg)
+    return jsonify({
+        "templates": templates,
+        "customised": [k for k, v in custom.items() if v],
+    })
 
 
 @app.route("/api/history")
@@ -128,6 +204,7 @@ def analyze():
     if not os.environ.get("GEMINI_API_KEY"):
         return jsonify({"error": "GEMINI_API_KEY not set. Get a free key at https://aistudio.google.com/app/apikey"}), 500
 
+    _evict_old_jobs()
     job_id = str(uuid.uuid4())[:8]
     processing_status[job_id] = {
         "status": "running",
@@ -154,7 +231,7 @@ def analyze():
             processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Claude..."
             processing_status[job_id]["progress"] = 50
 
-            metadata = dcs_meta.generate_metadata(path, context, cfg, mem)
+            metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames)
             if not metadata:
                 processing_status[job_id]["status"] = "error"
                 processing_status[job_id]["error"] = "Claude returned empty metadata. Try adding more context."
@@ -164,7 +241,7 @@ def analyze():
             processing_status[job_id]["progress"] = 80
 
             txt_path, json_path = dcs_meta.save_output(metadata, path, cfg)
-            dcs_meta.update_memory(metadata, path, mem)
+            dcs_meta.update_memory(metadata, path)
 
             processing_status[job_id]["status"] = "done"
             processing_status[job_id]["progress"] = 100
@@ -210,8 +287,7 @@ def generate_thumbnail():
 
 @app.route("/output/<path:filename>")
 def serve_output_file(filename):
-    output_dir = Path(__file__).parent.parent / "output"
-    return send_from_directory(str(output_dir), filename)
+    return send_from_directory(str(OUTPUT_DIR), filename)
 
 
 @app.route("/api/status/<job_id>")
@@ -236,7 +312,7 @@ def upload_youtube():
     # Resolve the thumbnail URL (/output/filename.jpg) to a local filesystem path
     thumbnail_path = None
     if thumbnail_url.startswith("/output/"):
-        candidate = Path(__file__).parent.parent / "output" / Path(thumbnail_url).name
+        candidate = OUTPUT_DIR / Path(thumbnail_url).name
         if candidate.exists():
             thumbnail_path = str(candidate)
 
@@ -253,6 +329,9 @@ def upload_youtube():
             language=metadata.get("language", "en"),
             thumbnail_path=thumbnail_path
         )
+        video_id = result.get("video_id")
+        if video_id:
+            dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
         return jsonify(result)
     except ImportError:
         return jsonify({"error": "youtube_uploader module not found"}), 500
@@ -273,12 +352,6 @@ def youtube_auth_url():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/youtube/auth_callback", methods=["POST"])
-def youtube_auth_callback():
-    """Legacy endpoint — kept for compatibility."""
-    return jsonify({"error": "Use the new auth flow — click 'Authorize YouTube' button."}), 400
-
-
 @app.route("/api/youtube/wait_auth")
 def youtube_wait_auth():
     """Long-poll: waits until Google redirects back with the token."""
@@ -293,7 +366,6 @@ def youtube_wait_auth():
 @app.route("/api/youtube/revoke", methods=["POST"])
 def youtube_revoke():
     """Delete saved token to force re-authorization."""
-    from pathlib import Path
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     if token_path.exists():
         token_path.unlink()
@@ -304,6 +376,46 @@ def youtube_revoke():
 def youtube_auth_status():
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     return jsonify({"authenticated": token_path.exists()})
+
+
+def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
+    """Return playlist IDs whose title matches terms from aircraft/mission_type/campaign.
+
+    Tokenises each metadata field into lowercase words (≥2 chars, letters/digits only)
+    and checks if any token appears in the playlist title (case-insensitive).
+    """
+    import re as _re
+    fields = [
+        metadata.get("aircraft", ""),
+        metadata.get("mission_type", ""),
+        metadata.get("campaign", ""),
+    ]
+    terms = set()
+    for field in fields:
+        for tok in _re.split(r"[^a-z0-9]+", field.lower()):
+            if len(tok) >= 2:
+                terms.add(tok)
+
+    if not terms:
+        return []
+
+    matched = []
+    for pl in playlists:
+        title_lower = pl.get("title", "").lower()
+        if any(term in title_lower for term in terms):
+            matched.append(pl["id"])
+    return matched
+
+
+@app.route("/api/suggest_playlists", methods=["POST"])
+def suggest_playlists():
+    """Given metadata and a playlist list, return IDs of playlists that match."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    metadata = data.get("metadata", {})
+    playlists = data.get("playlists", [])
+    return jsonify({"suggested": _suggest_playlist_ids(metadata, playlists)})
 
 
 @app.route("/api/playlists")

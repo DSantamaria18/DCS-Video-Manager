@@ -10,11 +10,8 @@ from unittest.mock import MagicMock, patch, call
 # ---------------------------------------------------------------------------
 
 def _make_youtube_mock(video_id="ABC123"):
-    """Return a mock youtube service whose videos().insert() succeeds."""
-    chunk_response = {"id": video_id}
+    """Return a mock youtube service. Tests must set insert_req.next_chunk.side_effect."""
     insert_req = MagicMock()
-    # next_chunk() returns (None, response) until response is not None
-    insert_req.next_chunk.side_effect = [(None, None), (None, chunk_response)]
 
     videos = MagicMock()
     videos.return_value.insert.return_value = insert_req
