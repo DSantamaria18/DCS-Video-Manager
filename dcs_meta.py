@@ -1013,6 +1013,7 @@ def update_memory_video_id(filename: str, video_id: str) -> None:
 
 
 def print_preview(metadata: dict):
+    """Print a terminal preview of the generated metadata (title, description excerpt, tags, chapters)."""
     print(f"\n{'═'*60}\n  PREVIEW\n{'═'*60}")
     print(f"\n  TITLE:\n  {metadata.get('title','')}\n")
     print(f"  DESCRIPTION (preview):\n  {metadata.get('description','')[:300]}...\n")
