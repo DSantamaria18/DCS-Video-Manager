@@ -113,12 +113,14 @@ _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
 
 @app.route("/api/config")
 def get_config():
+    """GET /api/config — return the current config.json as JSON."""
     cfg = dcs_meta.load_config()
     return jsonify(cfg)
 
 
 @app.route("/api/config", methods=["POST"])
 def save_config():
+    """POST /api/config — validate and merge fields into config.json; description_templates uses merge semantics."""
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -179,6 +181,7 @@ def get_description_templates():
 
 @app.route("/api/history")
 def get_history():
+    """GET /api/history — return the last 20 analysed videos from history.json."""
     mem = dcs_meta.load_memory()
     return jsonify(mem["videos"][-20:])
 
@@ -263,6 +266,7 @@ def analyze():
 
 @app.route("/api/thumbnail", methods=["POST"])
 def generate_thumbnail():
+    """POST /api/thumbnail — extract and score candidate thumbnails, return their serve paths."""
     data = request.get_json()
     video_path = data.get("video_path", "").strip()
     metadata = data.get("metadata", {})
@@ -285,11 +289,13 @@ def generate_thumbnail():
 
 @app.route("/output/<path:filename>")
 def serve_output_file(filename):
+    """GET /output/<filename> — serve a generated file (thumbnail, JSON, TXT) from the output folder."""
     return send_from_directory(str(OUTPUT_DIR), filename)
 
 
 @app.route("/api/status/<job_id>")
 def job_status(job_id):
+    """GET /api/status/<job_id> — return the current status and result of an analysis job."""
     if job_id not in processing_status:
         return jsonify({"error": "Unknown job"}), 404
     return jsonify(processing_status[job_id])
@@ -342,6 +348,7 @@ def upload_youtube():
 
 @app.route("/api/youtube/auth_url")
 def youtube_auth_url():
+    """GET /api/youtube/auth_url — start the OAuth flow; browser opens automatically."""
     try:
         from youtube_uploader import get_auth_url
         url = get_auth_url()
@@ -372,6 +379,7 @@ def youtube_revoke():
 
 @app.route("/api/youtube/status")
 def youtube_auth_status():
+    """GET /api/youtube/status — return whether a valid YouTube token file exists."""
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     return jsonify({"authenticated": token_path.exists()})
 
@@ -418,6 +426,7 @@ def suggest_playlists():
 
 @app.route("/api/playlists")
 def get_playlists():
+    """GET /api/playlists — fetch the authenticated channel's playlists from YouTube."""
     try:
         from youtube_uploader import get_playlists
         playlists = get_playlists()

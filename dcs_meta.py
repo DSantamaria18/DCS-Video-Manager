@@ -104,6 +104,7 @@ _FONT_PATHS = [
 # ── Config & memory ──────────────────────────────────────────────────────────
 
 def load_config():
+    """Load config.json, creating it with defaults if absent."""
     CONFIG_PATH.parent.mkdir(exist_ok=True)
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
@@ -114,6 +115,7 @@ def load_config():
 
 
 def load_memory():
+    """Load history.json, returning an empty video list if absent."""
     MEMORY_PATH.parent.mkdir(exist_ok=True)
     if MEMORY_PATH.exists():
         with open(MEMORY_PATH) as f:
@@ -122,12 +124,14 @@ def load_memory():
 
 
 def save_memory(memory):
+    """Persist memory dict to history.json."""
     MEMORY_PATH.parent.mkdir(exist_ok=True)
     with open(MEMORY_PATH, "w") as f:
         json.dump(memory, f, indent=2, ensure_ascii=False)
 
 
 def is_squadron_video(user_context: str) -> bool:
+    """Return True if user_context contains a squadron keyword (E111 or similar)."""
     ctx = user_context.lower()
     return any(k in ctx for k in SQUADRON_KEYWORDS)
 
@@ -419,6 +423,7 @@ def _build_description_rules(is_squadron: bool, category: str, config: dict = No
 
 
 def _build_module_guide() -> str:
+    """Format MODULE_PROFILES as a text block for injection into the Gemini prompt."""
     lines = []
     for module, data in MODULE_PROFILES.items():
         tag_str = ", ".join(data["tags"])
@@ -433,6 +438,7 @@ def _build_module_guide() -> str:
 def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict,
                  duration_seconds: float = None, series_context: dict = None,
                  aircraft_suggestions: list = None) -> str:
+    """Build the full Gemini prompt, injecting memory, length rules, series context, and the module guide."""
     recent = memory["videos"][-5:] if memory["videos"] else []
     memory_block = ""
     if recent:
@@ -915,6 +921,7 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
 # ── Output ────────────────────────────────────────────────────────────────────
 
 def format_description(metadata: dict, config: dict) -> str:
+    """Replace playlist placeholder tokens in the description with the configured URLs."""
     desc = metadata.get("description", "")
     links = config["default_links"]
     aircraft = metadata.get("aircraft", "").lower()
@@ -937,6 +944,7 @@ def format_description(metadata: dict, config: dict) -> str:
 
 
 def save_output(metadata: dict, video_path: Path, config: dict):
+    """Write metadata to timestamped .json and .txt files in the output folder."""
     OUTPUT_PATH.mkdir(exist_ok=True)
     stem = video_path.stem
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
