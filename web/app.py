@@ -298,6 +298,9 @@ def upload_youtube():
             language=metadata.get("language", "en"),
             thumbnail_path=thumbnail_path
         )
+        video_id = result.get("video_id")
+        if video_id:
+            dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
         return jsonify(result)
     except ImportError:
         return jsonify({"error": "youtube_uploader module not found"}), 500

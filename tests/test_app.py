@@ -142,6 +142,41 @@ def test_upload_youtube_passes_thumbnail_path(client, tmp_path):
     assert mock_uv.call_args.kwargs["thumbnail_path"] == str(thumb)
 
 
+def test_upload_youtube_stores_video_id_in_memory(client, tmp_path):
+    """After upload, the video_id returned by YouTube must be patched into history."""
+    upload_result = {
+        "video_id": "testVidId",
+        "url": "https://youtu.be/testVidId",
+        "status": "uploaded", "privacy": "private",
+        "tags_skipped": False, "playlists_added": [],
+    }
+    with patch("youtube_uploader.upload_video", return_value=upload_result), \
+         patch("dcs_meta.update_memory_video_id") as mock_patch_id:
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/fake/my_video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    assert resp.status_code == 200
+    mock_patch_id.assert_called_once_with("my_video.mp4", "testVidId")
+
+
+def test_upload_youtube_skips_video_id_patch_when_missing(client):
+    """If upload result has no video_id, update_memory_video_id must NOT be called."""
+    upload_result = {
+        "url": "https://youtu.be/X",
+        "status": "uploaded", "privacy": "private",
+        "tags_skipped": False, "playlists_added": [],
+    }
+    with patch("youtube_uploader.upload_video", return_value=upload_result), \
+         patch("dcs_meta.update_memory_video_id") as mock_patch_id:
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/fake/my_video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    assert resp.status_code == 200
+    mock_patch_id.assert_not_called()
+
+
 def test_upload_youtube_missing_thumbnail_file_ignored(client):
     """Endpoint must proceed with upload even if thumbnail file does not exist."""
     upload_result = {"video_id": "Y", "url": "https://youtu.be/Y",

@@ -6,6 +6,7 @@ Uses Google Gemini Vision API (gemini-1.5-flash) — free tier: 1500 req/day.
 """
 
 import os
+import re
 import sys
 import json
 import base64
@@ -16,6 +17,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from datetime import datetime
+from collections import Counter
 
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
@@ -173,6 +175,61 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
 
     print(f"  ✓ Extracted {len(frames)} frames")
     return frames
+
+# ── Series / campaign detection ──────────────────────────────────────────────
+
+# Matches "- Mission 3", "– Episode 7", "Part 2", "Ep. 4", "Cap. 5" etc.
+_EPISODE_RE = re.compile(
+    r'[-–\s]+(?:mission|episode|ep\.?|part|capítulo|cap\.?)\s*(\d+)',
+    re.IGNORECASE
+)
+
+
+def _detect_series(user_context: str, history: dict) -> dict | None:
+    """Detect campaign name and episode number from user_context.
+
+    Returns a dict with keys `campaign`, `episode`, `prev_episodes` (last 3
+    matching history entries), or None if no episode marker is found.
+    Each prev_episode entry has `title`, `date`, and optionally `url`
+    (when a video_id was stored after upload).
+    """
+    if not user_context:
+        return None
+
+    m = _EPISODE_RE.search(user_context)
+    if not m:
+        return None
+
+    episode_num = int(m.group(1))
+    campaign_name = user_context[:m.start()].strip().strip("-–").strip()
+    if not campaign_name:
+        return None
+
+    campaign_lower = campaign_name.lower()
+    prev_episodes = []
+    for v in history.get("videos", []):
+        if campaign_lower in v.get("title", "").lower():
+            ep_info = {"title": v.get("title", ""), "date": v.get("date", "")}
+            if v.get("video_id"):
+                ep_info["url"] = f"https://youtu.be/{v['video_id']}"
+            prev_episodes.append(ep_info)
+
+    return {
+        "campaign": campaign_name,
+        "episode": episode_num,
+        "prev_episodes": prev_episodes[-3:],
+    }
+
+
+def _aircraft_series_suggestions(history: dict, min_count: int = 3) -> list[tuple[str, int]]:
+    """Return (aircraft, count) pairs from history with count >= min_count, most common first."""
+    counts = Counter(
+        v.get("aircraft", "").strip()
+        for v in history.get("videos", [])
+        if v.get("aircraft", "").strip()
+    )
+    return [(a, n) for a, n in counts.most_common() if n >= min_count]
+
 
 # ── Prompt ───────────────────────────────────────────────────────────────────
 
@@ -357,13 +414,40 @@ def _build_module_guide() -> str:
 
 
 def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict,
-                 duration_seconds: float = None) -> str:
+                 duration_seconds: float = None, series_context: dict = None,
+                 aircraft_suggestions: list = None) -> str:
     recent = memory["videos"][-5:] if memory["videos"] else []
     memory_block = ""
     if recent:
         memory_block = "\n\nRECENT VIDEOS (for style consistency):\n"
         for v in recent:
             memory_block += f"- [{v['date']}] {v['title']} ({v['language']})\n"
+
+    series_block = ""
+    if series_context:
+        series_block = f"\n\nSERIES CONTEXT — this video is part of a campaign:\n"
+        series_block += f"- Campaign: {series_context['campaign']}\n"
+        series_block += f"- Episode: {series_context['episode']}\n"
+        series_block += (
+            "- In the title use episode numbering, e.g. "
+            f"\"... | Ep.{series_context['episode']} | ...\"\n"
+        )
+        if series_context["prev_episodes"]:
+            series_block += "- Previous episodes (link in description if URLs are present):\n"
+            for ep in series_context["prev_episodes"]:
+                line = f"  [{ep['date']}] {ep['title']}"
+                if ep.get("url"):
+                    line += f" — {ep['url']}"
+                series_block += line + "\n"
+
+    aircraft_block = ""
+    if aircraft_suggestions:
+        aircraft_block = "\n\nAIRCRAFT PLAYLIST SUGGESTIONS:\n"
+        for aircraft, count in aircraft_suggestions:
+            aircraft_block += (
+                f"- {aircraft} ({count} videos in history) — "
+                "suggest the relevant playlist or series grouping in the description.\n"
+            )
 
     category = _video_length_category(duration_seconds) if duration_seconds is not None else "medium"
     duration_hint = ""
@@ -399,7 +483,7 @@ CHANNEL IDENTITY:
 
 USER CONTEXT FOR THIS VIDEO:
 {user_context if user_context else "(none provided — infer everything from video frames)"}
-{memory_block}
+{memory_block}{series_block}{aircraft_block}
 
 MODULE IDENTIFICATION GUIDE:
 Use cockpit details in the frames to identify the aircraft, then apply the matching mission context and tags below.
@@ -429,6 +513,7 @@ OUTPUT FORMAT — respond ONLY with a valid JSON object. No markdown fences, no 
   "aircraft": "...",
   "map": "...",
   "mission_type": "...",
+  "campaign": "...",
   "analysis_notes": "brief explanation of what you saw in the frames"
 }}
 
@@ -528,6 +613,12 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         duration_seconds = None
         print("  Duration: unknown — using medium format")
 
+    series_context = _detect_series(user_context, memory)
+    if series_context:
+        print(f"  Series: {series_context['campaign']} — Ep.{series_context['episode']}")
+
+    aircraft_suggestions = _aircraft_series_suggestions(memory)
+
     if frames is None:
         print(f"  Extracting {config['frames_to_extract']} frames...")
         frames = extract_frames(video_path, config["frames_to_extract"])
@@ -536,7 +627,8 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         return {}
 
     model = config.get("model", "gemini-1.5-flash")
-    prompt = build_prompt(user_context, config, is_squadron, memory, duration_seconds)
+    prompt = build_prompt(user_context, config, is_squadron, memory, duration_seconds,
+                          series_context, aircraft_suggestions)
     print(f"  Calling Gemini API ({model})...")
 
     try:
@@ -876,9 +968,22 @@ def update_memory(metadata: dict, video_path: Path) -> None:
             "language": metadata.get("language", ""),
             "aircraft": metadata.get("aircraft", ""),
             "map": metadata.get("map", ""),
-            "mission_type": metadata.get("mission_type", "")
+            "mission_type": metadata.get("mission_type", ""),
+            "campaign": metadata.get("campaign", ""),
+            "video_id": "",
         })
         memory["videos"] = memory["videos"][-50:]
+        save_memory(memory)
+
+
+def update_memory_video_id(filename: str, video_id: str) -> None:
+    """Patch the most recent history entry matching filename with the YouTube video_id."""
+    with _memory_lock:
+        memory = load_memory()
+        for v in reversed(memory["videos"]):
+            if v.get("filename") == filename:
+                v["video_id"] = video_id
+                break
         save_memory(memory)
 
 
