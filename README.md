@@ -1,142 +1,197 @@
 # DCS YouTube Automation
 
-Herramienta personal para automatizar la generación de metadata (título, descripción, tags, capítulos) y subida de vídeos de **DCS World** a YouTube.
+Personal tool for automating metadata generation and video uploads for **DCS World** content to YouTube.
 
-Analiza los fotogramas del vídeo usando **Google Gemini Vision** e identifica automáticamente el módulo, el mapa y el tipo de misión. Genera metadata optimizada para YouTube en inglés (misiones singleplayer) o español (misiones del Escuadrón 111).
-
----
-
-## Características
-
-- 🎬 Analiza vídeos MKV y MP4 extrayendo fotogramas con ffmpeg
-- 🤖 Genera título, descripción, tags y capítulos con Gemini Vision
-- 🌐 Interfaz web local con estética de aviónica militar
-- 📤 Subida directa a YouTube como **privado** (publicas tú manualmente)
-- 📋 Selección múltiple de playlists
-- 🇪🇸 Detección automática de idioma: inglés para singleplayer, español para misiones del E111
-- 💾 Historial de los últimos 50 vídeos procesados para mantener consistencia de estilo
+Analyses video frames with **Google Gemini Vision**, automatically identifies the module, map, and mission type, and generates YouTube-optimised metadata — in English (singleplayer/campaign missions) or Spanish (Escuadrón 111 squadron missions).
 
 ---
 
-## Requisitos
+## Features
 
-| Herramienta | Versión mínima | Instalación |
+### AI video analysis
+
+- Extracts N evenly-spaced frames with ffmpeg (configurable, default 8)
+- Analysis with `gemini-2.5-flash`: title, description, tags, chapters, language, aircraft, map, mission type, and campaign
+- **Integrated module guide** — profiles for 7 modules (F/A-18C, F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache) injected into the prompt for accurate cockpit-based identification
+- **Length-adapted descriptions**: *quick breakdown* format (<10 min), *full training video* (10–30 min), or *complete mission debrief* (>30 min)
+- **Series/campaign detection**: extracts campaign name and episode number from user context and injects previous episodes with links (when uploaded) so Gemini can reference them in the description
+- **Last 50 videos in history** used as context to maintain style consistency across uploads
+- Automatic language detection: Spanish for squadron missions, English for everything else
+
+### Thumbnail
+
+- Extracts 6 candidate frames between 18% and 78% of the video
+- Scores each by sharpness, brightness, and colorfulness
+- Cinematic colour grade: +30% saturation, +15% contrast, warm push
+- YouTube-style overlay: bottom gradient, Impact yellow title with stroke, bottom info bar with `aircraft · map` and channel handle
+- 2×2 grid in the UI to select the thumbnail before uploading; download guaranteed < 2 MB
+
+### YouTube upload
+
+- Full OAuth2 authentication (Desktop app — no redirect URI configuration needed)
+- Upload with title, description, tags, language, Gaming category, and initial privacy `private`
+- Custom thumbnail set automatically after upload
+- Assign to one or more playlists before uploading
+- **Automatic playlist pre-selection** based on detected aircraft, mission type, and campaign
+- Tag-less fallback if the app is not Google-verified (403 error)
+
+### Web UI
+
+- Local Flask server at `http://localhost:5000`, opens automatically on startup
+- **Analyze tab**: main workflow (browse → context → analysis → edit → upload)
+- **History tab**: last 20 analysed videos with module, map, and title
+- **Setup tab**: channel configuration (name, description, squadron, frames, Gemini model, URLs) and customisable description templates — all editable from the UI without touching files
+- Async analysis with progress bar
+- All fields editable before upload (title, description, tags, chapters)
+- Description preview: EDIT / PREVIEW toggle with URLs as links, #hashtags highlighted, and clickable timestamps
+- Tag pill editor: add with Enter or comma, remove with × or Backspace
+
+---
+
+## Requirements
+
+| Tool | Minimum version | Install |
 |---|---|---|
 | Python | 3.10+ | [python.org](https://www.python.org/downloads/) |
-| ffmpeg | cualquiera | `winget install ffmpeg` / `brew install ffmpeg` |
-| API key Gemini | — | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) (gratis, 1500 req/día) |
-| OAuth2 YouTube | — | Google Cloud Console (ver Setup) |
+| ffmpeg | any | `winget install ffmpeg` / `brew install ffmpeg` |
+| Pillow | — | `pip install -r requirements.txt` |
+| Gemini API key | — | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) (free, 1500 req/day) |
+| YouTube OAuth2 | — | Google Cloud Console (see Setup) |
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
-git clone https://github.com/TU_USUARIO/dcs-youtube-automation.git
-cd dcs-youtube-automation
+git clone https://github.com/DSantamaria18/DCS-Video-Manager.git
+cd DCS-Video-Manager
 pip install -r requirements.txt
 ```
 
 ---
 
-## Configuración
+## Setup
 
-### 1. Gemini API Key (análisis de vídeo)
+### 1. Gemini API key (video analysis)
 
-Obtén tu clave gratuita en [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+Get your free key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
 
 **Windows:**
+
 ```powershell
-set GEMINI_API_KEY=AIza...
+$env:GEMINI_API_KEY = "AIza..."
 ```
 
 **Mac/Linux:**
+
 ```bash
 export GEMINI_API_KEY=AIza...
 ```
-Añade esta línea a tu `~/.zshrc` o `~/.bash_profile` para que persista.
 
-### 2. YouTube API (subida de vídeos)
+Add this line to your `~/.zshrc` or `~/.bash_profile` to persist across sessions.
 
-1. Ve a [console.cloud.google.com](https://console.cloud.google.com) y crea un proyecto
-2. Activa **YouTube Data API v3**
-3. Crea credenciales OAuth2 → tipo **Aplicación de escritorio**
-4. Descarga el fichero y guárdalo como `config/client_secret.json`
+### 2. YouTube API (video upload)
 
-> ⚠️ `config/client_secret.json` y `config/youtube_token.json` están en `.gitignore` y nunca se suben al repositorio.
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project
+2. Enable **YouTube Data API v3**
+3. Create OAuth2 credentials → type **Desktop app**
+4. Download the file and save it as `config/client_secret.json`
+5. In the **Setup** tab of the UI, click **AUTHORIZE YOUTUBE** to complete the OAuth flow
+
+> ⚠️ `config/client_secret.json` and `config/youtube_token.json` are in `.gitignore` and are never committed to the repository.
 
 ---
 
-## Uso
+## Usage
 
-### Interfaz web (recomendado)
+### Web UI (recommended)
 
 ```bash
 python web/app.py
 ```
 
-Se abre automáticamente en [http://localhost:5000](http://localhost:5000).
+Opens automatically at [http://localhost:5000](http://localhost:5000).
 
-**Flujo:**
-1. Pulsa **BROWSE** y selecciona el vídeo
-2. Escribe el contexto de la misión (opcional pero mejora los resultados)
-3. Pulsa **ANALYZE VIDEO** — Gemini analiza los fotogramas
-4. Revisa y edita el título y la descripción generados
-5. Selecciona las playlists y pulsa **UPLOAD AS PRIVATE**
+**Basic workflow:**
 
-### CLI (procesado en batch)
+1. Click **BROWSE** and select the video
+2. Enter mission context (optional but improves results)
+   - Include an episode number for series detection: `"Raven One Campaign - Mission 4"`
+3. Click **ANALYZE VIDEO** — Gemini analyses the frames in the background
+4. Review and edit the title, description, tags, and chapters
+5. Click **GENERATE THUMBNAILS** and pick the best of the 4 candidates
+6. Check the auto-selected playlists and adjust if needed
+7. Click **UPLOAD AS PRIVATE**
+
+### CLI (batch processing)
 
 ```bash
-# Vídeo individual
-python dcs_meta.py "C:\Videos\DCS\mision.mp4" -c "A-10C II Outpost Campaign - Mission 3"
+# Single video
+python dcs_meta.py "C:\Videos\DCS\mission.mp4" -c "A-10C II Outpost Campaign - Mission 3"
 
-# Vídeo del escuadrón (detecta e111/escuadron y genera en español)
+# Squadron video (detects e111/escuadron and generates in Spanish)
 python dcs_meta.py "C:\Videos\DCS\op.mp4" -c "Escuadrón 111 - Operación Trueno - SEAD support"
 
-# Carpeta completa
+# Full folder
 python dcs_meta.py "C:\Videos\DCS\" --batch
 ```
 
 ---
 
-## Estructura del proyecto
+## Advanced configuration
 
-```
-dcs-youtube-automation/
-├── dcs_meta.py              # Motor de análisis (Gemini Vision + ffmpeg)
-├── youtube_uploader.py      # Subida a YouTube (OAuth2 Desktop app)
-├── requirements.txt
-├── START_WINDOWS.bat        # Lanzador para Windows
-├── config/
-│   ├── config.json          # Configuración del canal
-│   ├── client_secret.json   # ⚠️ NO subir al repo (.gitignore)
-│   └── youtube_token.json   # ⚠️ NO subir al repo (.gitignore)
-├── memory/
-│   └── history.json         # Historial de vídeos procesados
-├── output/                  # Metadata generada (.txt + .json)
-└── web/
-    ├── app.py               # Servidor Flask
-    └── templates/
-        └── index.html       # Interfaz web
-```
+All settings are editable from the **Setup** tab in the UI. They can also be modified directly in `config/config.json`:
+
+| Field | Description |
+|---|---|
+| `channel_name` | Channel handle (used in the thumbnail overlay) |
+| `channel_description` | Channel description injected into the prompt |
+| `squadron` | Squadron name |
+| `frames_to_extract` | Number of frames to extract (1–20, default 8) |
+| `model` | Gemini model (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`) |
+| `default_links` | Playlist, social media, and sponsorship URLs |
+| `description_templates` | Custom description templates by language and video length |
 
 ---
 
-## Detección automática de idioma
+## Automatic language detection
 
-| El contexto contiene... | Idioma | Tono |
+| Context contains… | Language | Tone |
 |---|---|---|
-| `escuadron`, `e111`, `multiplayer`... | 🇪🇸 Español | Informe de misión, mención al E111 |
-| Cualquier otro caso | 🇬🇧 Inglés | Estilo learner, honesto, técnico |
+| `escuadron`, `e111`, `multiplayer`… | 🇪🇸 Spanish | Mission report style, E111 mention |
+| Anything else | 🇬🇧 English | Learner style, honest, technically focused |
 
 ---
 
-## Canal
+## Project structure
+
+```text
+DCS-Video-Manager/
+├── dcs_meta.py              # Analysis engine (Gemini Vision + ffmpeg + thumbnail)
+├── youtube_uploader.py      # YouTube upload (OAuth2 Desktop app)
+├── requirements.txt
+├── config/
+│   ├── config.json          # Channel configuration
+│   ├── client_secret.json   # ⚠️ Never commit (.gitignore)
+│   └── youtube_token.json   # ⚠️ Never commit (.gitignore)
+├── memory/
+│   └── history.json         # Last 50 analysed videos
+├── output/                  # Generated metadata (.txt + .json) + thumbnails (.jpg)
+├── tests/                   # Test suite (pytest, ~150 tests)
+└── web/
+    ├── app.py               # Flask server + REST endpoints
+    └── templates/
+        └── index.html       # Web UI
+```
+
+---
+
+## Channel
 
 [@TheCylonPilot](https://www.youtube.com/@TheCylonPilot) — DCS World, F/A-18C Hornet, Escuadrón 111
 
 ---
 
-## Licencia
+## Licence
 
-Uso personal. Sin licencia open source por ahora.
+Personal use. No open source licence at this time.
