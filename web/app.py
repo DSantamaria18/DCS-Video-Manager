@@ -8,6 +8,7 @@ Then open: http://localhost:5000
 import os
 import sys
 import json
+import subprocess
 import threading
 import webbrowser
 from pathlib import Path
@@ -41,24 +42,12 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/browse")
-def browse_file():
-    """Open native OS file picker and return the selected path."""
-    import subprocess, sys
-
-    # Remember last folder used
-    last_folder_path = Path(__file__).parent.parent / "config" / "last_folder.txt"
-    initial_dir = ""
-    if last_folder_path.exists():
-        initial_dir = last_folder_path.read_text().strip()
-
-    selected = None
-
+def _open_file_dialog(initial_dir: str) -> str | None:
+    """Open a native OS file-picker dialog and return the selected path, or None if cancelled."""
     if sys.platform == "win32":
-        # PowerShell OpenFileDialog
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
-            f"$f = New-Object System.Windows.Forms.OpenFileDialog;"
+            "$f = New-Object System.Windows.Forms.OpenFileDialog;"
             f"$f.InitialDirectory = '{initial_dir}';"
             "$f.Filter = 'Video files|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v|All files|*.*';"
             "$f.Title = 'Select DCS video';"
@@ -68,22 +57,21 @@ def browse_file():
             ["powershell", "-NoProfile", "-Command", ps_script],
             capture_output=True, text=True
         )
-        selected = result.stdout.strip() or None
+        return result.stdout.strip() or None
 
     elif sys.platform == "darwin":
-        # macOS osascript
         extensions = "mp4, mkv, mov, avi, webm, m4v"
         script = (
-            f'tell application "Finder"\n'
-            f'set f to choose file with prompt "Select DCS video" '
+            'tell application "Finder"\n'
+            'set f to choose file with prompt "Select DCS video" '
             f'of type {{"{extensions}"}}\n'
-            f'POSIX path of f\nend tell'
+            'POSIX path of f\nend tell'
         )
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-        selected = result.stdout.strip() or None
+        return result.stdout.strip() or None
 
     else:
-        # Linux: try zenity or kdialog
+        # Linux: try zenity
         try:
             result = subprocess.run(
                 ["zenity", "--file-selection",
@@ -92,17 +80,27 @@ def browse_file():
                  f"--filename={initial_dir}/"],
                 capture_output=True, text=True
             )
-            selected = result.stdout.strip() or None
+            return result.stdout.strip() or None
         except FileNotFoundError:
-            return jsonify({"error": "File picker not available on this Linux. Paste path manually."}), 400
+            raise RuntimeError("File picker not available on this Linux — paste path manually.")
+
+
+@app.route("/api/browse")
+def browse_file():
+    """Open native OS file picker and return the selected path."""
+    last_folder_path = Path(__file__).parent.parent / "config" / "last_folder.txt"
+    initial_dir = last_folder_path.read_text().strip() if last_folder_path.exists() else ""
+
+    try:
+        selected = _open_file_dialog(initial_dir)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
 
     if not selected:
         return jsonify({"cancelled": True})
 
-    # Save folder for next time
-    folder = str(Path(selected).parent)
     last_folder_path.parent.mkdir(exist_ok=True)
-    last_folder_path.write_text(folder)
+    last_folder_path.write_text(str(Path(selected).parent))
 
     return jsonify({"path": selected, "name": Path(selected).name})
 
@@ -115,12 +113,14 @@ _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
 
 @app.route("/api/config")
 def get_config():
+    """GET /api/config — return the current config.json as JSON."""
     cfg = dcs_meta.load_config()
     return jsonify(cfg)
 
 
 @app.route("/api/config", methods=["POST"])
 def save_config():
+    """POST /api/config — validate and merge fields into config.json; description_templates uses merge semantics."""
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -181,6 +181,7 @@ def get_description_templates():
 
 @app.route("/api/history")
 def get_history():
+    """GET /api/history — return the last 20 analysed videos from history.json."""
     mem = dcs_meta.load_memory()
     return jsonify(mem["videos"][-20:])
 
@@ -197,7 +198,7 @@ def analyze():
     if not video_path:
         return jsonify({"error": "No video path provided"}), 400
 
-    path = Path(video_path)
+    path = Path(video_path).resolve()
     if not path.exists():
         return jsonify({"error": f"File not found: {video_path}"}), 404
 
@@ -265,6 +266,7 @@ def analyze():
 
 @app.route("/api/thumbnail", methods=["POST"])
 def generate_thumbnail():
+    """POST /api/thumbnail — extract and score candidate thumbnails, return their serve paths."""
     data = request.get_json()
     video_path = data.get("video_path", "").strip()
     metadata = data.get("metadata", {})
@@ -287,11 +289,13 @@ def generate_thumbnail():
 
 @app.route("/output/<path:filename>")
 def serve_output_file(filename):
+    """GET /output/<filename> — serve a generated file (thumbnail, JSON, TXT) from the output folder."""
     return send_from_directory(str(OUTPUT_DIR), filename)
 
 
 @app.route("/api/status/<job_id>")
 def job_status(job_id):
+    """GET /api/status/<job_id> — return the current status and result of an analysis job."""
     if job_id not in processing_status:
         return jsonify({"error": "Unknown job"}), 404
     return jsonify(processing_status[job_id])
@@ -301,7 +305,7 @@ def job_status(job_id):
 def upload_youtube():
     """Upload video to YouTube with generated metadata."""
     data = request.get_json()
-    video_path = data.get("video_path", "").strip()
+    video_path = str(Path(data.get("video_path", "").strip()).resolve())
     metadata = data.get("metadata", {})
     playlist_ids = data.get("playlist_ids", [])  # list of playlist IDs
     thumbnail_url = data.get("thumbnail_url", "").strip()
@@ -344,6 +348,7 @@ def upload_youtube():
 
 @app.route("/api/youtube/auth_url")
 def youtube_auth_url():
+    """GET /api/youtube/auth_url — start the OAuth flow; browser opens automatically."""
     try:
         from youtube_uploader import get_auth_url
         url = get_auth_url()
@@ -374,6 +379,7 @@ def youtube_revoke():
 
 @app.route("/api/youtube/status")
 def youtube_auth_status():
+    """GET /api/youtube/status — return whether a valid YouTube token file exists."""
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     return jsonify({"authenticated": token_path.exists()})
 
@@ -420,6 +426,7 @@ def suggest_playlists():
 
 @app.route("/api/playlists")
 def get_playlists():
+    """GET /api/playlists — fetch the authenticated channel's playlists from YouTube."""
     try:
         from youtube_uploader import get_playlists
         playlists = get_playlists()

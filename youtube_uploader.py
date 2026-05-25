@@ -25,12 +25,7 @@ _auth_state = {"result": None, "done": threading.Event()}
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def get_auth_url() -> str:
-    """
-    Launch OAuth flow in background thread using run_local_server().
-    This works with Desktop app credentials — no redirect URI config needed.
-    Returns a placeholder string; the browser is opened by the thread.
-    Frontend should call wait_for_auth() via /api/youtube/wait_auth.
-    """
+    """Start the OAuth flow in a background thread (browser opens automatically); call wait_for_auth() to block until done."""
     if not CLIENT_SECRET_PATH.exists():
         raise FileNotFoundError(
             f"client_secret.json not found at {CLIENT_SECRET_PATH}\n"
@@ -75,6 +70,7 @@ def wait_for_auth() -> dict:
 # ── Credentials ───────────────────────────────────────────────────────────────
 
 def _get_credentials():
+    """Load OAuth2 credentials from token file and refresh them if expired."""
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
 
@@ -90,6 +86,7 @@ def _get_credentials():
 
 
 def _build_service():
+    """Build and return an authenticated YouTube Data API v3 service client."""
     from googleapiclient.discovery import build
     return build("youtube", "v3", credentials=_get_credentials())
 
@@ -97,6 +94,7 @@ def _build_service():
 # ── YouTube API ───────────────────────────────────────────────────────────────
 
 def get_playlists() -> list:
+    """Return [{id, title}] for all channel playlists; empty list on any error."""
     try:
         response = _build_service().playlists().list(
             part="snippet", mine=True, maxResults=50
@@ -110,6 +108,7 @@ def get_playlists() -> list:
 
 
 def _build_description_with_chapters(description: str, chapters: list) -> str:
+    """Append chapter timestamps to description if chapters are present and not already embedded."""
     if not chapters:
         return description
     if "🕐" in description or "CHAPTERS" in description or "CAPÍTULOS" in description:
@@ -120,6 +119,7 @@ def _build_description_with_chapters(description: str, chapters: list) -> str:
 
 
 def _sanitize_tags(tags: list) -> list:
+    """Normalise, deduplicate, and trim tags to fit YouTube's 500-character total limit."""
     import re
     import unicodedata
 
@@ -193,6 +193,7 @@ def upload_video(
     language: str = "en",
     thumbnail_path: str = None
 ) -> dict:
+    """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail."""
     sanitized_tags = _sanitize_tags(tags)
     lang = language if language in ("es", "en") else "en"
 
