@@ -567,6 +567,16 @@
     white-space: nowrap;
   }
 
+  /* Setup tab — config form */
+  .cfg-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cfg-links-header {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 1px;
+    margin: 14px 0 10px;
+  }
+
   /* Setup tab */
   .setup-section {
     background: var(--bg2);
@@ -912,6 +922,87 @@
     <!-- SETUP TAB -->
     <div class="tab-content" id="tab-setup">
 
+      <div class="setup-section" id="configSection">
+        <h3>CHANNEL CONFIGURATION</h3>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:16px;">
+          Edit <code>config/config.json</code> without touching files manually.
+          Changes apply to the next analysis.
+        </p>
+
+        <div class="cfg-grid-2">
+          <div class="field-group">
+            <label>Channel name</label>
+            <input type="text" id="cfg_channel_name" placeholder="TheCylonPilot">
+          </div>
+          <div class="field-group">
+            <label>Squadron</label>
+            <input type="text" id="cfg_squadron" placeholder="Escuadrón 111 (E111)">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Channel description</label>
+          <textarea id="cfg_channel_description" rows="3"
+            placeholder="DCS World simulation — learning through mistakes…"></textarea>
+        </div>
+
+        <div class="cfg-grid-2" style="grid-template-columns:140px 1fr;">
+          <div class="field-group">
+            <label>Frames to extract</label>
+            <input type="number" id="cfg_frames" min="1" max="20" placeholder="8">
+          </div>
+          <div class="field-group">
+            <label>Gemini model</label>
+            <select id="cfg_model">
+              <option value="gemini-2.5-flash">gemini-2.5-flash (recommended)</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+              <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cfg-links-header">LINKS</div>
+        <div class="cfg-grid-2">
+          <div class="field-group">
+            <label>F/A-18C playlist</label>
+            <input type="url" id="cfg_link_dcs_f18_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>A-10C playlist</label>
+            <input type="url" id="cfg_link_dcs_a10c_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>Huey playlist</label>
+            <input type="url" id="cfg_link_dcs_huey_playlist" placeholder="https://youtube.com/playlist?list=…">
+          </div>
+          <div class="field-group">
+            <label>Twitter / X</label>
+            <input type="url" id="cfg_link_twitter" placeholder="https://twitter.com/…">
+          </div>
+          <div class="field-group">
+            <label>Twitch</label>
+            <input type="url" id="cfg_link_twitch" placeholder="https://www.twitch.tv/…">
+          </div>
+          <div class="field-group">
+            <label>Buy Me a Coffee</label>
+            <input type="url" id="cfg_link_buymeacoffee" placeholder="https://…">
+          </div>
+          <div class="field-group">
+            <label>Squadron website</label>
+            <input type="url" id="cfg_link_escuadron111" placeholder="https://…">
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:14px;margin-top:16px;">
+          <button class="btn btn-primary" onclick="saveConfig()"
+            style="width:auto;padding:8px 20px;font-size:11px;letter-spacing:1px;">
+            SAVE CONFIG
+          </button>
+          <span id="configSaveStatus" style="font-family:var(--mono);font-size:11px;"></span>
+        </div>
+      </div>
+
       <div class="setup-section">
         <h3>GEMINI API KEY</h3>
         <div class="setup-step">
@@ -1010,6 +1101,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkYouTubeStatus();
   loadHistory();
   loadPlaylists();
+  loadConfigForm();
 });
 
 // ── File handling ─────────────────────────────────────────────────────────────
@@ -1059,6 +1151,7 @@ function openTab(name) {
   const content = document.getElementById('tab-' + name);
   if (content) content.classList.add('active');
   if (name === 'history') loadHistory();
+  if (name === 'setup') loadConfigForm();
 }
 
 // ── Analysis ─────────────────────────────────────────────────────────────────
@@ -1593,6 +1686,73 @@ async function loadPlaylists() {
 function getSelectedPlaylistIds() {
   return [...document.querySelectorAll('#playlistList input[type=checkbox]:checked')]
     .map(cb => cb.value);
+}
+
+// ── Config editor ────────────────────────────────────────────────────────────
+async function loadConfigForm() {
+  try {
+    const resp = await fetch('/api/config');
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    document.getElementById('cfg_channel_name').value = cfg.channel_name || '';
+    document.getElementById('cfg_channel_description').value = cfg.channel_description || '';
+    document.getElementById('cfg_squadron').value = cfg.squadron || '';
+    document.getElementById('cfg_frames').value = cfg.frames_to_extract ?? 8;
+    document.getElementById('cfg_model').value = cfg.model || 'gemini-2.5-flash';
+    const links = cfg.default_links || {};
+    document.getElementById('cfg_link_dcs_f18_playlist').value = links.dcs_f18_playlist || '';
+    document.getElementById('cfg_link_dcs_a10c_playlist').value = links.dcs_a10c_playlist || '';
+    document.getElementById('cfg_link_dcs_huey_playlist').value = links.dcs_huey_playlist || '';
+    document.getElementById('cfg_link_twitter').value = links.twitter || '';
+    document.getElementById('cfg_link_twitch').value = links.twitch || '';
+    document.getElementById('cfg_link_buymeacoffee').value = links.buymeacoffee || '';
+    document.getElementById('cfg_link_escuadron111').value = links.escuadron111 || '';
+  } catch(e) {
+    console.error('Could not load config form:', e);
+  }
+}
+
+async function saveConfig() {
+  const statusEl = document.getElementById('configSaveStatus');
+  statusEl.style.color = 'var(--text2)';
+  statusEl.textContent = 'Saving…';
+
+  const payload = {
+    channel_name: document.getElementById('cfg_channel_name').value.trim(),
+    channel_description: document.getElementById('cfg_channel_description').value.trim(),
+    squadron: document.getElementById('cfg_squadron').value.trim(),
+    frames_to_extract: parseInt(document.getElementById('cfg_frames').value, 10),
+    model: document.getElementById('cfg_model').value,
+    default_links: {
+      dcs_f18_playlist:  document.getElementById('cfg_link_dcs_f18_playlist').value.trim(),
+      dcs_a10c_playlist: document.getElementById('cfg_link_dcs_a10c_playlist').value.trim(),
+      dcs_huey_playlist: document.getElementById('cfg_link_dcs_huey_playlist').value.trim(),
+      twitter:           document.getElementById('cfg_link_twitter').value.trim(),
+      twitch:            document.getElementById('cfg_link_twitch').value.trim(),
+      buymeacoffee:      document.getElementById('cfg_link_buymeacoffee').value.trim(),
+      escuadron111:      document.getElementById('cfg_link_escuadron111').value.trim(),
+    }
+  };
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.error || 'Save failed');
+    } else {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = '✓ Saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error';
+  }
 }
 
 // ── Alerts ────────────────────────────────────────────────────────────────────

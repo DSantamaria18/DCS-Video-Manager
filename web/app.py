@@ -107,10 +107,45 @@ def browse_file():
     return jsonify({"path": selected, "name": Path(selected).name})
 
 
+VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
+_CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
+                        "default_links", "frames_to_extract", "model"}
+
+
 @app.route("/api/config")
 def get_config():
     cfg = dcs_meta.load_config()
     return jsonify(cfg)
+
+
+@app.route("/api/config", methods=["POST"])
+def save_config():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    if "frames_to_extract" in data:
+        try:
+            n = int(data["frames_to_extract"])
+            if not (1 <= n <= 20):
+                raise ValueError
+            data["frames_to_extract"] = n
+        except (ValueError, TypeError):
+            return jsonify({"error": "frames_to_extract must be an integer between 1 and 20"}), 400
+
+    if "model" in data and data["model"] not in VALID_MODELS:
+        return jsonify({"error": f"Invalid model. Allowed: {', '.join(sorted(VALID_MODELS))}"}), 400
+
+    existing = dcs_meta.load_config()
+    for key in _CONFIG_ALLOWED_KEYS:
+        if key in data:
+            existing[key] = data[key]
+
+    dcs_meta.CONFIG_PATH.parent.mkdir(exist_ok=True)
+    with open(dcs_meta.CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    return jsonify(existing)
 
 
 @app.route("/api/history")

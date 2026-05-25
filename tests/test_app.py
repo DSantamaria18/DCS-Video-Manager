@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import patch
 from app import app as flask_app
 import app as app_module
+import dcs_meta
 
 
 @pytest.fixture
@@ -165,6 +166,78 @@ def test_youtube_status_returns_authenticated_key(client):
     resp = client.get("/api/youtube/status")
     assert resp.status_code == 200
     assert "authenticated" in resp.json
+
+
+# ── POST /api/config ──────────────────────────────────────────────────────────
+
+VALID_CONFIG_PAYLOAD = {
+    "channel_name": "TestPilot",
+    "channel_description": "Test channel",
+    "squadron": "Test Squadron",
+    "frames_to_extract": 6,
+    "model": "gemini-2.5-flash",
+    "default_links": {"twitter": "https://twitter.com/test"},
+}
+
+
+def test_post_config_saves_valid_config(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    with patch("dcs_meta.load_config", return_value=dict(VALID_CONFIG_PAYLOAD)):
+        resp = client.post("/api/config", json=VALID_CONFIG_PAYLOAD)
+    assert resp.status_code == 200
+    assert resp.json["channel_name"] == "TestPilot"
+    assert resp.json["frames_to_extract"] == 6
+
+
+def test_post_config_invalid_frames_zero_returns_400(client):
+    payload = {**VALID_CONFIG_PAYLOAD, "frames_to_extract": 0}
+    resp = client.post("/api/config", json=payload)
+    assert resp.status_code == 400
+    assert "frames_to_extract" in resp.json["error"]
+
+
+def test_post_config_invalid_frames_above_20_returns_400(client):
+    payload = {**VALID_CONFIG_PAYLOAD, "frames_to_extract": 21}
+    resp = client.post("/api/config", json=payload)
+    assert resp.status_code == 400
+
+
+def test_post_config_invalid_frames_string_returns_400(client):
+    payload = {**VALID_CONFIG_PAYLOAD, "frames_to_extract": "many"}
+    resp = client.post("/api/config", json=payload)
+    assert resp.status_code == 400
+
+
+def test_post_config_invalid_model_returns_400(client):
+    payload = {**VALID_CONFIG_PAYLOAD, "model": "gpt-4o"}
+    resp = client.post("/api/config", json=payload)
+    assert resp.status_code == 400
+    assert "model" in resp.json["error"].lower() or "Invalid" in resp.json["error"]
+
+
+def test_post_config_no_body_returns_400(client):
+    resp = client.post("/api/config", data="not json",
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_post_config_merges_with_existing(client, tmp_path, monkeypatch):
+    existing = {**VALID_CONFIG_PAYLOAD, "channel_name": "OldName", "squadron": "OldSquad"}
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    with patch("dcs_meta.load_config", return_value=existing):
+        resp = client.post("/api/config", json={"channel_name": "NewName"})
+    assert resp.status_code == 200
+    assert resp.json["channel_name"] == "NewName"
+    assert resp.json["squadron"] == "OldSquad"
+
+
+def test_post_config_all_valid_gemini_models_accepted(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    for model in ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"):
+        payload = {**VALID_CONFIG_PAYLOAD, "model": model}
+        with patch("dcs_meta.load_config", return_value=dict(VALID_CONFIG_PAYLOAD)):
+            resp = client.post("/api/config", json=payload)
+        assert resp.status_code == 200, f"Expected 200 for model {model}"
 
 
 # ── GET / ─────────────────────────────────────────────────────────────────────

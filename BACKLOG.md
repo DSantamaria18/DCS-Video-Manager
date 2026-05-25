@@ -56,5 +56,4 @@
 | # | Title | Priority | Description |
 | --- | --- | --- | --- |
 | 17 | Batch mode with folder watcher | 🟡 Medium | Monitor the DCS Saved Games recordings folder with `watchdog` (Python). When new `.mkv` files appear, queue them automatically for analysis using the existing async job infrastructure. Display the queue in the web UI. The user reviews and approves each result before upload — no automatic publishing. Supports conditional scheduling rules configurable in `config.json`: max uploads per module per week, minimum hours between uploads, day-of-week restrictions. Works in combination with #16 (scheduled publishing). |
-| 27 | Editable config from UI | 🟡 Medium | Edit `config.json` (links, frames, model) from the Setup tab without touching files manually |
 | 28 | Export metadata as CSV | 🟢 Low | Export the full history as CSV for analysis or external backup |
