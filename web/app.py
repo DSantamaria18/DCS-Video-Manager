@@ -378,6 +378,46 @@ def youtube_auth_status():
     return jsonify({"authenticated": token_path.exists()})
 
 
+def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
+    """Return playlist IDs whose title matches terms from aircraft/mission_type/campaign.
+
+    Tokenises each metadata field into lowercase words (≥2 chars, letters/digits only)
+    and checks if any token appears in the playlist title (case-insensitive).
+    """
+    import re as _re
+    fields = [
+        metadata.get("aircraft", ""),
+        metadata.get("mission_type", ""),
+        metadata.get("campaign", ""),
+    ]
+    terms = set()
+    for field in fields:
+        for tok in _re.split(r"[^a-z0-9]+", field.lower()):
+            if len(tok) >= 2:
+                terms.add(tok)
+
+    if not terms:
+        return []
+
+    matched = []
+    for pl in playlists:
+        title_lower = pl.get("title", "").lower()
+        if any(term in title_lower for term in terms):
+            matched.append(pl["id"])
+    return matched
+
+
+@app.route("/api/suggest_playlists", methods=["POST"])
+def suggest_playlists():
+    """Given metadata and a playlist list, return IDs of playlists that match."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    metadata = data.get("metadata", {})
+    playlists = data.get("playlists", [])
+    return jsonify({"suggested": _suggest_playlist_ids(metadata, playlists)})
+
+
 @app.route("/api/playlists")
 def get_playlists():
     try:

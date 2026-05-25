@@ -275,6 +275,104 @@ def test_post_config_all_valid_gemini_models_accepted(client, tmp_path, monkeypa
         assert resp.status_code == 200, f"Expected 200 for model {model}"
 
 
+# ── POST /api/suggest_playlists ──────────────────────────────────────────────
+
+PLAYLISTS = [
+    {"id": "PL1", "title": "F/A-18C Hornet Advanced"},
+    {"id": "PL2", "title": "BVR Master Class"},
+    {"id": "PL3", "title": "A-10C Warthog CAS"},
+    {"id": "PL4", "title": "Campaign Highlights"},
+    {"id": "PL5", "title": "DCS World Beginner"},
+]
+
+
+def test_suggest_playlists_matches_aircraft(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "F/A-18C Hornet", "mission_type": "", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert "PL1" in resp.json["suggested"]
+
+
+def test_suggest_playlists_matches_mission_type(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "", "mission_type": "BVR", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert "PL2" in resp.json["suggested"]
+
+
+def test_suggest_playlists_matches_campaign(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "", "mission_type": "", "campaign": "Campaign Highlights"},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert "PL4" in resp.json["suggested"]
+
+
+def test_suggest_playlists_no_match_returns_empty(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "UH-1H Huey", "mission_type": "Transport", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert resp.json["suggested"] == []
+
+
+def test_suggest_playlists_multiple_matches(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "A-10C Warthog", "mission_type": "CAS", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    suggested = resp.json["suggested"]
+    assert "PL3" in suggested
+
+
+def test_suggest_playlists_empty_metadata_returns_empty(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "", "mission_type": "", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert resp.json["suggested"] == []
+
+
+def test_suggest_playlists_no_body_returns_400(client):
+    resp = client.post("/api/suggest_playlists", data="bad",
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_suggest_playlists_case_insensitive(client):
+    resp = client.post("/api/suggest_playlists", json={
+        "metadata": {"aircraft": "f/a-18c hornet", "mission_type": "", "campaign": ""},
+        "playlists": PLAYLISTS,
+    })
+    assert resp.status_code == 200
+    assert "PL1" in resp.json["suggested"]
+
+
+# ── _suggest_playlist_ids unit tests ─────────────────────────────────────────
+
+def test_suggest_playlist_ids_pure_function():
+    from app import _suggest_playlist_ids
+    result = _suggest_playlist_ids(
+        {"aircraft": "F/A-18C Hornet", "mission_type": "BVR", "campaign": ""},
+        PLAYLISTS
+    )
+    assert "PL1" in result
+    assert "PL2" in result
+
+
+def test_suggest_playlist_ids_empty_playlists():
+    from app import _suggest_playlist_ids
+    assert _suggest_playlist_ids({"aircraft": "Hornet"}, []) == []
+
+
 # ── GET /api/description_templates ───────────────────────────────────────────
 
 def test_get_description_templates_returns_all_six_keys(client):
