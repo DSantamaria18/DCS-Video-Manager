@@ -24,7 +24,7 @@ OUTPUT_PATH = Path(__file__).parent / "output"
 
 DEFAULT_CONFIG = {
     "channel_name": "TheCylonPilot",
-    "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C.",
+    "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache.",
     "squadron": "Escuadrón 111 (E111)",
     "default_links": {
         "dcs_a10c_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6igw-XjMgNI8msORPNLAoQ",
@@ -40,6 +40,52 @@ DEFAULT_CONFIG = {
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
+
+# Per-module data injected into the Gemini prompt for accurate aircraft identification
+MODULE_PROFILES = {
+    "F/A-18C Hornet": {
+        "cockpit": "MPCD/DDI multifunction displays, digital UFC, HUD with carrier approach symbology",
+        "missions": "BVR, CAS, SEAD, AAR, carrier ops",
+        "weapons": "AIM-120 AMRAAM, AIM-9X, AGM-88 HARM, JDAM, GBU-12, AGM-65 Maverick",
+        "tags": ["f18", "f-18", "fa-18", "f/a-18c", "hornet"],
+    },
+    "F-16C Viper": {
+        "cockpit": "Paired round MFDs, bubble canopy, HARM targeting system interface",
+        "missions": "SEAD, BVR, CAS, strike",
+        "weapons": "AIM-120 AMRAAM, AIM-9X, AGM-88 HARM, JDAM, CBU",
+        "tags": ["f16", "f-16", "viper", "f16c", "f-16c"],
+    },
+    "F-14 Tomcat": {
+        "cockpit": "AWG-9 TCS screen, analogue gauges, RIO rear-seat instruments, variable-sweep wings",
+        "missions": "BVR intercept, fleet defense, LANTIRN strike, TARPS recon",
+        "weapons": "AIM-54 Phoenix, AIM-7 Sparrow, AIM-9 Sidewinder, LANTIRN, unguided bombs",
+        "tags": ["f14", "f-14", "tomcat", "f14b", "f-14b", "phoenix"],
+    },
+    "UH-1H Huey": {
+        "cockpit": "Vietnam-era analogue gauges, twin collective/cyclic layout, door gunner positions",
+        "missions": "CAS, CSAR, troop transport, sling load",
+        "weapons": "M134 minigun, M60 door guns, 2.75-in rockets",
+        "tags": ["uh1h", "uh-1h", "huey", "helicopter dcs"],
+    },
+    "A-10C Warthog": {
+        "cockpit": "MFCDs with DSMS/TGP pages, attack HUD with weapons-delivery symbology",
+        "missions": "CAS, FAC, anti-armour, SEAD",
+        "weapons": "GAU-8 Avenger cannon, AGM-65 Maverick, JDAM, GBU-12, AIM-9",
+        "tags": ["a10c", "a-10c", "warthog", "a10", "a-10", "thunderbolt ii"],
+    },
+    "C-130J Hercules": {
+        "cockpit": "Flat-panel glass cockpit with MFDs, high-wing transport layout, four turboprop engines",
+        "missions": "Strategic airlift, AAR tanking, airdrop, LAPES, low-level ops",
+        "weapons": "None — transport/tanker aircraft",
+        "tags": ["c130j", "c-130j", "hercules", "c130", "super hercules"],
+    },
+    "AH-64D Apache": {
+        "cockpit": "IHADSS helmet-sight overlay, TADS/PNVS targeting display, tandem CPG/pilot seats",
+        "missions": "CAS, anti-armour, armed recon, NOE, escort",
+        "weapons": "AGM-114 Hellfire, Hydra 70 rockets, M230 30mm chain gun",
+        "tags": ["ah64d", "ah-64d", "apache", "ah64", "ah-64", "longbow"],
+    },
+}
 
 # Lock for thread-safe memory read-modify-write in concurrent analysis jobs
 _memory_lock = threading.Lock()
@@ -130,6 +176,18 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
 
 # ── Prompt ───────────────────────────────────────────────────────────────────
 
+def _build_module_guide() -> str:
+    lines = []
+    for module, data in MODULE_PROFILES.items():
+        tag_str = ", ".join(data["tags"])
+        lines.append(
+            f"- {module}: cockpit={data['cockpit']} | "
+            f"missions={data['missions']} | weapons={data['weapons']} | "
+            f"tags={tag_str}"
+        )
+    return "\n".join(lines)
+
+
 def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict) -> str:
     recent = memory["videos"][-5:] if memory["videos"] else []
     memory_block = ""
@@ -150,7 +208,7 @@ This is a solo/campaign video. The pilot is learning DCS and shares both success
 
 CHANNEL IDENTITY:
 - Creator: Spanish simmer, 47 years old, IT professional
-- Main module: F/A-18C Hornet | Also flies: F-16C, F-14, UH-1H, A-10C
+- Main module: F/A-18C Hornet | Also flies: F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache
 - Philosophy: Learning through mistakes, helping beginners
 - Squadron: Escuadrón 111 (E111) — veteran Spanish virtual aviation community
 
@@ -159,6 +217,11 @@ CHANNEL IDENTITY:
 USER CONTEXT FOR THIS VIDEO:
 {user_context if user_context else "(none provided — infer everything from video frames)"}
 {memory_block}
+
+MODULE IDENTIFICATION GUIDE:
+Use cockpit details in the frames to identify the aircraft, then apply the matching mission context and tags below.
+
+{_build_module_guide()}
 
 TASK:
 Analyze the provided video frames (extracted from a DCS World gameplay recording) and generate complete YouTube metadata.

@@ -180,3 +180,53 @@ def test_build_prompt_returns_valid_json_schema_hint():
     assert '"title"' in prompt
     assert '"tags"' in prompt
     assert '"language"' in prompt
+
+
+# ── MODULE_PROFILES / module guide ────────────────────────────────────────────
+
+def test_module_profiles_contains_all_expected_modules():
+    expected = {"F/A-18C Hornet", "F-16C Viper", "F-14 Tomcat", "UH-1H Huey",
+                "A-10C Warthog", "C-130J Hercules", "AH-64D Apache"}
+    assert expected == set(dcs_meta.MODULE_PROFILES.keys())
+
+
+def test_module_profiles_each_has_required_keys():
+    for module, data in dcs_meta.MODULE_PROFILES.items():
+        for key in ("cockpit", "missions", "weapons", "tags"):
+            assert key in data, f"{module} missing '{key}'"
+        assert isinstance(data["tags"], list)
+        assert len(data["tags"]) >= 2
+
+
+@pytest.mark.parametrize("module_name", [
+    "F-14 Tomcat", "UH-1H Huey", "A-10C Warthog", "C-130J Hercules", "AH-64D Apache",
+])
+def test_build_prompt_includes_module_in_guide(module_name):
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []})
+    assert module_name in prompt
+
+
+def test_build_prompt_includes_module_identification_guide_header():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []})
+    assert "MODULE IDENTIFICATION GUIDE" in prompt
+
+
+def test_build_prompt_guide_includes_cockpit_field():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []})
+    assert "cockpit=" in prompt
+
+
+def test_build_prompt_channel_identity_includes_c130j_and_apache():
+    prompt = dcs_meta.build_prompt("", {}, is_squadron=False, memory={"videos": []})
+    assert "C-130J" in prompt
+    assert "AH-64D Apache" in prompt
+
+
+# ── format_description — new aircraft fall through to generic ─────────────────
+
+@pytest.mark.parametrize("aircraft", ["F-14B Tomcat", "AH-64D Apache", "C-130J Super Hercules"])
+def test_format_description_new_aircraft_falls_through_to_generic(aircraft):
+    meta = {"description": "[relevant playlists]", "aircraft": aircraft}
+    result = dcs_meta.format_description(meta, BASE_CONFIG)
+    assert "https://youtube.com/playlist?list=F18" in result
+    assert "https://youtube.com/playlist?list=A10" in result

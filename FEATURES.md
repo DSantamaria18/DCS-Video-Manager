@@ -16,11 +16,12 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
   - Long description with playlist links, social links, and a chapters section
   - Tags (up to 500 total characters)
   - Chapters with timestamps (`00:00 Briefing`, `05:30 Takeoff`, etc.)
-  - Aircraft/module detected (F/A-18C, F-16C, A-10C, F-14, UH-1H…)
+  - Aircraft/module detected (F/A-18C, F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache…)
   - Map detected (Caucasus, Persian Gulf, Syria, Nevada…)
   - Mission type (CAS, SEAD, Strike, BVR, Training…)
   - Video language detected (used for `defaultLanguage` and `defaultAudioLanguage` on YouTube)
 - **History memory** — `history.json` stores recent analysed videos and is injected as context into the Gemini prompt to improve consistency across videos.
+- **Module identification guide** — `MODULE_PROFILES` in `dcs_meta.py` provides per-aircraft cockpit identifiers, typical missions, weapons, and tag variants for all supported modules (F/A-18C, F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache). The guide is injected verbatim into the Gemini prompt so the model can reliably identify the aircraft from cockpit frames and generate accurate descriptions and tags.
 - **Squadron context** — if the user context mentions E111 or another squadron, the prompt adapts tone and format accordingly.
 - **Output files** — each analysis produces a `.json` and a `.txt` file in the `output/` folder.
 
