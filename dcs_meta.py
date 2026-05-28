@@ -93,6 +93,20 @@ MODULE_PROFILES = {
 # Lock for thread-safe memory read-modify-write in concurrent analysis jobs
 _memory_lock = threading.Lock()
 
+# ACMI classification sets
+_BVR_MISSILE_NAMES = frozenset({
+    "aim-120", "aim-7", "aim-54", "r-77", "r-27", "meteor",
+    "mica", "derby", "python",
+})
+_SAM_NAME_FRAGMENTS = frozenset({
+    "sa-2", "sa-3", "sa-6", "sa-8", "sa-10", "sa-11", "sa-12",
+    "sa-13", "sa-15", "sa-19", "sa-20", "sa-23", "s-75", "s-125",
+    "s-300", "s-400", "patriot", "hawk", "roland", "crotale", "buk",
+    "tor", "tunguska", "pantsir", "strela", "igla", "stinger",
+})
+_FRIENDLY_COALITIONS = frozenset({"allies", "blue", "friend"})
+_HOSTILE_COALITIONS = frozenset({"enemies", "red", "enemy"})
+
 # Font search paths for thumbnail overlay (Impact preferred, Arial Bold fallback)
 _FONT_PATHS = [
     "C:/Windows/Fonts/impact.ttf",
@@ -146,6 +160,62 @@ def _get_video_duration(video_path: Path) -> float:
         return float(json.loads(result.stdout)["format"]["duration"])
     except FileNotFoundError:
         raise RuntimeError("ffprobe not found — install ffmpeg (https://ffmpeg.org)")
+
+
+def _seconds_to_chapter_time(s: float) -> str:
+    """Convert seconds to 'M:SS' chapter timestamp string."""
+    return f"{int(s // 60)}:{int(s % 60):02d}"
+
+
+def detect_audio_chapters(
+    video_path: Path,
+    duration_seconds: float = None,
+    noise_db: int = -30,
+    min_silence_s: float = 3.0,
+    min_gap_s: float = 60.0,
+) -> list[str]:
+    """Detect chapter boundaries from audio silences via ffmpeg silencedetect.
+
+    Returns 'M:SS' timestamp strings starting with '0:00'. Returns ['0:00'] alone
+    if detection fails or no usable silences are found.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-i", str(video_path),
+                "-af", f"silencedetect=noise={noise_db}dB:duration={min_silence_s}",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True,
+        )
+        stderr = result.stderr
+    except (FileNotFoundError, OSError):
+        return ["0:00"]
+
+    # Parse "silence_end: X.XXX | silence_duration: Y" lines from stderr
+    silence_ends: list[float] = []
+    for line in stderr.splitlines():
+        if "silence_end:" not in line:
+            continue
+        try:
+            t = float(line.split("silence_end:")[1].split("|")[0].strip())
+            silence_ends.append(t)
+        except (ValueError, IndexError):
+            continue
+
+    # Build chapter starts: always 0:00, then each silence_end that is ≥ min_gap_s
+    # from the previous marker and not in the last 10% of the video.
+    tail_cutoff = duration_seconds * 0.90 if duration_seconds else float("inf")
+    markers: list[float] = [0.0]
+    for t in silence_ends:
+        if t - markers[-1] >= min_gap_s and t <= tail_cutoff:
+            markers.append(t)
+
+    # Cap at 8 total markers (chapters beyond that are rarely useful in YouTube)
+    markers = markers[:8]
+
+    return [_seconds_to_chapter_time(t) for t in markers]
+
 
 # ── Frame extraction ─────────────────────────────────────────────────────────
 
@@ -437,7 +507,9 @@ def _build_module_guide() -> str:
 
 def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict,
                  duration_seconds: float = None, series_context: dict = None,
-                 aircraft_suggestions: list = None) -> str:
+                 aircraft_suggestions: list = None,
+                 audio_markers: list[str] | None = None,
+                 acmi_events: dict | None = None) -> str:
     """Build the full Gemini prompt, injecting memory, length rules, series context, and the module guide."""
     recent = memory["videos"][-5:] if memory["videos"] else []
     memory_block = ""
@@ -493,6 +565,22 @@ This is a solo/campaign video. The pilot is learning DCS and shares both success
         "medium": "Include chapters only if you can reasonably infer time progression from the frames. If uncertain, return [].",
         "long":   "ALWAYS include chapters — mandatory for long videos. Generate chapters even with rough time estimates.",
     }[category]
+
+    audio_block = ""
+    if audio_markers and len(audio_markers) > 1:
+        timestamps = ", ".join(audio_markers)
+        audio_block = (
+            f"- AUDIO PHASE MARKERS detected from silence analysis: {timestamps}\n"
+            "  These mark DCS mission phase transitions (briefing → taxi → ingress → combat → RTB).\n"
+            "  Use these as your preferred chapter start times and label each one based on context."
+        )
+
+    acmi_block = ""
+    if acmi_events and acmi_events.get("events_text"):
+        acmi_block = (
+            f"\nTACVIEW ACMI DATA: {acmi_events['events_text']}\n"
+            "Use these confirmed events to improve chapter accuracy and description specificity."
+        )
 
     return f"""You are a YouTube metadata specialist for the DCS World simulation channel "TheCylonPilot".
 
@@ -561,6 +649,7 @@ TAGS RULES:
 CHAPTERS:
 - {chapters_rule}
 - Format times as "0:00", "1:30", "12:45"
+{audio_block}{acmi_block}
 """
 
 # ── Gemini API call ───────────────────────────────────────────────────────────
@@ -614,11 +703,10 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
 # ── Main analysis ─────────────────────────────────────────────────────────────
 
 def generate_metadata(video_path: Path, user_context: str, config: dict, memory: dict,
-                      frames: list = None) -> dict:
+                      frames: list = None, acmi_path: Path = None) -> dict:
     """Analyse a video and return YouTube metadata via Gemini.
 
-    Pass `frames` (list of base64 JPEG strings) to skip re-extraction when
-    the caller has already extracted frames (avoids running ffmpeg twice).
+    Pass `frames` to skip re-extraction; pass `acmi_path` to inject TacView event context.
     """
     print(f"\n{'─'*60}")
     print(f"  Processing: {video_path.name}")
@@ -649,9 +737,29 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         print("  ✗ Could not extract frames. Check ffmpeg installation.")
         return {}
 
+    # Audio chapter detection — only for medium/long videos
+    audio_markers = None
+    if duration_seconds and duration_seconds >= 600:
+        print("  Detecting audio phase markers...")
+        markers = detect_audio_chapters(video_path, duration_seconds)
+        if len(markers) > 1:
+            print(f"  ✓ Audio markers: {', '.join(markers)}")
+            audio_markers = markers
+        else:
+            print("  → No phase transitions detected in audio")
+
+    acmi_events = None
+    if acmi_path and acmi_path.exists():
+        print("  Parsing TacView ACMI file...")
+        acmi_events = parse_acmi_events(acmi_path)
+        if acmi_events.get("events_text"):
+            print(f"  ✓ ACMI events: {acmi_events['events_text']}")
+        else:
+            print("  → No significant ACMI events detected")
+
     model = config.get("model", "gemini-1.5-flash")
     prompt = build_prompt(user_context, config, is_squadron, memory, duration_seconds,
-                          series_context, aircraft_suggestions)
+                          series_context, aircraft_suggestions, audio_markers, acmi_events)
     print(f"  Calling Gemini API ({model})...")
 
     try:
@@ -916,6 +1024,362 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
         paths.append(_save_thumbnail(img, video_path, f"thumb_{i}"))
 
     return paths
+
+
+# ── ACMI ─────────────────────────────────────────────────────────────────────
+
+def _parse_acmi_props(props_str: str) -> tuple[dict, set]:
+    """Split ACMI property string into (key→value dict, standalone-flags set)."""
+    props: dict = {}
+    flags: set = set()
+    for token in props_str.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "=" in token:
+            k, _, v = token.partition("=")
+            props[k.strip()] = v.strip()
+        else:
+            flags.add(token)
+    return props, flags
+
+
+def parse_acmi_events(acmi_path: Path) -> dict:
+    """Parse a Tacview ACMI 2.2 file and return kills, SAM launches, and BVR launches.
+
+    Returns a dict with keys kills, sam_launches, bvr_launches, events_text, duration_s.
+    Returns empty dict on any parse or IO failure.
+    """
+    objects: dict = {}
+    current_time_s = 0.0
+    max_time_s = 0.0
+    kills: list = []
+    sam_launches: list = []
+    bvr_launches: list = []
+
+    try:
+        with open(acmi_path, encoding="utf-8-sig", errors="replace") as f:
+            for raw_line in f:
+                line = raw_line.rstrip("\r\n")
+                if not line or line.startswith("//") or line.startswith("FileType") or line.startswith("FileVersion"):
+                    continue
+
+                if line.startswith("#"):
+                    try:
+                        current_time_s = float(line[1:])
+                        max_time_s = max(max_time_s, current_time_s)
+                    except ValueError:
+                        pass
+                    continue
+
+                comma_pos = line.find(",")
+                if comma_pos < 0:
+                    continue
+                obj_id = line[:comma_pos]
+                if obj_id == "0":
+                    continue
+
+                is_new = obj_id not in objects
+                if is_new:
+                    objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": ""}
+                obj = objects[obj_id]
+
+                props, flags = _parse_acmi_props(line[comma_pos + 1:])
+                if "Type" in props:
+                    obj["type"] = props["Type"].lower()
+                if "Name" in props:
+                    obj["name"] = props["Name"]
+                if "Coalition" in props:
+                    obj["coalition"] = props["Coalition"].lower()
+                if "Parent" in props:
+                    obj["parent"] = props["Parent"]
+
+                # Destroyed event on a hostile air/ground object → kill
+                if "Destroyed" in flags:
+                    t = obj.get("type", "")
+                    if obj.get("coalition", "") in _HOSTILE_COALITIONS and (
+                        "air" in t or ("ground" in t and "weapon" not in t)
+                    ):
+                        kills.append({
+                            "time_s": current_time_s,
+                            "time": _seconds_to_chapter_time(current_time_s),
+                            "name": obj.get("name", "unknown"),
+                        })
+
+                # New missile object → detect BVR launch or SAM launch
+                if is_new and "weapon" in obj.get("type", "") and "missile" in obj.get("type", ""):
+                    name_lower = obj.get("name", "").lower()
+                    coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
+
+                    if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
+                        bvr_launches.append({
+                            "time_s": current_time_s,
+                            "time": _seconds_to_chapter_time(current_time_s),
+                            "name": obj.get("name", "BVR missile"),
+                        })
+                    elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
+                        sam_launches.append({
+                            "time_s": current_time_s,
+                            "time": _seconds_to_chapter_time(current_time_s),
+                            "name": obj.get("name", "SAM"),
+                        })
+
+    except (OSError, IOError):
+        return {}
+
+    parts = []
+    if kills:
+        parts.append(f"{len(kills)} kill(s): {', '.join(k['name'] + ' at ' + k['time'] for k in kills[:5])}")
+    if sam_launches:
+        parts.append(f"{len(sam_launches)} SAM launch(es) at {', '.join(s['time'] for s in sam_launches[:4])}")
+    if bvr_launches:
+        parts.append(f"{len(bvr_launches)} BVR missile(s) fired at {', '.join(b['time'] for b in bvr_launches[:4])}")
+
+    return {
+        "duration_s": max_time_s,
+        "kills": kills,
+        "sam_launches": sam_launches,
+        "bvr_launches": bvr_launches,
+        "events_text": "; ".join(parts) if parts else "",
+    }
+
+
+# ── Debrief ───────────────────────────────────────────────────────────────────
+
+_DEBRIEF_RESULT_ICON = {"RTB": "✓ RTB", "CRASH": "✗ CRASH", "COMPLETE": "✓ COMPLETE"}
+
+
+def _format_debrief_duration(seconds: float) -> str:
+    """Format seconds as HH:MM:SS (or MM:SS for videos under an hour)."""
+    h, r = divmod(int(seconds), 3600)
+    m, s = divmod(r, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def generate_debrief(metadata: dict, video_path: Path, config: dict,
+                     acmi_events: dict | None = None) -> str:
+    """Generate a military-format mission debrief report via Gemini frame analysis.
+
+    Pass acmi_events (from parse_acmi_events) for more accurate kill/SAM counts.
+    Falls back to metadata-only fields if the API call fails.
+    """
+    language = metadata.get("language", "en")
+    aircraft = metadata.get("aircraft", "?")
+    map_name = metadata.get("map", "?")
+    mission_type = metadata.get("mission_type", "?")
+
+    duration_str = "--"
+    try:
+        duration_str = _format_debrief_duration(_get_video_duration(video_path))
+    except Exception:
+        pass
+
+    frames = extract_frames(video_path, min(5, config.get("frames_to_extract", 8)))
+
+    lang_label = "Spanish (Spain)" if language == "es" else "English"
+    acmi_hint = ""
+    if acmi_events and acmi_events.get("events_text"):
+        acmi_hint = (
+            f"\n\nTACVIEW ACMI CONFIRMED DATA: {acmi_events['events_text']}. "
+            "Use these confirmed counts for kills and SAM fields in your JSON output."
+        )
+    prompt = (
+        "You are generating a mission debrief for a DCS World recording.\n\n"
+        f"MISSION INFO: aircraft={aircraft}, map={map_name}, mission_type={mission_type}, "
+        f"narrative language={lang_label}"
+        + acmi_hint + "\n\n"
+        "Analyze the video frames. Estimate from HUD data, RWR activity, and visual cues.\n\n"
+        "Return ONLY a valid JSON object with these exact keys (use null if truly unknown):\n"
+        '{\n'
+        '  "result": "RTB" | "CRASH" | "COMPLETE",\n'
+        '  "kills": <integer or null>,\n'
+        '  "sam_evasions": <integer or null>,\n'
+        '  "max_mach": "<e.g. 0.95 or -->",\n'
+        '  "max_altitude": "<e.g. 24000 ft or FL240 or -->",\n'
+        '  "fuel_remaining": "<e.g. 3200 lb or 45% or -->",\n'
+        f'  "narrative": "<2-3 sentences in {lang_label} for the squadron forum>"\n'
+        '}\n\n'
+        "No markdown fences, no explanation — just the JSON."
+    )
+
+    model = config.get("model", DEFAULT_CONFIG["model"])
+    data: dict = {}
+    try:
+        raw = call_gemini(frames, prompt, model).strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        data = json.loads(raw)
+    except Exception:
+        data = {}
+
+    result_raw = data.get("result", "")
+    result_str = _DEBRIEF_RESULT_ICON.get(result_raw, result_raw or "--")
+    kills = data.get("kills")
+    kills_str = str(kills) if kills is not None else "--"
+    sam = data.get("sam_evasions")
+    sam_str = str(sam) if sam is not None else "--"
+
+    # ACMI data overrides Gemini frame estimates for confirmed counts
+    if acmi_events:
+        acmi_kills = acmi_events.get("kills", [])
+        if acmi_kills:
+            kills_str = str(len(acmi_kills))
+        acmi_sams = acmi_events.get("sam_launches", [])
+        if acmi_sams:
+            sam_str = str(len(acmi_sams))
+
+    sep = "━" * 44
+    narrative = (data.get("narrative") or "").strip()
+
+    if language == "es":
+        lines = [
+            sep,
+            "  DEBRIEF — ESCUADRÓN 111",
+            sep,
+            "",
+            f"  Aeronave:          {aircraft}",
+            f"  Mapa:              {map_name}",
+            f"  Tipo de misión:    {mission_type}",
+            f"  Duración:          {duration_str}",
+            "",
+            f"  Resultado:         {result_str}",
+            f"  Bajas enemigas:    {kills_str}",
+            f"  Evasiones SAM:     {sam_str}",
+            f"  Mach máximo:       {data.get('max_mach', '--')}",
+            f"  Altitud máxima:    {data.get('max_altitude', '--')}",
+            f"  Combustible:       {data.get('fuel_remaining', '--')}",
+        ]
+    else:
+        lines = [
+            sep,
+            "  MISSION DEBRIEF",
+            sep,
+            "",
+            f"  Aircraft:          {aircraft}",
+            f"  Map:               {map_name}",
+            f"  Mission type:      {mission_type}",
+            f"  Duration:          {duration_str}",
+            "",
+            f"  Result:            {result_str}",
+            f"  Enemy kills:       {kills_str}",
+            f"  SAM evasions:      {sam_str}",
+            f"  Max Mach:          {data.get('max_mach', '--')}",
+            f"  Max altitude:      {data.get('max_altitude', '--')}",
+            f"  Fuel remaining:    {data.get('fuel_remaining', '--')}",
+        ]
+
+    if narrative:
+        lines += ["", sep, f"  {narrative}", sep]
+    else:
+        lines.append(sep)
+
+    return "\n".join(lines)
+
+
+# ── SEO ───────────────────────────────────────────────────────────────────────
+
+def check_description_seo(
+    description: str,
+    title: str,
+    tags: list,
+    aircraft: str,
+    mission_type: str,
+    chapters: list,
+    config: dict,
+) -> list[dict]:
+    """Validate description SEO and return a list of issue dicts (code, severity, message, suggestion)."""
+    issues = []
+    desc_lower = description.lower()
+    title_lower = title.lower()
+
+    if len(description) < 300:
+        issues.append({
+            "code": "SHORT_DESCRIPTION",
+            "severity": "warning",
+            "message": f"Description is {len(description)} chars — recommended minimum is 300",
+            "suggestion": "Expand with more mission context, aircraft systems used, or tactical details.",
+        })
+
+    if "dcs world" not in desc_lower and "dcs world" not in title_lower:
+        issues.append({
+            "code": "MISSING_DCS_WORLD",
+            "severity": "warning",
+            "message": '"DCS World" not found in title or description',
+            "suggestion": 'Add "DCS World" near the beginning of the description.',
+        })
+
+    if aircraft and aircraft.lower() not in desc_lower:
+        issues.append({
+            "code": "MISSING_AIRCRAFT",
+            "severity": "warning",
+            "message": f'Aircraft "{aircraft}" not mentioned in description',
+            "suggestion": f'Include "{aircraft}" for better search indexing.',
+        })
+
+    if mission_type and mission_type.lower() not in desc_lower:
+        issues.append({
+            "code": "MISSING_MISSION_TYPE",
+            "severity": "info",
+            "message": f'Mission type "{mission_type}" not in description',
+            "suggestion": f'Adding "{mission_type}" helps viewers find specific content.',
+        })
+
+    if chapters:
+        timestamp_match = re.search(r'\b\d{1,2}:\d{2}(?::\d{2})?\b', description)
+        if not timestamp_match:
+            issues.append({
+                "code": "NO_CHAPTERS_IN_DESC",
+                "severity": "warning",
+                "message": "Chapters detected but no timestamps found in description",
+                "suggestion": "Add the chapter timestamps to the description body.",
+            })
+        elif timestamp_match.start() > 500:
+            issues.append({
+                "code": "CHAPTERS_TOO_LATE",
+                "severity": "info",
+                "message": f"First chapter timestamp at char {timestamp_match.start()} — recommended before char 500",
+                "suggestion": "Move the chapters section closer to the top of the description.",
+            })
+
+    playlist_links = [v for k, v in config.get("default_links", {}).items() if "playlist" in k]
+    has_playlist = any(link in description for link in playlist_links)
+    playlist_early = any(link in description[:100] for link in playlist_links)
+    if has_playlist and not playlist_early:
+        issues.append({
+            "code": "PLAYLIST_NOT_EARLY",
+            "severity": "info",
+            "message": "Playlist link appears after the first 100 chars",
+            "suggestion": "Move the most relevant playlist link to the very beginning of the description.",
+        })
+
+    return issues
+
+
+def rewrite_description_seo(
+    description: str,
+    issues: list,
+    aircraft: str,
+    mission_type: str,
+    language: str,
+    config: dict,
+) -> str:
+    """Send description + SEO issues to Gemini for a targeted rewrite; returns the rewritten description."""
+    model = config.get("model", DEFAULT_CONFIG["model"])
+    issue_lines = "\n".join(
+        f"- [{i['severity'].upper()}] {i['message']}: {i['suggestion']}"
+        for i in issues
+    )
+    prompt = (
+        f"You are an expert YouTube SEO specialist for DCS World simulation gaming content.\n\n"
+        f"Rewrite the following description to fix the listed SEO issues. "
+        f"Preserve all existing URLs, playlist links, chapter timestamps and their order, "
+        f"hashtags, and the language ({language}).\n\n"
+        f"CURRENT DESCRIPTION:\n{description}\n\n"
+        f"SEO ISSUES TO FIX:\n{issue_lines}\n\n"
+        f"Return ONLY the rewritten description text. No explanations, no markdown, no code fences."
+    )
+    return call_gemini([], prompt, model).strip()
 
 
 # ── Output ────────────────────────────────────────────────────────────────────

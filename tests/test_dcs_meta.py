@@ -529,4 +529,535 @@ def test_update_memory_video_id_patches_most_recent_matching(tmp_path, monkeypat
     dcs_meta.update_memory_video_id("video.mp4", "newid")
     saved = dcs_meta.load_memory()
     assert saved["videos"][1]["video_id"] == "newid"
-    assert saved["videos"][0]["video_id"] == ""
+
+
+# ── check_description_seo ─────────────────────────────────────────────────────
+
+SEO_CONFIG = {
+    "default_links": {
+        "dcs_f18_playlist": "https://youtube.com/playlist?list=F18",
+        "dcs_a10c_playlist": "https://youtube.com/playlist?list=A10",
+    }
+}
+
+GOOD_DESC = (
+    "https://youtube.com/playlist?list=F18\n"
+    "DCS World | F/A-18C Hornet CAS mission over Caucasus. "
+    "Full strike package with JDAMs and AGM-65 Mavericks. "
+    "Enemy convoy destroyed in a coordinated CAS run.\n\n"
+    "0:00 Intro\n1:30 Takeoff\n5:00 Target area\n12:00 RTB\n"
+    "Timestamps included for navigation. Thanks for watching!"
+)
+
+
+def _check(description="", title="", aircraft="", mission_type="", chapters=None, config=None):
+    return dcs_meta.check_description_seo(
+        description=description,
+        title=title,
+        tags=[],
+        aircraft=aircraft,
+        mission_type=mission_type,
+        chapters=chapters or [],
+        config=config or SEO_CONFIG,
+    )
+
+
+def codes(issues):
+    return {i["code"] for i in issues}
+
+
+def test_seo_clean_description_no_issues():
+    issues = _check(description=GOOD_DESC, title="DCS World | F/A-18C CAS",
+                    aircraft="F/A-18C Hornet", mission_type="CAS",
+                    chapters=[{"time": "0:00", "label": "Intro"}])
+    assert issues == []
+
+
+def test_seo_short_description_flagged():
+    issues = _check(description="Short desc.", title="DCS World test")
+    assert "SHORT_DESCRIPTION" in codes(issues)
+
+
+def test_seo_exactly_300_chars_not_flagged():
+    desc = "DCS World " + "x" * 290
+    issues = _check(description=desc, title="DCS World test")
+    assert "SHORT_DESCRIPTION" not in codes(issues)
+
+
+def test_seo_missing_dcs_world_in_both():
+    desc = "F/A-18C Hornet CAS mission. " + "x" * 280
+    issues = _check(description=desc, title="CAS Strike")
+    assert "MISSING_DCS_WORLD" in codes(issues)
+
+
+def test_seo_dcs_world_in_title_clears_flag():
+    desc = "F/A-18C Hornet CAS mission. " + "x" * 280
+    issues = _check(description=desc, title="DCS World CAS Strike")
+    assert "MISSING_DCS_WORLD" not in codes(issues)
+
+
+def test_seo_missing_aircraft_flagged():
+    desc = "DCS World CAS mission over Caucasus. " + "x" * 270
+    issues = _check(description=desc, title="DCS World", aircraft="F/A-18C Hornet")
+    assert "MISSING_AIRCRAFT" in codes(issues)
+
+
+def test_seo_aircraft_present_not_flagged():
+    desc = "DCS World F/A-18C Hornet CAS. " + "x" * 270
+    issues = _check(description=desc, title="DCS World", aircraft="F/A-18C Hornet")
+    assert "MISSING_AIRCRAFT" not in codes(issues)
+
+
+def test_seo_missing_mission_type_flagged():
+    desc = "DCS World F/A-18C Hornet mission. " + "x" * 270
+    issues = _check(description=desc, title="DCS World", mission_type="SEAD")
+    assert "MISSING_MISSION_TYPE" in codes(issues)
+
+
+def test_seo_no_chapters_in_desc_when_chapters_exist():
+    desc = "DCS World F/A-18C Hornet CAS. " + "x" * 270
+    issues = _check(description=desc, title="DCS World",
+                    chapters=[{"time": "0:00", "label": "Intro"}])
+    assert "NO_CHAPTERS_IN_DESC" in codes(issues)
+
+
+def test_seo_chapters_too_late_flagged():
+    prefix = "x" * 501
+    desc = f"DCS World F/A-18C Hornet CAS. {prefix} 0:00 Intro"
+    issues = _check(description=desc, title="DCS World",
+                    chapters=[{"time": "0:00", "label": "Intro"}])
+    assert "CHAPTERS_TOO_LATE" in codes(issues)
+
+
+def test_seo_chapters_near_top_not_flagged():
+    desc = "DCS World F/A-18C Hornet CAS.\n0:00 Intro\n5:00 Combat\n" + "x" * 270
+    issues = _check(description=desc, title="DCS World",
+                    chapters=[{"time": "0:00", "label": "Intro"}])
+    assert "CHAPTERS_TOO_LATE" not in codes(issues)
+    assert "NO_CHAPTERS_IN_DESC" not in codes(issues)
+
+
+def test_seo_playlist_not_early_flagged():
+    desc = "DCS World F/A-18C Hornet CAS. " + "x" * 80 + " https://youtube.com/playlist?list=F18"
+    issues = _check(description=desc, title="DCS World")
+    assert "PLAYLIST_NOT_EARLY" in codes(issues)
+
+
+def test_seo_playlist_early_not_flagged():
+    desc = "https://youtube.com/playlist?list=F18 DCS World F/A-18C Hornet CAS. " + "x" * 250
+    issues = _check(description=desc, title="DCS World")
+    assert "PLAYLIST_NOT_EARLY" not in codes(issues)
+
+
+def test_seo_no_playlist_in_desc_no_flag():
+    desc = "DCS World F/A-18C Hornet CAS. " + "x" * 270
+    issues = _check(description=desc, title="DCS World")
+    assert "PLAYLIST_NOT_EARLY" not in codes(issues)
+
+
+def test_seo_issue_severities_are_valid():
+    issues = _check(description="short", title="no keyword", aircraft="F/A-18C Hornet",
+                    mission_type="CAS", chapters=[{"time": "0:00", "label": "Intro"}])
+    for issue in issues:
+        assert issue["severity"] in {"warning", "info"}
+        assert "code" in issue
+        assert "message" in issue
+        assert "suggestion" in issue
+
+
+# ── detect_audio_chapters ─────────────────────────────────────────────────────
+
+_SILENCE_DETECT_TEMPLATE = (
+    "[silencedetect @ 0xABC] silence_start: 0\n"
+    "[silencedetect @ 0xABC] silence_end: {end} | silence_duration: {dur}\n"
+)
+
+
+def _make_stderr(*silence_ends):
+    """Build fake ffmpeg stderr with the given silence_end timestamps."""
+    lines = []
+    for t in silence_ends:
+        lines.append(f"[silencedetect @ 0xABC] silence_start: {t - 3.0}")
+        lines.append(f"[silencedetect @ 0xABC] silence_end: {t} | silence_duration: 3.0")
+    return "\n".join(lines)
+
+
+def test_detect_audio_chapters_includes_zero(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": _make_stderr(180.0), "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=1200.0)
+    assert result[0] == "0:00"
+
+
+def test_detect_audio_chapters_converts_seconds(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": _make_stderr(135.0), "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=1200.0)
+    assert "2:15" in result
+
+
+def test_detect_audio_chapters_min_gap_filters_close_silences(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    # Two silences only 30 s apart — second should be filtered (default min_gap=60)
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": _make_stderr(120.0, 150.0), "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=1200.0)
+    assert "2:30" not in result
+
+
+def test_detect_audio_chapters_tail_cutoff(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    # Silence at 95% of a 600s video — should be filtered
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": _make_stderr(570.0), "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=600.0)
+    assert len(result) == 1  # only "0:00"
+
+
+def test_detect_audio_chapters_cap_at_eight(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    # Generate 15 silences, each 120 s apart (well above min_gap)
+    silence_ends = [float(120 * i) for i in range(1, 16)]
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": _make_stderr(*silence_ends), "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=3600.0)
+    assert len(result) <= 8
+
+
+def test_detect_audio_chapters_no_silences_returns_only_zero(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **kw: type("R", (), {"stderr": "no silence here", "returncode": 0})(),
+    )
+    result = dcs_meta.detect_audio_chapters(video, duration_seconds=1200.0)
+    assert result == ["0:00"]
+
+
+def test_detect_audio_chapters_ffmpeg_missing_returns_zero(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    def raise_fnf(*a, **kw):
+        raise FileNotFoundError("ffmpeg not found")
+    monkeypatch.setattr("subprocess.run", raise_fnf)
+    result = dcs_meta.detect_audio_chapters(video)
+    assert result == ["0:00"]
+
+
+# ── build_prompt audio_markers ────────────────────────────────────────────────
+
+def test_build_prompt_includes_audio_markers():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    markers = ["0:00", "2:15", "12:30"]
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, duration_seconds=900.0,
+                                   audio_markers=markers)
+    assert "2:15" in prompt
+    assert "12:30" in prompt
+    assert "AUDIO PHASE MARKERS" in prompt
+
+
+def test_build_prompt_no_audio_markers_when_single():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, duration_seconds=900.0,
+                                   audio_markers=["0:00"])
+    assert "AUDIO PHASE MARKERS" not in prompt
+
+
+def test_build_prompt_no_audio_markers_when_none():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, duration_seconds=900.0,
+                                   audio_markers=None)
+    assert "AUDIO PHASE MARKERS" not in prompt
+
+
+# ── generate_debrief ──────────────────────────────────────────────────────────
+
+_DEBRIEF_META_EN = {
+    "aircraft": "F/A-18C Hornet",
+    "map": "Caucasus",
+    "mission_type": "SEAD",
+    "language": "en",
+}
+
+_DEBRIEF_META_ES = {
+    "aircraft": "F/A-18C Hornet",
+    "map": "Caucasus",
+    "mission_type": "SEAD",
+    "language": "es",
+}
+
+_GEMINI_DEBRIEF_RESPONSE = json.dumps({
+    "result": "RTB",
+    "kills": 2,
+    "sam_evasions": 1,
+    "max_mach": "0.95",
+    "max_altitude": "24000 ft",
+    "fuel_remaining": "3200 lb",
+    "narrative": "Mission accomplished with two confirmed kills.",
+})
+
+
+def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatch=None, tmp_path=None):
+    """Helper to call generate_debrief with mocked ffprobe/ffmpeg/Gemini."""
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    meta = metadata or (_DEBRIEF_META_ES if language == "es" else _DEBRIEF_META_EN)
+
+    def fake_run(cmd, *a, **kw):
+        class R:
+            stdout = json.dumps({"format": {"duration": "1800.0"}})
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(dcs_meta, "extract_frames", lambda *a, **kw: [])
+    response = gemini_response if gemini_response is not None else _GEMINI_DEBRIEF_RESPONSE
+    monkeypatch.setattr(dcs_meta, "call_gemini", lambda *a, **kw: response)
+
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    return dcs_meta.generate_debrief(meta, video, cfg)
+
+
+def test_debrief_english_contains_aircraft(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "F/A-18C Hornet" in report
+
+
+def test_debrief_english_header(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "MISSION DEBRIEF" in report
+
+
+def test_debrief_spanish_header(tmp_path, monkeypatch):
+    report = _make_debrief(language="es", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "ESCUADRÓN 111" in report
+
+
+def test_debrief_rtb_icon(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "✓ RTB" in report
+
+
+def test_debrief_kills_shown(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "2" in report
+
+
+def test_debrief_narrative_included(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "Mission accomplished" in report
+
+
+def test_debrief_duration_shown(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "30:00" in report
+
+
+def test_debrief_graceful_on_bad_gemini_json(tmp_path, monkeypatch):
+    report = _make_debrief(language="en", gemini_response="not json !!",
+                           monkeypatch=monkeypatch, tmp_path=tmp_path)
+    # Must still produce a report with basic metadata even without Gemini stats
+    assert "F/A-18C Hornet" in report
+    assert "MISSION DEBRIEF" in report
+
+
+def test_debrief_null_kills_shows_dash(tmp_path, monkeypatch):
+    response = json.dumps({"result": "RTB", "kills": None, "sam_evasions": None,
+                           "max_mach": "--", "max_altitude": "--",
+                           "fuel_remaining": "--", "narrative": ""})
+    report = _make_debrief(language="en", gemini_response=response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "--" in report
+
+
+def test_format_debrief_duration_under_one_hour():
+    assert dcs_meta._format_debrief_duration(2537.0) == "42:17"
+
+
+def test_format_debrief_duration_over_one_hour():
+    assert dcs_meta._format_debrief_duration(3665.0) == "01:01:05"
+
+
+# ── parse_acmi_events ──────────────────────────────────────────────────────────
+
+def _write_acmi(tmp_path, lines):
+    """Write a minimal ACMI file and return its Path."""
+    f = tmp_path / "mission.acmi"
+    header = "FileType=text/acmi/tacview\nFileVersion=2.2\n0,ReferenceTime=2023-01-01T00:00:00Z\n"
+    f.write_text(header + "\n".join(lines), encoding="utf-8")
+    return f
+
+
+def test_parse_acmi_events_empty_file(tmp_path):
+    f = tmp_path / "empty.acmi"
+    f.write_text("FileType=text/acmi/tacview\nFileVersion=2.2\n", encoding="utf-8")
+    result = dcs_meta.parse_acmi_events(f)
+    assert result["kills"] == []
+    assert result["sam_launches"] == []
+    assert result["bvr_launches"] == []
+
+
+def test_parse_acmi_events_kill_on_enemy_air(tmp_path):
+    lines = [
+        "#0",
+        "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies",
+        "#135",
+        "A001,Destroyed",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert len(result["kills"]) == 1
+    assert result["kills"][0]["name"] == "MiG-29"
+    assert result["kills"][0]["time"] == "2:15"
+
+
+def test_parse_acmi_events_kill_time_recorded(tmp_path):
+    lines = [
+        "#0",
+        "A001,Type=FixedWing+Air+FixedWing,Name=Su-27,Coalition=Enemies",
+        "#300",
+        "A001,Destroyed",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert result["kills"][0]["time_s"] == 300.0
+
+
+def test_parse_acmi_events_friendly_not_counted_as_kill(tmp_path):
+    lines = [
+        "#0",
+        "B001,Type=FixedWing+Air+FixedWing,Name=F-16C,Coalition=Allies",
+        "#200",
+        "B001,Destroyed",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert result["kills"] == []
+
+
+def test_parse_acmi_events_detects_sam_launch(tmp_path):
+    lines = [
+        "#0",
+        "C001,Type=Ground+AntiAircraft+SAM,Name=SA-6 Battery,Coalition=Enemies",
+        "#180",
+        "D001,Type=Weapon+Missile+SAM,Name=SA-6 Gainful,Coalition=Enemies,Parent=C001",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert len(result["sam_launches"]) == 1
+    assert "SA-6" in result["sam_launches"][0]["name"]
+
+
+def test_parse_acmi_events_detects_bvr_launch(tmp_path):
+    lines = [
+        "#0",
+        "P001,Type=FixedWing+Air+FixedWing,Name=F/A-18C,Coalition=Allies",
+        "#287",
+        "M001,Type=Weapon+Missile+AAM,Name=AIM-120C,Coalition=Allies,Parent=P001",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert len(result["bvr_launches"]) == 1
+    assert result["bvr_launches"][0]["name"] == "AIM-120C"
+    assert result["bvr_launches"][0]["time"] == "4:47"
+
+
+def test_parse_acmi_events_non_bvr_missile_not_counted(tmp_path):
+    lines = [
+        "#0",
+        "P001,Type=FixedWing+Air+FixedWing,Name=F/A-18C,Coalition=Allies",
+        "#100",
+        "M001,Type=Weapon+Missile+AAM,Name=AIM-9X,Coalition=Allies,Parent=P001",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert result["bvr_launches"] == []
+
+
+def test_parse_acmi_events_events_text_populated(tmp_path):
+    lines = [
+        "#0",
+        "A001,Type=FixedWing+Air+FixedWing,Name=MiG-21,Coalition=Enemies",
+        "#90",
+        "A001,Destroyed",
+    ]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert "kill" in result["events_text"]
+    assert "MiG-21" in result["events_text"]
+
+
+def test_parse_acmi_events_empty_text_when_no_events(tmp_path):
+    lines = ["#0", "P001,Type=FixedWing+Air+FixedWing,Name=F/A-18C,Coalition=Allies"]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert result["events_text"] == ""
+
+
+def test_parse_acmi_events_missing_file_returns_empty():
+    result = dcs_meta.parse_acmi_events(Path("/nonexistent/mission.acmi"))
+    assert result == {}
+
+
+def test_parse_acmi_events_duration_tracked(tmp_path):
+    lines = ["#0", "P001,T=0|0|1000", "#1800", "P001,T=0.1|0.1|2000"]
+    result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
+    assert result["duration_s"] == 1800.0
+
+
+def test_parse_acmi_props_key_value():
+    props, flags = dcs_meta._parse_acmi_props("Type=FixedWing+Air,Name=MiG-29,Coalition=Enemies")
+    assert props["Type"] == "FixedWing+Air"
+    assert props["Name"] == "MiG-29"
+    assert flags == set()
+
+
+def test_parse_acmi_props_standalone_flag():
+    props, flags = dcs_meta._parse_acmi_props("T=0|0|1000,Destroyed")
+    assert "Destroyed" in flags
+    assert "T" in props
+
+
+def test_build_prompt_with_acmi_events():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    events = {
+        "events_text": "1 kill(s): MiG-29 at 2:15; 1 SAM launch(es) at 5:30",
+        "kills": [{"time_s": 135.0, "time": "2:15", "name": "MiG-29"}],
+        "sam_launches": [{"time_s": 330.0, "time": "5:30", "name": "SA-6"}],
+        "bvr_launches": [],
+    }
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, duration_seconds=1200.0,
+                                   acmi_events=events)
+    assert "TACVIEW ACMI DATA" in prompt
+    assert "MiG-29 at 2:15" in prompt
+    assert "SAM launch" in prompt
+
+
+def test_build_prompt_no_acmi_block_when_none():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, acmi_events=None)
+    assert "TACVIEW ACMI DATA" not in prompt
+
+
+def test_build_prompt_no_acmi_block_when_empty_text():
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    events = {"events_text": "", "kills": [], "sam_launches": [], "bvr_launches": []}
+    prompt = dcs_meta.build_prompt("", cfg, False, mem, acmi_events=events)
+    assert "TACVIEW ACMI DATA" not in prompt

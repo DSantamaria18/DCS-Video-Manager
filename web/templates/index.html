@@ -757,6 +757,27 @@
         placeholder="e.g. A-10C II Outpost Campaign - Mission 3 - Tank Busting&#10;or: Escuadrón 111 - Operación Trueno - SEAD support"></textarea>
     </div>
 
+    <div class="field-group">
+      <label>TacView ACMI (optional — adds tactical context to analysis)</label>
+      <div style="display:flex; gap:8px; align-items:stretch;">
+        <input type="text" id="acmiPath"
+          placeholder="C:\Users\...\Tacview\mission.acmi"
+          oninput="onAcmiInput(this.value)"
+          style="flex:1; font-size:11px;">
+        <button class="btn-secondary" onclick="browseAcmi()"
+          style="white-space:nowrap; padding:0 14px; border-radius:3px;
+                 font-family:var(--mono); font-size:11px; letter-spacing:1px;
+                 cursor:pointer; color:var(--green); border-color:var(--green3);">
+          ⬡ BROWSE
+        </button>
+      </div>
+      <div id="acmiEventsPreview"
+        style="display:none; margin-top:6px; font-family:var(--mono); font-size:11px;
+               color:var(--text2); background:rgba(0,229,160,0.04);
+               border:1px solid var(--green3); padding:8px 10px; border-radius:3px;">
+      </div>
+    </div>
+
     <div>
       <div class="progress-wrap" id="progressWrap">
         <div class="progress-label">
@@ -872,6 +893,19 @@
           </div>
         </div>
 
+        <!-- SEO Check -->
+        <div class="meta-block" id="seoBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">SEO Check</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="seoScore"></span>
+              <button class="copy-btn" id="seoRewriteBtn" onclick="rewriteWithAI()" style="display:none">FIX WITH AI</button>
+              <button class="copy-btn" onclick="runSeoCheck()">RECHECK</button>
+            </div>
+          </div>
+          <div class="meta-block-body" id="seoIssuesList"></div>
+        </div>
+
         <!-- Tags -->
         <div class="meta-block">
           <div class="meta-block-header">
@@ -904,6 +938,22 @@
           </div>
           <div class="meta-block-body">
             <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7" id="notesDisplay"></div>
+          </div>
+        </div>
+
+        <!-- Mission Debrief -->
+        <div class="meta-block" id="debriefBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Mission Debrief</span>
+            <button class="copy-btn" id="debriefCopyBtn" onclick="copyField('debriefOutput', this)" style="display:none">COPY</button>
+          </div>
+          <div class="meta-block-body">
+            <div style="display:flex;align-items:center;gap:12px;padding:4px 0">
+              <button class="action-btn" id="debriefGenBtn" onclick="generateDebrief()">GENERATE DEBRIEF</button>
+              <span id="debriefGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+            </div>
+            <textarea class="editable" id="debriefOutput" rows="16" readonly
+              style="display:none;font-family:var(--mono);font-size:11px;resize:vertical;white-space:pre;overflow-wrap:normal;overflow-x:auto;margin-top:10px"></textarea>
           </div>
         </div>
 
@@ -1155,6 +1205,8 @@ let currentVideoPath = null;
 let currentThumbnailUrl = null;
 let currentJobId = null;
 let pollInterval = null;
+let currentAcmiPath = null;
+let currentAcmiEvents = null;
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1163,6 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPlaylists();
   loadConfigForm();
   loadDescriptionTemplates();
+  document.getElementById('descEdit').addEventListener('input', scheduleSeoCheck);
 });
 
 // ── File handling ─────────────────────────────────────────────────────────────
@@ -1204,6 +1257,58 @@ function onPathInput(val) {
   }
 }
 
+// ── ACMI ─────────────────────────────────────────────────────────────────────
+async function browseAcmi() {
+  try {
+    const res = await fetch('/api/browse_acmi');
+    const data = await res.json();
+    if (data.cancelled || data.error) return;
+    document.getElementById('acmiPath').value = data.path;
+    currentAcmiPath = data.path;
+    await parseAcmiFile(data.path);
+  } catch(e) {
+    showAcmiPreview('Browse error: ' + e.message, true);
+  }
+}
+
+async function onAcmiInput(val) {
+  currentAcmiPath = val.trim() || null;
+  currentAcmiEvents = null;
+  const preview = document.getElementById('acmiEventsPreview');
+  preview.style.display = 'none';
+  if (val.trim().toLowerCase().endsWith('.acmi')) {
+    await parseAcmiFile(val.trim());
+  }
+}
+
+async function parseAcmiFile(path) {
+  showAcmiPreview('Parsing ACMI file...', false);
+  try {
+    const res = await fetch('/api/parse_acmi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acmi_path: path }),
+    });
+    const data = await res.json();
+    if (data.error) { showAcmiPreview('⚠ ' + data.error, true); return; }
+    currentAcmiEvents = data.events;
+    const parts = [];
+    if (data.kills > 0) parts.push(`${data.kills} kill(s)`);
+    if (data.sam_launches > 0) parts.push(`${data.sam_launches} SAM launch(es)`);
+    if (data.bvr_launches > 0) parts.push(`${data.bvr_launches} BVR launch(es)`);
+    showAcmiPreview(parts.length ? '✓ ' + parts.join('  ·  ') : '✓ ACMI loaded — no significant events', false);
+  } catch(e) {
+    showAcmiPreview('⚠ Could not parse ACMI file', true);
+  }
+}
+
+function showAcmiPreview(text, isError) {
+  const el = document.getElementById('acmiEventsPreview');
+  el.style.display = 'block';
+  el.textContent = text;
+  el.style.color = isError ? 'var(--amber)' : 'var(--text2)';
+}
+
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 function openTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1237,7 +1342,7 @@ async function startAnalysis() {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ video_path: path, context })
+      body: JSON.stringify({ video_path: path, context, acmi_path: currentAcmiPath || '' })
     });
     const data = await res.json();
     if (!res.ok) { showAlert(data.error || 'Server error', 'error'); resetUI(); return; }
@@ -1318,6 +1423,9 @@ function renderMetadata(m) {
   document.getElementById('descEdit').style.display = '';
   document.getElementById('descPreview').style.display = 'none';
   document.getElementById('descToggleBtn').textContent = 'PREVIEW';
+  document.getElementById('seoBlock').style.display = 'none';
+  document.getElementById('seoIssuesList').innerHTML = '';
+  _seoCurrentIssues = [];
 
   // Tags
   const tagsDiv = document.getElementById('tagsDisplay');
@@ -1352,6 +1460,15 @@ function renderMetadata(m) {
     notesBlock.style.display = 'none';
   }
 
+  // Debrief — reset on new analysis
+  document.getElementById('debriefBlock').style.display = 'block';
+  document.getElementById('debriefOutput').style.display = 'none';
+  document.getElementById('debriefOutput').value = '';
+  document.getElementById('debriefCopyBtn').style.display = 'none';
+  document.getElementById('debriefGenBtn').disabled = false;
+  document.getElementById('debriefGenBtn').textContent = 'GENERATE DEBRIEF';
+  document.getElementById('debriefGenMsg').textContent = '';
+
   // Thumbnail — always show block with generate button, reset any previous result
   document.getElementById('thumbnailBlock').style.display = 'block';
   document.getElementById('thumbnailGrid').style.display = 'none';
@@ -1361,6 +1478,8 @@ function renderMetadata(m) {
   document.getElementById('thumbnailGenBtn').textContent = 'GENERATE THUMBNAIL';
   document.getElementById('thumbnailGenMsg').textContent = '';
   currentThumbnailUrl = null;
+
+  runSeoCheck();
 }
 
 // ── Thumbnail generation ──────────────────────────────────────────────────────
@@ -1471,6 +1590,156 @@ function updateCharCount() {
   const el = document.getElementById('titleCharCount');
   el.textContent = val + '/100';
   el.style.color = val > 90 ? 'var(--amber)' : 'var(--text3)';
+}
+
+// ── Mission Debrief ──────────────────────────────────────────────────────────
+async function generateDebrief() {
+  if (!currentMetadata || !currentVideoPath) return;
+  const btn  = document.getElementById('debriefGenBtn');
+  const msg  = document.getElementById('debriefGenMsg');
+  const out  = document.getElementById('debriefOutput');
+  const copy = document.getElementById('debriefCopyBtn');
+
+  btn.disabled = true;
+  btn.textContent = 'GENERATING...';
+  msg.textContent = 'Analyzing frames with Gemini...';
+  msg.style.color = 'var(--text3)';
+  out.style.display = 'none';
+  copy.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/debrief', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_path: currentVideoPath, metadata: currentMetadata,
+                             acmi_events: currentAcmiEvents || null }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      msg.textContent = data.error;
+      msg.style.color = 'var(--red)';
+      btn.textContent = 'RETRY';
+      btn.disabled = false;
+      return;
+    }
+    out.value = data.report;
+    out.style.display = '';
+    copy.style.display = '';
+    msg.textContent = '';
+    btn.textContent = 'REGENERATE';
+    btn.disabled = false;
+  } catch (_) {
+    msg.textContent = 'Network error';
+    msg.style.color = 'var(--red)';
+    btn.textContent = 'RETRY';
+    btn.disabled = false;
+  }
+}
+
+// ── SEO Check ─────────────────────────────────────────────────────────────────
+let _seoDebounceTimer = null;
+let _seoCurrentIssues = [];
+
+function scheduleSeoCheck() {
+  clearTimeout(_seoDebounceTimer);
+  _seoDebounceTimer = setTimeout(runSeoCheck, 1000);
+}
+
+async function runSeoCheck() {
+  if (!currentMetadata) return;
+  const desc = document.getElementById('descEdit').value;
+  const title = document.getElementById('titleEdit').value;
+  const body = {
+    description: desc,
+    title: title,
+    tags: getCurrentTags(),
+    aircraft: currentMetadata.aircraft || '',
+    mission_type: currentMetadata.mission_type || '',
+    chapters: currentMetadata.chapters || [],
+  };
+  try {
+    const res = await fetch('/api/seo_check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    _seoCurrentIssues = data.issues || [];
+    renderSeoIssues(_seoCurrentIssues);
+  } catch (_) { /* network error — leave panel as-is */ }
+}
+
+function renderSeoIssues(issues) {
+  const block = document.getElementById('seoBlock');
+  const list  = document.getElementById('seoIssuesList');
+  const score = document.getElementById('seoScore');
+  const fixBtn = document.getElementById('seoRewriteBtn');
+
+  block.style.display = 'block';
+
+  const warnings = issues.filter(i => i.severity === 'warning').length;
+  const infos    = issues.filter(i => i.severity === 'info').length;
+
+  if (issues.length === 0) {
+    score.textContent = 'All checks passed';
+    score.style.color = 'var(--green, #34a853)';
+    list.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text2);padding:4px 0">No issues found.</div>';
+    fixBtn.style.display = 'none';
+    return;
+  }
+
+  score.textContent = `${warnings} warning${warnings !== 1 ? 's' : ''}, ${infos} info`;
+  score.style.color = warnings > 0 ? 'var(--amber)' : 'var(--text2)';
+  fixBtn.style.display = warnings > 0 ? '' : 'none';
+
+  list.innerHTML = issues.map(i => {
+    const color = i.severity === 'warning' ? 'var(--amber)' : 'var(--text2)';
+    const icon  = i.severity === 'warning' ? '⚠' : 'ℹ';
+    return `<div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px;color:${color};flex-shrink:0;margin-top:1px">${icon}</span>
+      <div style="font-family:var(--mono);font-size:11px;line-height:1.6">
+        <div style="color:${color}">${i.message}</div>
+        <div style="color:var(--text3)">${i.suggestion}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function rewriteWithAI() {
+  if (!currentMetadata || _seoCurrentIssues.length === 0) return;
+  const btn = document.getElementById('seoRewriteBtn');
+  btn.disabled = true;
+  btn.textContent = 'REWRITING...';
+  const body = {
+    description: document.getElementById('descEdit').value,
+    issues: _seoCurrentIssues,
+    aircraft: currentMetadata.aircraft || '',
+    mission_type: currentMetadata.mission_type || '',
+    language: currentMetadata.language || 'en',
+  };
+  try {
+    const res = await fetch('/api/seo_rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.description) {
+      document.getElementById('descEdit').value = data.description;
+      currentMetadata.description = data.description;
+      await runSeoCheck();
+    } else {
+      btn.textContent = 'ERROR';
+      setTimeout(() => { btn.textContent = 'FIX WITH AI'; btn.disabled = false; }, 2000);
+      return;
+    }
+  } catch (_) {
+    btn.textContent = 'ERROR';
+    setTimeout(() => { btn.textContent = 'FIX WITH AI'; btn.disabled = false; }, 2000);
+    return;
+  }
+  btn.textContent = 'FIX WITH AI';
+  btn.disabled = false;
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────────────────

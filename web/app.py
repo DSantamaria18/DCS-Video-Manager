@@ -42,15 +42,19 @@ def index():
     return render_template("index.html")
 
 
-def _open_file_dialog(initial_dir: str) -> str | None:
+def _open_file_dialog(initial_dir: str,
+                      win_filter: str = "Video files|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v|All files|*.*",
+                      mac_types: str = "mp4, mkv, mov, avi, webm, m4v",
+                      linux_filter: str = "Video files (mp4 mkv mov avi)|*.mp4 *.mkv *.mov *.avi",
+                      title: str = "Select DCS video") -> str | None:
     """Open a native OS file-picker dialog and return the selected path, or None if cancelled."""
     if sys.platform == "win32":
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
             "$f = New-Object System.Windows.Forms.OpenFileDialog;"
             f"$f.InitialDirectory = '{initial_dir}';"
-            "$f.Filter = 'Video files|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v|All files|*.*';"
-            "$f.Title = 'Select DCS video';"
+            f"$f.Filter = '{win_filter}';"
+            f"$f.Title = '{title}';"
             "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.FileName }"
         )
         result = subprocess.run(
@@ -60,11 +64,10 @@ def _open_file_dialog(initial_dir: str) -> str | None:
         return result.stdout.strip() or None
 
     elif sys.platform == "darwin":
-        extensions = "mp4, mkv, mov, avi, webm, m4v"
         script = (
             'tell application "Finder"\n'
-            'set f to choose file with prompt "Select DCS video" '
-            f'of type {{"{extensions}"}}\n'
+            f'set f to choose file with prompt "{title}" '
+            f'of type {{"{mac_types}"}}\n'
             'POSIX path of f\nend tell'
         )
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
@@ -75,8 +78,8 @@ def _open_file_dialog(initial_dir: str) -> str | None:
         try:
             result = subprocess.run(
                 ["zenity", "--file-selection",
-                 "--title=Select DCS video",
-                 "--file-filter=Video files (mp4 mkv mov avi)|*.mp4 *.mkv *.mov *.avi",
+                 f"--title={title}",
+                 f"--file-filter={linux_filter}",
                  f"--filename={initial_dir}/"],
                 capture_output=True, text=True
             )
@@ -103,6 +106,57 @@ def browse_file():
     last_folder_path.write_text(str(Path(selected).parent))
 
     return jsonify({"path": selected, "name": Path(selected).name})
+
+
+@app.route("/api/browse_acmi")
+def browse_acmi_file():
+    """Open native OS file picker filtered for .acmi files and return the selected path."""
+    last_folder_path = Path(__file__).parent.parent / "config" / "last_folder.txt"
+    initial_dir = last_folder_path.read_text().strip() if last_folder_path.exists() else ""
+
+    try:
+        selected = _open_file_dialog(
+            initial_dir,
+            win_filter="TacView ACMI|*.acmi|All files|*.*",
+            mac_types="acmi",
+            linux_filter="TacView ACMI (acmi)|*.acmi",
+            title="Select TacView ACMI file",
+        )
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+
+    if not selected:
+        return jsonify({"cancelled": True})
+
+    return jsonify({"path": selected, "name": Path(selected).name})
+
+
+@app.route("/api/parse_acmi", methods=["POST"])
+def parse_acmi():
+    """POST /api/parse_acmi — parse a TacView ACMI file and return extracted tactical events."""
+    data = request.get_json()
+    acmi_path = data.get("acmi_path", "").strip()
+
+    if not acmi_path:
+        return jsonify({"error": "Missing acmi_path"}), 400
+
+    path = Path(acmi_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {acmi_path}"}), 404
+    if path.suffix.lower() != ".acmi":
+        return jsonify({"error": "File must be a .acmi file"}), 400
+
+    events = dcs_meta.parse_acmi_events(path)
+    if events is None:
+        return jsonify({"error": "Could not parse ACMI file"}), 500
+
+    return jsonify({
+        "events": events,
+        "kills": len(events.get("kills", [])),
+        "sam_launches": len(events.get("sam_launches", [])),
+        "bvr_launches": len(events.get("bvr_launches", [])),
+        "events_text": events.get("events_text", ""),
+    })
 
 
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
@@ -194,6 +248,7 @@ def analyze():
     data = request.get_json()
     video_path = data.get("video_path", "").strip()
     context = data.get("context", "").strip()
+    acmi_path_str = data.get("acmi_path", "").strip()
 
     if not video_path:
         return jsonify({"error": "No video path provided"}), 400
@@ -201,6 +256,10 @@ def analyze():
     path = Path(video_path).resolve()
     if not path.exists():
         return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    acmi_path = Path(acmi_path_str) if acmi_path_str else None
+    if acmi_path and not acmi_path.exists():
+        return jsonify({"error": f"ACMI file not found: {acmi_path_str}"}), 404
 
     if not os.environ.get("GEMINI_API_KEY"):
         return jsonify({"error": "GEMINI_API_KEY not set. Get a free key at https://aistudio.google.com/app/apikey"}), 500
@@ -232,7 +291,8 @@ def analyze():
             processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Claude..."
             processing_status[job_id]["progress"] = 50
 
-            metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames)
+            metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
+                                                   acmi_path=acmi_path)
             if not metadata:
                 processing_status[job_id]["status"] = "error"
                 processing_status[job_id]["error"] = "Claude returned empty metadata. Try adding more context."
@@ -382,6 +442,65 @@ def youtube_auth_status():
     """GET /api/youtube/status — return whether a valid YouTube token file exists."""
     token_path = Path(__file__).parent.parent / "config" / "youtube_token.json"
     return jsonify({"authenticated": token_path.exists()})
+
+
+@app.route("/api/seo_check", methods=["POST"])
+def seo_check():
+    """POST /api/seo_check — validate description SEO; returns {issues: [...]}."""
+    data = request.get_json()
+    cfg = dcs_meta.load_config()
+    issues = dcs_meta.check_description_seo(
+        description=data.get("description", ""),
+        title=data.get("title", ""),
+        tags=data.get("tags", []),
+        aircraft=data.get("aircraft", ""),
+        mission_type=data.get("mission_type", ""),
+        chapters=data.get("chapters", []),
+        config=cfg,
+    )
+    return jsonify({"issues": issues})
+
+
+@app.route("/api/seo_rewrite", methods=["POST"])
+def seo_rewrite():
+    """POST /api/seo_rewrite — rewrite description via Gemini to fix SEO issues; returns {description}."""
+    data = request.get_json()
+    cfg = dcs_meta.load_config()
+    try:
+        new_desc = dcs_meta.rewrite_description_seo(
+            description=data.get("description", ""),
+            issues=data.get("issues", []),
+            aircraft=data.get("aircraft", ""),
+            mission_type=data.get("mission_type", ""),
+            language=data.get("language", "en"),
+            config=cfg,
+        )
+        return jsonify({"description": new_desc})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/debrief", methods=["POST"])
+def debrief():
+    """POST /api/debrief — generate a mission debrief report via Gemini; returns {report: str}."""
+    data = request.get_json()
+    video_path = data.get("video_path", "").strip()
+    metadata = data.get("metadata", {})
+    acmi_events = data.get("acmi_events") or None
+
+    if not video_path or not metadata:
+        return jsonify({"error": "Missing video_path or metadata"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    cfg = dcs_meta.load_config()
+    try:
+        report = dcs_meta.generate_debrief(metadata, path, cfg, acmi_events=acmi_events)
+        return jsonify({"report": report})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
