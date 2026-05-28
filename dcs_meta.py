@@ -121,9 +121,9 @@ def load_config():
     """Load config.json, creating it with defaults if absent."""
     CONFIG_PATH.parent.mkdir(exist_ok=True)
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             return {**DEFAULT_CONFIG, **json.load(f)}
-    with open(CONFIG_PATH, "w") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
     return DEFAULT_CONFIG
 
@@ -132,7 +132,7 @@ def load_memory():
     """Load history.json, returning an empty video list if absent."""
     MEMORY_PATH.parent.mkdir(exist_ok=True)
     if MEMORY_PATH.exists():
-        with open(MEMORY_PATH) as f:
+        with open(MEMORY_PATH, encoding="utf-8") as f:
             return json.load(f)
     return {"videos": []}
 
@@ -140,7 +140,7 @@ def load_memory():
 def save_memory(memory):
     """Persist memory dict to history.json."""
     MEMORY_PATH.parent.mkdir(exist_ok=True)
-    with open(MEMORY_PATH, "w") as f:
+    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
         json.dump(memory, f, indent=2, ensure_ascii=False)
 
 
@@ -343,7 +343,7 @@ DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
-Support: [link]
+Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
 
@@ -369,7 +369,7 @@ DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
-Support: [link]
+Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
 
@@ -399,7 +399,7 @@ DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
-Support: [link]
+Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
 
@@ -559,6 +559,12 @@ Tone: mission report style, proud of the team, mention callsigns/roles if visibl
 This is a solo/campaign video. The pilot is learning DCS and shares both successes and failures to help other beginners."""
 
     description_rules = _build_description_rules(is_squadron, category, config)
+    # Substitute [link] tokens with actual URLs so Gemini never has to guess them.
+    links = config.get("default_links", {}) if config else {}
+    description_rules = (description_rules
+        .replace("Twitter: [link]", f"Twitter: {links.get('twitter', '')}")
+        .replace("Twitch: [link]", f"Twitch: {links.get('twitch', '')}")
+        .replace("Buy Me a Coffee: [link]", f"Buy Me a Coffee: {links.get('buymeacoffee', '')}"))
 
     chapters_rule = {
         "short":  "Do NOT include chapters — video is too short (<10 min). Return empty array [].",

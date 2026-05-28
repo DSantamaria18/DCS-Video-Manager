@@ -1991,7 +1991,13 @@ async function loadPlaylists() {
     const res = await fetch('/api/playlists');
     const data = await res.json();
     const list = document.getElementById('playlistList');
-    const playlists = data.playlists || data || [];
+
+    if (data.error) {
+      list.innerHTML = '<div style="font-family:var(--mono);font-size:10px;color:var(--amber);padding:8px 10px;">⚠ Could not load playlists — re-authorize in Setup</div>';
+      return;
+    }
+
+    const playlists = Array.isArray(data) ? data : (data.playlists || []);
     if (!playlists.length) return;
 
     list.innerHTML = '';

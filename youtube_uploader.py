@@ -94,17 +94,14 @@ def _build_service():
 # ── YouTube API ───────────────────────────────────────────────────────────────
 
 def get_playlists() -> list:
-    """Return [{id, title}] for all channel playlists; empty list on any error."""
-    try:
-        response = _build_service().playlists().list(
-            part="snippet", mine=True, maxResults=50
-        ).execute()
-        return [
-            {"id": item["id"], "title": item["snippet"]["title"]}
-            for item in response.get("items", [])
-        ]
-    except Exception:
-        return []
+    """Return [{id, title}] for all channel playlists."""
+    response = _build_service().playlists().list(
+        part="snippet", mine=True, maxResults=50
+    ).execute()
+    return [
+        {"id": item["id"], "title": item["snippet"]["title"]}
+        for item in response.get("items", [])
+    ]
 
 
 def _build_description_with_chapters(description: str, chapters: list) -> str:

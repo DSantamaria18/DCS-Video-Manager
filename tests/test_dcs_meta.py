@@ -1061,3 +1061,58 @@ def test_build_prompt_no_acmi_block_when_empty_text():
     events = {"events_text": "", "kills": [], "sam_launches": [], "bvr_launches": []}
     prompt = dcs_meta.build_prompt("", cfg, False, mem, acmi_events=events)
     assert "TACVIEW ACMI DATA" not in prompt
+
+
+# ── Bug fixes ─────────────────────────────────────────────────────────────────
+
+def test_load_config_reads_utf8_characters(tmp_path, monkeypatch):
+    """load_config() must decode non-ASCII characters correctly on Windows (Bug #4)."""
+    cfg_path = tmp_path / "config" / "config.json"
+    cfg_path.parent.mkdir()
+    cfg_path.write_text('{"channel_name": "EscuadrÓn 111"}', encoding="utf-8")
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", cfg_path)
+    cfg = dcs_meta.load_config()
+    assert cfg["channel_name"] == "EscuadrÓn 111"
+
+
+def test_save_and_reload_memory_preserves_utf8(tmp_path, monkeypatch):
+    """save_memory/load_memory must round-trip non-ASCII strings correctly (Bug #4)."""
+    mem_path = tmp_path / "memory" / "history.json"
+    mem_path.parent.mkdir()
+    monkeypatch.setattr(dcs_meta, "MEMORY_PATH", mem_path)
+    memory = {"videos": [{"title": "Operación Trueno — SEAD"}]}
+    dcs_meta.save_memory(memory)
+    loaded = dcs_meta.load_memory()
+    assert loaded["videos"][0]["title"] == "Operación Trueno — SEAD"
+
+
+def test_build_prompt_substitutes_social_links(monkeypatch):
+    """build_prompt() must replace [link] tokens with actual config URLs (Bug #5)."""
+    cfg = {
+        **dcs_meta.DEFAULT_CONFIG,
+        "default_links": {
+            "twitter": "https://twitter.com/testuser",
+            "twitch": "https://www.twitch.tv/testuser",
+            "buymeacoffee": "https://www.buymeacoffee.com/testuser",
+            "escuadron111": "https://example.com",
+            "dcs_f18_playlist": "",
+            "dcs_a10c_playlist": "",
+            "dcs_huey_playlist": "",
+        },
+    }
+    mem = {"videos": []}
+    prompt = dcs_meta.build_prompt("", cfg, is_squadron=False, memory=mem)
+    assert "[link]" not in prompt
+    assert "https://twitter.com/testuser" in prompt
+    assert "https://www.twitch.tv/testuser" in prompt
+    assert "https://www.buymeacoffee.com/testuser" in prompt
+    assert "Buy Me a Coffee:" in prompt
+
+
+def test_build_prompt_no_patreon_hallucination(monkeypatch):
+    """Gemini prompt must not contain a Patreon placeholder after link substitution (Bug #5)."""
+    cfg = {**dcs_meta.DEFAULT_CONFIG}
+    mem = {"videos": []}
+    prompt = dcs_meta.build_prompt("", cfg, is_squadron=False, memory=mem)
+    assert "patreon" not in prompt.lower()
+    assert "[link]" not in prompt
