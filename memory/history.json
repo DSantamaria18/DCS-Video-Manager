@@ -44,6 +44,149 @@
       "aircraft": "A-10C II Tank Killer",
       "map": "Caucasus",
       "mission_type": "CAS / Ground Attack"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Trouble on CAS | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Tank Killer",
+      "map": "Caucasus",
+      "mission_type": "CAS (Close Air Support)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Tank Killer",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Trouble on CAS | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Tank Killer",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Thunderbolt II",
+      "map": "Caucasus",
+      "mission_type": "CAS (Close Air Support)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "CAS (Close Air Support)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Tank Killer",
+      "map": "Caucasus",
+      "mission_type": "CAS (Close Air Support)"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Engages Targets | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS) / Ground Attack"
+    },
+    {
+      "date": "2026-05-24",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Fails to Engage | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "Close Air Support (CAS) / Ground Attack"
+    },
+    {
+      "date": "2026-05-28",
+      "filename": "2026-04-25_20-09-39.mkv",
+      "title": "DCS World | A-10C II | Wingman Fails to Engage | The Enemy Within Campaign",
+      "language": "en",
+      "aircraft": "A-10C II Warthog",
+      "map": "Caucasus",
+      "mission_type": "CAS (Close Air Support), Anti-Armour",
+      "campaign": "The Enemy Within Campaign",
+      "video_id": ""
+    },
+    {
+      "date": "2026-05-30",
+      "filename": "2026-05-30_13-04-10.mkv",
+      "title": "DCS World | F/A-18C Hornet | GBU-12 Practice & Skill Refresh",
+      "language": "en",
+      "aircraft": "F/A-18C Hornet",
+      "map": "Caucasus",
+      "mission_type": "Air-to-Ground (A/G) Strike Training",
+      "campaign": "N/A",
+      "video_id": ""
+    },
+    {
+      "date": "2026-05-30",
+      "filename": "2026-05-30_13-04-10.mkv",
+      "title": "DCS World | F/A-18C Hornet | GBU-12 Practice & Skill Refresh",
+      "language": "en",
+      "aircraft": "F/A-18C Hornet",
+      "map": "Caucasus",
+      "mission_type": "Air-to-Ground (A/G) Strike Training, Skill Refresh",
+      "campaign": "None",
+      "video_id": ""
+    },
+    {
+      "date": "2026-05-30",
+      "filename": "2026-05-30_13-04-10.mkv",
+      "title": "DCS World | F/A-18C Hornet | GBU-12 Practice & Skill Refresh",
+      "language": "en",
+      "aircraft": "F/A-18C Hornet",
+      "map": "Caucasus",
+      "mission_type": "A/G Attack, Training, Skill Refresh",
+      "campaign": "N/A",
+      "video_id": ""
     }
   ]
 }

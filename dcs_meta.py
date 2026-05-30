@@ -1152,7 +1152,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
 # ── Debrief ───────────────────────────────────────────────────────────────────
 
-_DEBRIEF_RESULT_ICON = {"RTB": "✓ RTB", "CRASH": "✗ CRASH", "COMPLETE": "✓ COMPLETE"}
+_DEBRIEF_RESULT_ICON = {"RTB": "✓ RTB", "CRASH": "✗ CRASH", "EJECT": "✗ EJECT", "COMPLETE": "✓ COMPLETE"}
 
 
 def _format_debrief_duration(seconds: float) -> str:
@@ -1195,9 +1195,12 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
         f"narrative language={lang_label}"
         + acmi_hint + "\n\n"
         "Analyze the video frames. Estimate from HUD data, RWR activity, and visual cues.\n\n"
+        "result values: RTB=landed safely at any base; CRASH=aircraft destroyed, no ejection detected; "
+        "EJECT=pilot ejected after aircraft loss (aircraft destroyed but pilot survived by ejecting); "
+        "COMPLETE=scenario/campaign objective met.\n\n"
         "Return ONLY a valid JSON object with these exact keys (use null if truly unknown):\n"
         '{\n'
-        '  "result": "RTB" | "CRASH" | "COMPLETE",\n'
+        '  "result": "RTB" | "CRASH" | "EJECT" | "COMPLETE",\n'
         '  "kills": <integer or null>,\n'
         '  "sam_evasions": <integer or null>,\n'
         '  "max_mach": "<e.g. 0.95 or -->",\n'

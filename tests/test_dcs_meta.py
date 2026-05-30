@@ -900,6 +900,50 @@ def test_format_debrief_duration_over_one_hour():
     assert dcs_meta._format_debrief_duration(3665.0) == "01:01:05"
 
 
+def test_debrief_eject_icon_in_result_map():
+    assert dcs_meta._DEBRIEF_RESULT_ICON["EJECT"] == "✗ EJECT"
+
+
+def test_debrief_eject_result_shown_in_report(tmp_path, monkeypatch):
+    response = json.dumps({
+        "result": "EJECT", "kills": 1, "sam_evasions": 1,
+        "max_mach": "0.88", "max_altitude": "18000 ft",
+        "fuel_remaining": "0 lb", "narrative": "Pilot ejected after SA-15 hit."
+    })
+    report = _make_debrief(language="en", gemini_response=response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "✗ EJECT" in report
+
+
+def test_debrief_eject_result_shown_in_spanish_report(tmp_path, monkeypatch):
+    response = json.dumps({
+        "result": "EJECT", "kills": 0, "sam_evasions": 0,
+        "max_mach": "--", "max_altitude": "--",
+        "fuel_remaining": "--", "narrative": "El piloto eyectó tras ser derribado."
+    })
+    report = _make_debrief(language="es", gemini_response=response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path)
+    assert "✗ EJECT" in report
+
+
+def test_debrief_prompt_includes_eject_option(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_call_gemini(frames, prompt, model):
+        captured["prompt"] = prompt
+        return json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
+                           "max_mach": "--", "max_altitude": "--",
+                           "fuel_remaining": "--", "narrative": ""})
+
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(dcs_meta, "extract_frames", lambda *a, **kw: [])
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 1800.0)
+    monkeypatch.setattr(dcs_meta, "call_gemini", fake_call_gemini)
+    dcs_meta.generate_debrief(_DEBRIEF_META_EN, video, {**dcs_meta.DEFAULT_CONFIG})
+    assert "EJECT" in captured["prompt"]
+
+
 # ── parse_acmi_events ──────────────────────────────────────────────────────────
 
 def _write_acmi(tmp_path, lines):
