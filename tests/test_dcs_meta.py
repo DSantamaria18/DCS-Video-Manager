@@ -1439,3 +1439,74 @@ def test_parse_audio_peaks_ignores_below_threshold():
     stderr = "pts_time:30.0\nlavfi.astats.Overall.RMS_level=-25.0\n"
     peaks = dcs_meta._parse_audio_peaks(stderr, threshold_db=-20.0)
     assert peaks == []
+
+
+def test_collect_candidate_uses_bomb_releases_key():
+    acmi = {
+        "bomb_releases": [{"time_s": 500.0, "name": "GBU-12"}],
+        "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
+    }
+    candidates = dcs_meta._collect_candidate_timestamps(acmi)
+    assert any(evt == "guided_bomb" for _, evt in candidates)
+
+
+def test_collect_candidate_ignores_wrong_key():
+    acmi = {
+        "guided_bomb_drops": [{"time_s": 500.0, "name": "GBU-12"}],  # old wrong key
+        "bomb_releases": [],
+        "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
+    }
+    candidates = dcs_meta._collect_candidate_timestamps(acmi)
+    assert not any(evt == "guided_bomb" for _, evt in candidates)
+
+
+def test_detect_short_clips_ffmpeg_y_before_input(tmp_path, monkeypatch):
+    """Verify -y global option is before -i so ffmpeg doesn't treat it as a second output."""
+    captured_cmds = []
+
+    def fake_run(cmd, *a, **kw):
+        captured_cmds.append(cmd)
+        class R:
+            stdout = json.dumps({"format": {"duration": "600.0"}})
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    acmi = {
+        "kills": [{"time_s": 120.0, "time": "2:00", "name": "SA-6"}],
+        "ejection_events": [], "bomb_releases": [], "sam_launches": [], "bvr_launches": [],
+    }
+    dcs_meta.detect_short_clips(video, acmi, dcs_meta.DEFAULT_CONFIG)
+    crop_cmds = [c for c in captured_cmds if "crop" in str(c)]
+    assert crop_cmds, "No ffmpeg crop command was issued"
+    for cmd in crop_cmds:
+        y_idx = cmd.index("-y")
+        i_idx = cmd.index("-i")
+        assert y_idx < i_idx, "-y must come before -i in the ffmpeg crop command"
+
+
+def test_detect_short_clips_multi_clip_distinct_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+
+    def fake_run(cmd, *a, **kw):
+        class R:
+            stdout = json.dumps({"format": {"duration": "600.0"}})
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    acmi = {
+        "kills": [{"time_s": 60.0, "time": "1:00", "name": "SA-6"}],
+        "ejection_events": [{"time_s": 300.0, "time": "5:00", "name": "friendly pilot"}],
+        "bomb_releases": [{"time_s": 450.0, "time": "7:30", "name": "GBU-12"}],
+        "sam_launches": [], "bvr_launches": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, dcs_meta.DEFAULT_CONFIG)
+    assert len(clips) > 1, "Expected multiple clips from distinct events at spread timestamps"

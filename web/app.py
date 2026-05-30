@@ -449,6 +449,7 @@ def upload_youtube():
                 playlist_ids=playlist_ids,
                 language=metadata.get("language", "en"),
                 thumbnail_path=thumbnail_path,
+                publish_at=publish_at,
                 progress_callback=on_progress
             )
             video_id = result.get("video_id")

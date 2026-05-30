@@ -1922,7 +1922,7 @@ def _collect_candidate_timestamps(acmi_events: dict) -> list[tuple[float, str]]:
         candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "kill"))
     for ev in acmi_events.get("ejection_events", []):
         candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "ejection"))
-    for ev in acmi_events.get("guided_bomb_drops", []):
+    for ev in acmi_events.get("bomb_releases", []):
         candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "guided_bomb"))
     for ev in acmi_events.get("sam_launches", []):
         candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "sam"))
@@ -2017,7 +2017,7 @@ def detect_short_clips(video_path: Path, acmi_events: dict, config: dict) -> lis
         try:
             subprocess.run(
                 [
-                    "ffmpeg",
+                    "ffmpeg", "-y",
                     "-ss", str(start),
                     "-i", str(video_path),
                     "-t", str(duration),
@@ -2027,7 +2027,6 @@ def detect_short_clips(video_path: Path, acmi_events: dict, config: dict) -> lis
                     "-crf", "23",
                     "-c:a", "aac",
                     str(output_path),
-                    "-y",
                 ],
                 capture_output=True, check=True,
             )

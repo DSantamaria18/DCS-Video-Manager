@@ -199,6 +199,40 @@ def test_upload_youtube_missing_thumbnail_file_ignored(client):
     assert mock_uv.call_args.kwargs.get("thumbnail_path") is None
 
 
+def test_upload_youtube_passes_publish_at_to_upload_video(client):
+    """publish_at ISO string must be forwarded to upload_video."""
+    upload_result = {"video_id": "Z", "url": "https://youtu.be/Z",
+                     "status": "uploaded", "privacy": "private",
+                     "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "publish_at": "2026-06-01T19:00:00Z"
+        })
+
+    mock_uv.assert_called_once()
+    assert mock_uv.call_args.kwargs.get("publish_at") == "2026-06-01T19:00:00Z"
+
+
+def test_upload_youtube_omits_publish_at_when_empty(client):
+    """Empty publish_at string must become None (not forwarded as empty string)."""
+    upload_result = {"video_id": "Z2", "url": "https://youtu.be/Z2",
+                     "status": "uploaded", "privacy": "private",
+                     "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "publish_at": ""
+        })
+
+    mock_uv.assert_called_once()
+    assert mock_uv.call_args.kwargs.get("publish_at") is None
+
+
 # ── GET /api/youtube/status ───────────────────────────────────────────────────
 
 def test_youtube_status_returns_authenticated_key(client):
