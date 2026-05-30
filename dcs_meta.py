@@ -799,6 +799,8 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     try:
         metadata = json.loads(raw)
         print("  ✓ Metadata generated")
+        if duration_seconds is not None:
+            metadata["duration_s"] = duration_seconds
         return metadata
     except json.JSONDecodeError as e:
         # Try to recover truncated JSON by closing open braces/brackets
@@ -806,6 +808,8 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         recovered = _recover_json(raw)
         if recovered:
             print("  ✓ Recovered from truncated response")
+            if duration_seconds is not None:
+                recovered["duration_s"] = duration_seconds
             return recovered
         print(f"  ✗ JSON parse error: {e}")
         print(f"  Raw (first 500 chars): {raw[:500]}")
@@ -850,7 +854,12 @@ def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -
         profile = MODULE_PROFILES.get(aircraft, {})
         tags.extend(profile.get("tags", []))
 
-    return {
+    try:
+        duration_s = _get_video_duration(video_path)
+    except Exception:
+        duration_s = None
+
+    result = {
         "title": title,
         "description": description,
         "tags": tags,
@@ -862,6 +871,9 @@ def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -
         "campaign": "",
         "analysis_notes": "Fallback metadata — Gemini analysis failed.",
     }
+    if duration_s is not None:
+        result["duration_s"] = duration_s
+    return result
 
 
 def _recover_json(raw: str) -> dict:

@@ -317,13 +317,14 @@ def test_suggest_playlists_matches_campaign(client):
     assert "PL4" in resp.json["suggested"]
 
 
-def test_suggest_playlists_no_match_returns_empty(client):
+def test_suggest_playlists_no_match_still_includes_dcs_world(client):
+    # UH-1H has no specific playlist but "DCS World Beginner" (PL5) is always included
     resp = client.post("/api/suggest_playlists", json={
         "metadata": {"aircraft": "UH-1H Huey", "mission_type": "Transport", "campaign": ""},
         "playlists": PLAYLISTS,
     })
     assert resp.status_code == 200
-    assert resp.json["suggested"] == []
+    assert "PL5" in resp.json["suggested"]  # Rule 1: DCS World always included
 
 
 def test_suggest_playlists_multiple_matches(client):
@@ -336,13 +337,14 @@ def test_suggest_playlists_multiple_matches(client):
     assert "PL3" in suggested
 
 
-def test_suggest_playlists_empty_metadata_returns_empty(client):
+def test_suggest_playlists_empty_metadata_still_returns_dcs_world(client):
+    # Even empty metadata → Rule 1 always adds "DCS World" playlist
     resp = client.post("/api/suggest_playlists", json={
         "metadata": {"aircraft": "", "mission_type": "", "campaign": ""},
         "playlists": PLAYLISTS,
     })
     assert resp.status_code == 200
-    assert resp.json["suggested"] == []
+    assert "PL5" in resp.json["suggested"]
 
 
 def test_suggest_playlists_no_body_returns_400(client):
@@ -370,11 +372,47 @@ def test_suggest_playlist_ids_pure_function():
     )
     assert "PL1" in result
     assert "PL2" in result
+    assert "PL5" in result  # Rule 1: DCS World always included
 
 
 def test_suggest_playlist_ids_empty_playlists():
     from app import _suggest_playlist_ids
     assert _suggest_playlist_ids({"aircraft": "Hornet"}, []) == []
+
+
+def test_suggest_playlist_ids_dcs_world_always_included():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "DW", "title": "DCS World"},
+        {"id": "XX", "title": "Unrelated Playlist"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "mission_type": "", "campaign": ""}, playlists)
+    assert "DW" in result
+    assert "XX" not in result
+
+
+def test_suggest_playlist_ids_shorts_rule():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "SH", "title": "SHORTS"},
+        {"id": "DW", "title": "DCS World"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "duration_s": 45}, playlists)
+    assert "SH" in result  # Rule 3: < 60 s
+    result_long = _suggest_playlist_ids({"aircraft": "", "duration_s": 300}, playlists)
+    assert "SH" not in result_long
+
+
+def test_suggest_playlist_ids_largos_rule():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "LG", "title": "LARGOS"},
+        {"id": "DW", "title": "DCS World"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "duration_s": 2000}, playlists)
+    assert "LG" in result  # Rule 4: > 1800 s
+    result_short = _suggest_playlist_ids({"aircraft": "", "duration_s": 600}, playlists)
+    assert "LG" not in result_short
 
 
 # ── GET /api/description_templates ───────────────────────────────────────────

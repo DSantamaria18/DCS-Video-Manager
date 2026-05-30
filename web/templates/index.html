@@ -2580,36 +2580,48 @@ function _extractMatchTerms(text) {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 2);
 }
 
-function autoSelectPlaylists(metadata) {
-  const terms = new Set([
-    ..._extractMatchTerms(metadata.aircraft || ''),
-    ..._extractMatchTerms(metadata.mission_type || ''),
-    ..._extractMatchTerms(metadata.campaign || ''),
-  ]);
-  if (!terms.size) return 0;
-
+async function autoSelectPlaylists(metadata) {
   const hint = document.getElementById('playlistAutoHint');
   const checkboxes = document.querySelectorAll('#playlistList input[type=checkbox]');
-  if (!checkboxes.length) { hint.style.display = 'none'; return 0; }
+  if (!checkboxes.length) { if (hint) hint.style.display = 'none'; return 0; }
 
-  let matched = 0;
-  checkboxes.forEach(cb => {
-    const label = cb.closest('label');
-    const titleEl = label.querySelector('span');
-    const titleLower = (titleEl ? titleEl.textContent : '').toLowerCase();
-    const match = [...terms].some(t => titleLower.includes(t));
-    cb.checked = match;
-    label.style.background = match ? 'rgba(0,229,160,0.05)' : '';
-    if (match) matched++;
-  });
+  // Build playlist list from current DOM so we don't need an extra fetch
+  const playlists = [...checkboxes].map(cb => ({
+    id: cb.value,
+    title: cb.closest('label')?.querySelector('span')?.textContent || '',
+  }));
 
-  if (matched > 0) {
-    hint.textContent = `⬡ ${matched} auto-selected`;
-    hint.style.display = '';
-  } else {
-    hint.style.display = 'none';
+  try {
+    const res = await fetch('/api/suggest_playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata, playlists }),
+    });
+    const data = await res.json();
+    const suggested = new Set(data.suggested || []);
+
+    let matched = 0;
+    checkboxes.forEach(cb => {
+      const match = suggested.has(cb.value);
+      cb.checked = match;
+      const lbl = cb.closest('label');
+      if (lbl) lbl.style.background = match ? 'rgba(0,229,160,0.05)' : '';
+      if (match) matched++;
+    });
+
+    if (hint) {
+      if (matched > 0) {
+        hint.textContent = `⬡ ${matched} auto-selected`;
+        hint.style.display = '';
+      } else {
+        hint.style.display = 'none';
+      }
+    }
+    return matched;
+  } catch(e) {
+    if (hint) hint.style.display = 'none';
+    return 0;
   }
-  return matched;
 }
 
 // ── Config editor ────────────────────────────────────────────────────────────

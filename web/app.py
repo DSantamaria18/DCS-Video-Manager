@@ -614,42 +614,63 @@ _AIRCRAFT_ALIASES: dict[str, list[str]] = {
 
 
 def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
-    """Return playlist IDs whose title matches terms from aircraft/mission_type/campaign.
+    """Return playlist IDs to add based on four channel rules.
 
-    Tokenises each metadata field into lowercase words (≥2 chars, letters/digits only),
-    then expands aircraft tokens through _AIRCRAFT_ALIASES so common aircraft names
-    (e.g. 'F/A-18C' → 'hornet', 'fa18', 'fa-18') match playlist titles like 'Hornet Pilot'.
+    Rule 1 — DCS World: always include any playlist whose title contains "dcs world".
+    Rule 2 — Aircraft: match playlists by aircraft name/alias (e.g. F/A-18C → "DCS F18").
+    Rule 3 — SHORTS: if duration < 60 s, include playlists whose title contains "short".
+    Rule 4 — LARGOS: if duration > 1800 s (30 min), include playlists whose title contains "largo".
     """
     import re as _re
-    fields = [
-        metadata.get("aircraft", ""),
-        metadata.get("mission_type", ""),
-        metadata.get("campaign", ""),
-    ]
+
+    duration_s = metadata.get("duration_s")
+
+    # Build aircraft alias terms
+    aircraft_raw = metadata.get("aircraft", "").lower()
     terms: set[str] = set()
-    for field in fields:
-        for tok in _re.split(r"[^a-z0-9]+", field.lower()):
+    for field in [aircraft_raw, metadata.get("mission_type", "").lower(),
+                  metadata.get("campaign", "").lower()]:
+        for tok in _re.split(r"[^a-z0-9]+", field):
             if len(tok) >= 2:
                 terms.add(tok)
-                # Expand via alias map: check if any alias key is a substring of the token or vice versa
-                for alias_key, alias_list in _AIRCRAFT_ALIASES.items():
-                    if alias_key in field.lower():
-                        terms.update(alias_list)
-
-    # Also directly expand the raw aircraft string against alias keys
-    aircraft_raw = metadata.get("aircraft", "").lower()
     for alias_key, alias_list in _AIRCRAFT_ALIASES.items():
         if alias_key in aircraft_raw:
             terms.update(alias_list)
 
-    if not terms:
-        return []
+    matched: list[str] = []
+    seen: set[str] = set()
 
-    matched = []
     for pl in playlists:
         title_lower = pl.get("title", "").lower()
-        if any(term in title_lower for term in terms):
-            matched.append(pl["id"])
+        pid = pl["id"]
+
+        # Rule 1: always include "DCS World" playlist
+        if "dcs world" in title_lower:
+            if pid not in seen:
+                matched.append(pid)
+                seen.add(pid)
+            continue
+
+        # Rule 3: short clips playlist
+        if duration_s is not None and duration_s < 60 and "short" in title_lower:
+            if pid not in seen:
+                matched.append(pid)
+                seen.add(pid)
+            continue
+
+        # Rule 4: long videos playlist
+        if duration_s is not None and duration_s > 1800 and "largo" in title_lower:
+            if pid not in seen:
+                matched.append(pid)
+                seen.add(pid)
+            continue
+
+        # Rule 2: aircraft/mission match via alias-expanded terms
+        if terms and any(term in title_lower for term in terms):
+            if pid not in seen:
+                matched.append(pid)
+                seen.add(pid)
+
     return matched
 
 
