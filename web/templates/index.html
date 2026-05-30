@@ -821,12 +821,30 @@
         ▲ &nbsp;UPLOAD AS PRIVATE
       </button>
 
+      <!-- Upload progress bar (shown while uploading) -->
+      <div id="uploadProgressWrap" style="display:none;margin-top:10px;">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:4px;letter-spacing:1px;" id="uploadProgressLabel">Uploading... 0%</div>
+        <div style="background:var(--bg3);border-radius:3px;height:6px;overflow:hidden;">
+          <div id="uploadProgressBar" style="height:100%;width:0%;background:var(--green);transition:width 0.4s ease;"></div>
+        </div>
+      </div>
+
       <div class="upload-result" id="uploadResult">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px;letter-spacing:2px;">UPLOADED ✓</div>
         <a id="uploadLink" href="#" target="_blank"></a>
         <div style="margin-top:8px;font-size:11px;color:var(--text2)">Status: <strong>Private</strong> — publish manually from YouTube Studio.</div>
         <div style="margin-top:4px;font-size:11px;color:var(--text2)" id="uploadPlaylistInfo"></div>
         <div style="margin-top:4px;font-size:11px;color:var(--text2)" id="uploadThumbInfo"></div>
+
+        <!-- Analytics section (shown after upload) -->
+        <div id="analyticsSection" style="margin-top:12px;display:none;">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:2px;margin-bottom:6px;">ANALYTICS</div>
+          <div id="analyticsContent" style="font-family:var(--mono);font-size:11px;color:var(--text2);">
+            Polling in progress — check back in 1 hour.
+          </div>
+          <button class="btn" onclick="refreshAnalytics()" id="analyticsRefreshBtn"
+            style="margin-top:6px;font-size:10px;padding:4px 10px;">REFRESH</button>
+        </div>
       </div>
     </div>
 
@@ -1236,6 +1254,9 @@ async function browseFile() {
     document.getElementById('uploadResult').classList.remove('visible');
     document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
     document.getElementById('playlistAutoHint').style.display = 'none';
+    document.getElementById('uploadProgressWrap').style.display = 'none';
+    document.getElementById('analyticsSection').style.display = 'none';
+    _currentUploadVideoId = null;
     clearAlert();
   } catch(e) {
     showAlert('Browse error: ' + e.message, 'error');
@@ -1252,6 +1273,9 @@ function onPathInput(val) {
     // Reset upload result when selecting a new video
     document.getElementById('uploadResult').classList.remove('visible');
     document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+    document.getElementById('uploadProgressWrap').style.display = 'none';
+    document.getElementById('analyticsSection').style.display = 'none';
+    _currentUploadVideoId = null;
   } else {
     nameEl.style.display = 'none';
   }
@@ -1333,6 +1357,9 @@ async function startAnalysis() {
   document.getElementById('uploadBtn').disabled = true;
   document.getElementById('uploadResult').classList.remove('visible');
   document.getElementById('uploadBtn').textContent = '▲  UPLOAD AS PRIVATE';
+  document.getElementById('uploadProgressWrap').style.display = 'none';
+  document.getElementById('analyticsSection').style.display = 'none';
+  _currentUploadVideoId = null;
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('metadataOutput').style.display = 'none';
@@ -1829,13 +1856,15 @@ async function copyChapters(btn) {
 }
 
 // ── YouTube upload ────────────────────────────────────────────────────────────
+let _uploadPollInterval = null;
+let _currentUploadVideoId = null;
+
 async function uploadToYouTube() {
   if (!currentMetadata) return;
 
   const path = document.getElementById('videoPath').value.trim();
   const playlistIds = getSelectedPlaylistIds();
 
-  // Use edited values from UI
   const metadata = {
     ...currentMetadata,
     title: document.getElementById('titleEdit').value,
@@ -1844,6 +1873,9 @@ async function uploadToYouTube() {
 
   document.getElementById('uploadBtn').disabled = true;
   document.getElementById('uploadBtn').textContent = '⟳  Uploading...';
+  document.getElementById('uploadProgressWrap').style.display = 'block';
+  document.getElementById('uploadProgressBar').style.width = '0%';
+  document.getElementById('uploadProgressLabel').textContent = 'Uploading... 0%';
   clearAlert();
 
   try {
@@ -1855,6 +1887,7 @@ async function uploadToYouTube() {
     const data = await res.json();
 
     if (!res.ok) {
+      document.getElementById('uploadProgressWrap').style.display = 'none';
       if (data.error && data.error.includes('Not authenticated')) {
         showAlert('YouTube not connected. Go to Setup tab to authorize.', 'error');
         openTab('setup');
@@ -1866,34 +1899,104 @@ async function uploadToYouTube() {
       return;
     }
 
-    const resultEl = document.getElementById('uploadResult');
-    const linkEl = document.getElementById('uploadLink');
-    linkEl.href = data.url;
-    linkEl.textContent = data.url;
-    const added = (data.playlists_added || []).length;
-    const playlistMsg = added > 0
-      ? `Added to ${added} playlist${added > 1 ? 's' : ''}.`
-      : 'No playlists selected.';
-    document.getElementById('uploadPlaylistInfo').textContent = playlistMsg;
-    const thumbEl = document.getElementById('uploadThumbInfo');
-    if (data.thumbnail_set === true) {
-      thumbEl.textContent = 'Thumbnail: set.';
-    } else if (data.thumbnail_set === false) {
-      thumbEl.textContent = 'Thumbnail: could not be set — add it manually in YouTube Studio.';
-    } else {
-      thumbEl.textContent = '';
-    }
-    resultEl.classList.add('visible');
-    document.getElementById('uploadBtn').textContent = '✓  Uploaded';
-    if (data.tags_skipped) {
-      showAlert('Tags were rejected by YouTube and skipped. Add them manually in YouTube Studio.', 'warning');
+    const jobId = data.job_id;
+    if (!jobId) {
+      document.getElementById('uploadProgressWrap').style.display = 'none';
+      showAlert('Upload failed: no job_id returned', 'error');
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
+      return;
     }
 
+    _uploadPollInterval = setInterval(async () => {
+      try {
+        const sr = await fetch('/api/status/' + jobId);
+        const sd = await sr.json();
+
+        if (sd.status === 'uploading') {
+          const pct = sd.upload_progress || 0;
+          document.getElementById('uploadProgressBar').style.width = pct + '%';
+          document.getElementById('uploadProgressLabel').textContent = sd.message || ('Uploading... ' + pct + '%');
+        } else if (sd.status === 'done') {
+          clearInterval(_uploadPollInterval);
+          _uploadPollInterval = null;
+          document.getElementById('uploadProgressBar').style.width = '100%';
+          document.getElementById('uploadProgressLabel').textContent = 'Upload complete';
+          setTimeout(() => { document.getElementById('uploadProgressWrap').style.display = 'none'; }, 1500);
+
+          const result = sd.result || {};
+          _currentUploadVideoId = result.video_id || null;
+          const resultEl = document.getElementById('uploadResult');
+          const linkEl = document.getElementById('uploadLink');
+          linkEl.href = result.url || '#';
+          linkEl.textContent = result.url || '';
+          const added = (result.playlists_added || []).length;
+          document.getElementById('uploadPlaylistInfo').textContent = added > 0
+            ? `Added to ${added} playlist${added > 1 ? 's' : ''}.`
+            : 'No playlists selected.';
+          const thumbEl = document.getElementById('uploadThumbInfo');
+          if (result.thumbnail_set === true) {
+            thumbEl.textContent = 'Thumbnail: set.';
+          } else if (result.thumbnail_set === false) {
+            thumbEl.textContent = 'Thumbnail: could not be set — add it manually in YouTube Studio.';
+          } else {
+            thumbEl.textContent = '';
+          }
+          if (_currentUploadVideoId) {
+            document.getElementById('analyticsSection').style.display = 'block';
+            document.getElementById('analyticsContent').textContent = 'Polling in progress — check back in 1 hour.';
+          }
+          resultEl.classList.add('visible');
+          document.getElementById('uploadBtn').textContent = '✓  Uploaded';
+          if (result.tags_skipped) {
+            showAlert('Tags were rejected by YouTube and skipped. Add them manually in YouTube Studio.', 'warning');
+          }
+        } else if (sd.status === 'error') {
+          clearInterval(_uploadPollInterval);
+          _uploadPollInterval = null;
+          document.getElementById('uploadProgressWrap').style.display = 'none';
+          showAlert(sd.error || 'Upload failed', 'error');
+          document.getElementById('uploadBtn').disabled = false;
+          document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
+        }
+      } catch(_) {}
+    }, 1500);
+
   } catch(e) {
+    document.getElementById('uploadProgressWrap').style.display = 'none';
     showAlert('Upload error: ' + e.message, 'error');
     document.getElementById('uploadBtn').disabled = false;
     document.getElementById('uploadBtn').textContent = UPLOAD_BTN_LABEL;
   }
+}
+
+async function refreshAnalytics() {
+  if (!_currentUploadVideoId) return;
+  const btn = document.getElementById('analyticsRefreshBtn');
+  btn.disabled = true;
+  btn.textContent = 'LOADING...';
+  try {
+    const res = await fetch('/api/analytics/' + _currentUploadVideoId);
+    const rows = await res.json();
+    const el = document.getElementById('analyticsContent');
+    if (!rows.length) {
+      el.textContent = 'No data yet — check back in 1 hour.';
+    } else {
+      const latest = rows[rows.length - 1];
+      el.innerHTML = `
+        <table style="border-collapse:collapse;width:100%;">
+          <tr><td style="padding:2px 8px 2px 0;color:var(--text3)">Views</td><td>${latest.views ?? '—'}</td></tr>
+          <tr><td style="padding:2px 8px 2px 0;color:var(--text3)">Watch minutes</td><td>${latest.watch_minutes ?? '—'}</td></tr>
+          <tr><td style="padding:2px 8px 2px 0;color:var(--text3)">Likes</td><td>${latest.likes ?? '—'}</td></tr>
+          <tr><td style="padding:2px 8px 2px 0;color:var(--text3)">Fetched at</td><td>${latest.fetched_at ? latest.fetched_at.replace('T', ' ').slice(0,19) + ' UTC' : '—'}</td></tr>
+        </table>
+      `;
+    }
+  } catch(_) {
+    document.getElementById('analyticsContent').textContent = 'Could not load analytics.';
+  }
+  btn.textContent = 'REFRESH';
+  btn.disabled = false;
 }
 
 // ── YouTube auth ──────────────────────────────────────────────────────────────

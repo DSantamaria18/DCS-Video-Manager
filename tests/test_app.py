@@ -107,12 +107,16 @@ def test_upload_youtube_missing_metadata_returns_400(client):
     assert resp.status_code == 400
 
 
-def test_upload_youtube_not_authenticated_returns_500(client):
-    resp = client.post("/api/upload_youtube", json={
-        "video_path": "/some/video.mp4",
-        "metadata": {"title": "Test", "description": "desc", "tags": []}
-    })
-    assert resp.status_code == 500
+def test_upload_youtube_not_authenticated_returns_job_id(client):
+    """Upload is now async — endpoint always returns 200 with job_id; auth errors surface via status poll."""
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/some/video.mp4",
+            "metadata": {"title": "Test", "description": "desc", "tags": []}
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
 
 
 # ── POST /api/upload_youtube — thumbnail path resolution ─────────────────────
