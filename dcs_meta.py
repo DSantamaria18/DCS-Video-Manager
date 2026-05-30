@@ -115,6 +115,9 @@ _SAM_NAME_FRAGMENTS = frozenset({
     "sa-13", "sa-15", "sa-19", "sa-20", "sa-23", "s-75", "s-125",
     "s-300", "s-400", "patriot", "hawk", "roland", "crotale", "buk",
     "tor", "tunguska", "pantsir", "strela", "igla", "stinger",
+    # DCS2ACMI missile names (no hyphens, use internal weapon designations)
+    "9m330", "9m331", "9m38", "9m9", "9m96", "5v55", "48n6",
+    "sa9m",  # covers SA9M330, SA9M331 variants
 })
 _FRIENDLY_COALITIONS = frozenset({"allies", "blue", "friend"})
 _HOSTILE_COALITIONS = frozenset({"enemies", "red", "enemy"})
@@ -1158,6 +1161,33 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                     pass
                 continue
 
+            # DCS2ACMI records object destruction as "-{id}" removal lines.
+            # These are the only reliable kill/loss signals in this format.
+            if line.startswith("-"):
+                removed_id = line[1:].strip()
+                obj = objects.get(removed_id)
+                if obj:
+                    t = obj.get("type", "")
+                    color = obj.get("color", "")
+                    coal = obj.get("coalition", "")
+                    # Color field is reliable; Coalition is the fallback for older recorders
+                    is_rem_hostile = color == "red" or (not color and coal in _HOSTILE_COALITIONS)
+                    is_rem_friendly = color == "blue" or (not color and coal in _FRIENDLY_COALITIONS)
+                    if "weapon" not in t:
+                        if is_rem_hostile and ("air" in t or "ground" in t):
+                            kills.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "unknown"),
+                            })
+                        elif is_rem_friendly and "air" in t:
+                            friendly_losses.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "friendly aircraft"),
+                            })
+                continue
+
             comma_pos = line.find(",")
             if comma_pos < 0:
                 continue
@@ -1167,7 +1197,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
             is_new = obj_id not in objects
             if is_new:
-                objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": "", "tags": ""}
+                objects[obj_id] = {"type": "", "name": "", "color": "", "coalition": "", "parent": "", "tags": ""}
             obj = objects[obj_id]
 
             props, flags = _parse_acmi_props(line[comma_pos + 1:])
@@ -1175,6 +1205,8 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                 obj["type"] = props["Type"].lower()
             if "Name" in props:
                 obj["name"] = props["Name"]
+            if "Color" in props:
+                obj["color"] = props["Color"].lower()
             if "Coalition" in props:
                 obj["coalition"] = props["Coalition"].lower()
             if "Parent" in props:
@@ -1184,26 +1216,13 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
             t = obj.get("type", "")
             name_lower = obj.get("name", "").lower()
+            # Use Color (reliable) with Coalition as fallback for weapon-side detection
+            color = obj.get("color", "") or objects.get(obj.get("parent", ""), {}).get("color", "")
             coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
 
-            if "Destroyed" in flags:
-                if obj.get("coalition", "") in _HOSTILE_COALITIONS and (
-                    "air" in t or ("ground" in t and "weapon" not in t)
-                ):
-                    kills.append({
-                        "time_s": current_time_s,
-                        "time": _seconds_to_chapter_time(current_time_s),
-                        "name": obj.get("name", "unknown"),
-                    })
-                elif obj.get("coalition", "") in _FRIENDLY_COALITIONS and "air" in t and "weapon" not in t:
-                    friendly_losses.append({
-                        "time_s": current_time_s,
-                        "time": _seconds_to_chapter_time(current_time_s),
-                        "name": obj.get("name", "friendly aircraft"),
-                    })
-
+            # Ejection: new friendly pilot/parachute object appearing
             obj_tags = obj.get("tags", "")
-            if is_new and obj.get("coalition", "") in _FRIENDLY_COALITIONS:
+            if is_new and (color == "blue" or coal in _FRIENDLY_COALITIONS):
                 if "pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags:
                     ejection_events.append({
                         "time_s": current_time_s,
@@ -1211,28 +1230,31 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                         "name": obj.get("name", "friendly pilot"),
                     })
 
+            # New weapon object → classify launch type using Color first, Coalition as fallback
             if is_new and "weapon" in t:
+                is_friendly = color == "blue" or coal in _FRIENDLY_COALITIONS
+                is_hostile = color == "red" or coal in _HOSTILE_COALITIONS
                 if "missile" in t:
-                    if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
+                    if is_friendly and any(m in name_lower for m in _BVR_MISSILE_NAMES):
                         bvr_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
                             "name": obj.get("name", "BVR missile"),
                         })
-                    elif coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _IR_MISSILE_NAMES):
+                    elif is_friendly and any(m in name_lower for m in _IR_MISSILE_NAMES):
                         ir_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
                             "name": obj.get("name", "IR missile"),
                         })
-                    elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
+                    elif is_hostile and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
                         sam_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
                             "name": obj.get("name", "SAM"),
                         })
                 elif "bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES):
-                    if coal in _FRIENDLY_COALITIONS:
+                    if is_friendly:
                         bomb_releases.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),

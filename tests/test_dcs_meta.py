@@ -968,7 +968,7 @@ def test_parse_acmi_events_kill_on_enemy_air(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies",
         "#135",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert len(result["kills"]) == 1
@@ -981,7 +981,7 @@ def test_parse_acmi_events_kill_time_recorded(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=Su-27,Coalition=Enemies",
         "#300",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert result["kills"][0]["time_s"] == 300.0
@@ -992,7 +992,7 @@ def test_parse_acmi_events_friendly_not_counted_as_kill(tmp_path):
         "#0",
         "B001,Type=FixedWing+Air+FixedWing,Name=F-16C,Coalition=Allies",
         "#200",
-        "B001,Destroyed",
+        "-B001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert result["kills"] == []
@@ -1039,7 +1039,7 @@ def test_parse_acmi_events_events_text_populated(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=MiG-21,Coalition=Enemies",
         "#90",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert "kill" in result["events_text"]
@@ -1066,7 +1066,7 @@ def test_parse_acmi_events_zip_acmi(tmp_path):
         + "#0\n"
         + "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies\n"
         + "#135\n"
-        + "A001,Destroyed\n"
+        + "-A001\n"
     )
     zip_path = tmp_path / "mission.zip.acmi"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:

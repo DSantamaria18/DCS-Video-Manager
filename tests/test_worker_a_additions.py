@@ -88,7 +88,7 @@ def test_parse_acmi_friendly_loss_detected(tmp_path):
         "#10.0",
         "300,T=0|0|5000,Name=F/A-18C,Coalition=Allies,Type=Air+FixedWing",
         "#11.0",
-        "300,Destroyed",
+        "-300",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert len(result.get("friendly_losses", [])) == 1
