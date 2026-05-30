@@ -1057,6 +1057,25 @@ def test_parse_acmi_events_missing_file_returns_empty():
     assert result == {}
 
 
+def test_parse_acmi_events_zip_acmi(tmp_path):
+    import zipfile
+    # Build a plain ACMI in memory and wrap it in a zip — mimics TacView's .zip.acmi format
+    header = "FileType=text/acmi/tacview\nFileVersion=2.2\n0,ReferenceTime=2023-01-01T00:00:00Z\n"
+    inner_content = (
+        header
+        + "#0\n"
+        + "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies\n"
+        + "#135\n"
+        + "A001,Destroyed\n"
+    )
+    zip_path = tmp_path / "mission.zip.acmi"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mission.acmi", inner_content)
+    result = dcs_meta.parse_acmi_events(zip_path)
+    assert len(result["kills"]) == 1
+    assert result["kills"][0]["name"] == "MiG-29"
+
+
 def test_parse_acmi_events_duration_tracked(tmp_path):
     lines = ["#0", "P001,T=0|0|1000", "#1800", "P001,T=0.1|0.1|2000"]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))

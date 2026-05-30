@@ -219,18 +219,18 @@ def test_main_exits_when_discord_not_installed(tmp_path, monkeypatch):
                         encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
 
-    # Remove discord from sys.modules to simulate ImportError
-    saved = {k: v for k, v in sys.modules.items() if "discord" in k}
-    for k in list(saved):
-        sys.modules.pop(k)
-
+    # Setting sys.modules entry to None forces ImportError on any subsequent `import discord`
+    saved = sys.modules.get("discord")
+    sys.modules["discord"] = None  # type: ignore[assignment]
     try:
         with pytest.raises(SystemExit) as exc_info:
             discord_bot.main()
         assert exc_info.value.code == 1
     finally:
-        # Restore stubs so other tests are not affected
-        sys.modules.update(saved)
+        if saved is None:
+            sys.modules.pop("discord", None)
+        else:
+            sys.modules["discord"] = saved
 
 
 # ── importability ─────────────────────────────────────────────────────────────

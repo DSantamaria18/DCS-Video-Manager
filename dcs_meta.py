@@ -696,7 +696,7 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
         "contents": [{"parts": parts}],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 4096
+            "maxOutputTokens": 16384
         }
     }).encode("utf-8")
 
@@ -1133,104 +1133,111 @@ def parse_acmi_events(acmi_path: Path) -> dict:
     ejection_events: list = []
 
     try:
-        with open(acmi_path, encoding="utf-8-sig", errors="replace") as f:
-            for raw_line in f:
-                line = raw_line.rstrip("\r\n")
-                if not line or line.startswith("//") or line.startswith("FileType") or line.startswith("FileVersion"):
-                    continue
+        import zipfile
+        import io as _io
 
-                if line.startswith("#"):
-                    try:
-                        current_time_s = float(line[1:])
-                        max_time_s = max(max_time_s, current_time_s)
-                    except ValueError:
-                        pass
-                    continue
+        acmi_path = Path(acmi_path)
+        if zipfile.is_zipfile(acmi_path):
+            with zipfile.ZipFile(acmi_path) as zf:
+                inner = next((n for n in zf.namelist() if n.lower().endswith(".acmi")), zf.namelist()[0])
+                raw_bytes = zf.read(inner)
+            _lines_src = _io.TextIOWrapper(_io.BytesIO(raw_bytes), encoding="utf-8-sig", errors="replace")
+        else:
+            _lines_src = open(acmi_path, encoding="utf-8-sig", errors="replace")
 
-                comma_pos = line.find(",")
-                if comma_pos < 0:
-                    continue
-                obj_id = line[:comma_pos]
-                if obj_id == "0":
-                    continue
+        for raw_line in _lines_src:
+            line = raw_line.rstrip("\r\n")
+            if not line or line.startswith("//") or line.startswith("FileType") or line.startswith("FileVersion"):
+                continue
 
-                is_new = obj_id not in objects
-                if is_new:
-                    objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": "", "tags": ""}
-                obj = objects[obj_id]
+            if line.startswith("#"):
+                try:
+                    current_time_s = float(line[1:])
+                    max_time_s = max(max_time_s, current_time_s)
+                except ValueError:
+                    pass
+                continue
 
-                props, flags = _parse_acmi_props(line[comma_pos + 1:])
-                if "Type" in props:
-                    obj["type"] = props["Type"].lower()
-                if "Name" in props:
-                    obj["name"] = props["Name"]
-                if "Coalition" in props:
-                    obj["coalition"] = props["Coalition"].lower()
-                if "Parent" in props:
-                    obj["parent"] = props["Parent"]
-                if "Tags" in props:
-                    obj["tags"] = props["Tags"].lower()
+            comma_pos = line.find(",")
+            if comma_pos < 0:
+                continue
+            obj_id = line[:comma_pos]
+            if obj_id == "0":
+                continue
 
-                t = obj.get("type", "")
-                name_lower = obj.get("name", "").lower()
-                coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
+            is_new = obj_id not in objects
+            if is_new:
+                objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": "", "tags": ""}
+            obj = objects[obj_id]
 
-                # Destroyed event on a hostile air/ground object → kill
-                if "Destroyed" in flags:
-                    if obj.get("coalition", "") in _HOSTILE_COALITIONS and (
-                        "air" in t or ("ground" in t and "weapon" not in t)
-                    ):
-                        kills.append({
+            props, flags = _parse_acmi_props(line[comma_pos + 1:])
+            if "Type" in props:
+                obj["type"] = props["Type"].lower()
+            if "Name" in props:
+                obj["name"] = props["Name"]
+            if "Coalition" in props:
+                obj["coalition"] = props["Coalition"].lower()
+            if "Parent" in props:
+                obj["parent"] = props["Parent"]
+            if "Tags" in props:
+                obj["tags"] = props["Tags"].lower()
+
+            t = obj.get("type", "")
+            name_lower = obj.get("name", "").lower()
+            coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
+
+            if "Destroyed" in flags:
+                if obj.get("coalition", "") in _HOSTILE_COALITIONS and (
+                    "air" in t or ("ground" in t and "weapon" not in t)
+                ):
+                    kills.append({
+                        "time_s": current_time_s,
+                        "time": _seconds_to_chapter_time(current_time_s),
+                        "name": obj.get("name", "unknown"),
+                    })
+                elif obj.get("coalition", "") in _FRIENDLY_COALITIONS and "air" in t and "weapon" not in t:
+                    friendly_losses.append({
+                        "time_s": current_time_s,
+                        "time": _seconds_to_chapter_time(current_time_s),
+                        "name": obj.get("name", "friendly aircraft"),
+                    })
+
+            obj_tags = obj.get("tags", "")
+            if is_new and obj.get("coalition", "") in _FRIENDLY_COALITIONS:
+                if "pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags:
+                    ejection_events.append({
+                        "time_s": current_time_s,
+                        "time": _seconds_to_chapter_time(current_time_s),
+                        "name": obj.get("name", "friendly pilot"),
+                    })
+
+            if is_new and "weapon" in t:
+                if "missile" in t:
+                    if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
+                        bvr_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "unknown"),
+                            "name": obj.get("name", "BVR missile"),
                         })
-                    # Friendly aircraft shootdown
-                    elif obj.get("coalition", "") in _FRIENDLY_COALITIONS and "air" in t and "weapon" not in t:
-                        friendly_losses.append({
+                    elif coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _IR_MISSILE_NAMES):
+                        ir_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "friendly aircraft"),
+                            "name": obj.get("name", "IR missile"),
                         })
-
-                # Ejection: friendly pilot/ejected object appearing as new object
-                obj_tags = obj.get("tags", "")
-                if is_new and obj.get("coalition", "") in _FRIENDLY_COALITIONS:
-                    if "pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags:
-                        ejection_events.append({
+                    elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
+                        sam_launches.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "friendly pilot"),
+                            "name": obj.get("name", "SAM"),
                         })
-
-                # New weapon object → classify launch type
-                if is_new and "weapon" in t:
-                    if "missile" in t:
-                        if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
-                            bvr_launches.append({
-                                "time_s": current_time_s,
-                                "time": _seconds_to_chapter_time(current_time_s),
-                                "name": obj.get("name", "BVR missile"),
-                            })
-                        elif coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _IR_MISSILE_NAMES):
-                            ir_launches.append({
-                                "time_s": current_time_s,
-                                "time": _seconds_to_chapter_time(current_time_s),
-                                "name": obj.get("name", "IR missile"),
-                            })
-                        elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
-                            sam_launches.append({
-                                "time_s": current_time_s,
-                                "time": _seconds_to_chapter_time(current_time_s),
-                                "name": obj.get("name", "SAM"),
-                            })
-                    elif "bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES):
-                        if coal in _FRIENDLY_COALITIONS:
-                            bomb_releases.append({
-                                "time_s": current_time_s,
-                                "time": _seconds_to_chapter_time(current_time_s),
-                                "name": obj.get("name", "guided bomb"),
-                            })
+                elif "bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES):
+                    if coal in _FRIENDLY_COALITIONS:
+                        bomb_releases.append({
+                            "time_s": current_time_s,
+                            "time": _seconds_to_chapter_time(current_time_s),
+                            "name": obj.get("name", "guided bomb"),
+                        })
 
     except (OSError, IOError):
         return {}
