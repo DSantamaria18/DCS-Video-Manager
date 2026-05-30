@@ -30,6 +30,27 @@
     --body:     'Exo 2', sans-serif;
   }
 
+  /* ── Light theme override ── */
+  [data-theme="light"] {
+    --bg:       #f0f4f8;
+    --bg2:      #e2eaf0;
+    --bg3:      #d4dfe8;
+    --panel:    #ffffff;
+    --border:   #b0c4d4;
+    --border2:  #8aaec4;
+    --green:    #007a55;
+    --green2:   #00a070;
+    --green3:   #c0eed8;
+    --amber:    #b07000;
+    --amber2:   #d08000;
+    --red:      #c02020;
+    --blue:     #1a6a9a;
+    --blue2:    #0a4a7a;
+    --text:     #1a2a3a;
+    --text2:    #4a6070;
+    --text3:    #8090a0;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
@@ -714,6 +735,13 @@
   </div>
   <div class="header-right">
     <div class="status-dot"></div>
+    <button id="themeToggleBtn" onclick="toggleTheme()"
+      title="Toggle dark/light mode"
+      style="background:transparent;border:1px solid var(--border);border-radius:3px;
+             padding:5px 10px;cursor:pointer;font-size:14px;color:var(--text2);
+             transition:border-color 0.2s;"
+      onmouseover="this.style.borderColor='var(--border2)'"
+      onmouseout="this.style.borderColor='var(--border)'">☀</button>
     <div class="yt-status" id="ytStatus" onclick="openTab('setup')">
       <span class="dot"></span>
       <span id="ytStatusText">YT: NOT CONNECTED</span>
@@ -838,6 +866,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="metadata" onclick="openTab('metadata')">Metadata</div>
       <div class="tab" data-tab="history" onclick="openTab('history')">History</div>
+      <div class="tab" data-tab="stats" onclick="openTab('stats')">Stats</div>
       <div class="tab" data-tab="setup" onclick="openTab('setup')">Setup</div>
     </div>
 
@@ -972,6 +1001,63 @@
           </div>
         </div>
 
+        <!-- Social Media Captions -->
+        <div class="meta-block" id="socialBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">Social Media</span>
+            <button class="action-btn" id="socialGenBtn" onclick="generateSocialCaptions()">GENERATE CAPTIONS</button>
+          </div>
+          <div class="meta-block-body" id="socialBody">
+            <div id="socialGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:4px 0"></div>
+            <div id="socialCaptionsOutput" style="display:none">
+              <div class="social-tabs" style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
+                <button class="copy-btn social-tab-btn active" onclick="showSocialTab('twitter',this)">X/TWITTER</button>
+                <button class="copy-btn social-tab-btn" onclick="showSocialTab('instagram',this)">INSTAGRAM</button>
+                <button class="copy-btn social-tab-btn" onclick="showSocialTab('linkedin',this)">LINKEDIN</button>
+                <button class="copy-btn social-tab-btn" onclick="showSocialTab('tiktok',this)">TIKTOK</button>
+              </div>
+              <div id="socialContent_twitter" class="social-content">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="twitterCharCount">0/280</span>
+                  <button class="copy-btn" onclick="copySocial('twitter',this)">COPY</button>
+                </div>
+                <textarea class="editable" id="social_twitter" rows="4" oninput="updateTwitterCount()"></textarea>
+                <div class="social-preview" id="preview_twitter" style="display:none;margin-top:8px;padding:12px;border-radius:8px;background:#15202b;color:#e7e9ea;font-family:sans-serif;font-size:14px;border:1px solid #38444d;">
+                  <div style="font-weight:bold;margin-bottom:4px;color:#1d9bf0">TheCylonPilot</div>
+                  <div id="preview_twitter_text"></div>
+                </div>
+                <button class="copy-btn" onclick="toggleSocialPreview('twitter')" style="margin-top:6px">PREVIEW</button>
+              </div>
+              <div id="socialContent_instagram" class="social-content" style="display:none">
+                <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
+                  <button class="copy-btn" onclick="copySocial('instagram',this)">COPY</button>
+                </div>
+                <textarea class="editable" id="social_instagram" rows="6"></textarea>
+                <div class="social-preview" id="preview_instagram" style="display:none;margin-top:8px;padding:12px;border-radius:4px;background:linear-gradient(135deg,#405de6,#5b51d8,#833ab4,#c13584,#e1306c,#fd1d1d);color:#fff;font-family:sans-serif;font-size:13px;">
+                  <div id="preview_instagram_text"></div>
+                </div>
+                <button class="copy-btn" onclick="toggleSocialPreview('instagram')" style="margin-top:6px">PREVIEW</button>
+              </div>
+              <div id="socialContent_linkedin" class="social-content" style="display:none">
+                <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
+                  <button class="copy-btn" onclick="copySocial('linkedin',this)">COPY</button>
+                </div>
+                <textarea class="editable" id="social_linkedin" rows="5"></textarea>
+                <div class="social-preview" id="preview_linkedin" style="display:none;margin-top:8px;padding:12px;border-radius:4px;background:#fff;color:#000;font-family:sans-serif;font-size:13px;border-left:4px solid #0a66c2;">
+                  <div id="preview_linkedin_text"></div>
+                </div>
+                <button class="copy-btn" onclick="toggleSocialPreview('linkedin')" style="margin-top:6px">PREVIEW</button>
+              </div>
+              <div id="socialContent_tiktok" class="social-content" style="display:none">
+                <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
+                  <button class="copy-btn" onclick="copySocial('tiktok',this)">COPY</button>
+                </div>
+                <textarea class="editable" id="social_tiktok" rows="5"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -981,6 +1067,42 @@
       <div class="history-list" id="historyList">
         <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">
           No history yet
+        </div>
+      </div>
+      <!-- History detail panel — slides in when a row is clicked -->
+      <div id="historyDetailPanel" style="display:none;margin-top:16px;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="section-label" style="margin:0">VIDEO DETAIL</span>
+          <button class="copy-btn" onclick="closeHistoryDetail()">CLOSE</button>
+        </div>
+        <div id="historyDetailContent"></div>
+      </div>
+    </div>
+
+    <!-- STATS TAB -->
+    <div class="tab-content" id="tab-stats">
+      <div class="section-label">Channel statistics</div>
+      <div id="statsLoading" style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:20px;">Loading...</div>
+      <div id="statsContent" style="display:none;flex-direction:column;gap:20px;">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+          <div class="meta-block" style="flex:1;min-width:180px;">
+            <div class="meta-block-header"><span class="meta-block-title">Total uploads</span></div>
+            <div class="meta-block-body" style="font-family:var(--mono);font-size:32px;color:var(--green);text-align:center;padding:12px 0" id="statsTotalVideos">—</div>
+          </div>
+          <div class="meta-block" style="flex:2;min-width:260px;">
+            <div class="meta-block-header"><span class="meta-block-title">Uploads by module</span></div>
+            <div class="meta-block-body" id="statsByModule"></div>
+          </div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-block-header"><span class="meta-block-title">Uploads by month</span></div>
+          <div class="meta-block-body">
+            <canvas id="statsMonthChart" height="120"></canvas>
+          </div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-block-header"><span class="meta-block-title">Top mission types</span></div>
+          <div class="meta-block-body" id="statsByMission"></div>
         </div>
       </div>
     </div>
@@ -1058,6 +1180,12 @@
             <label>Squadron website</label>
             <input type="url" id="cfg_link_escuadron111" placeholder="https://…">
           </div>
+        </div>
+
+        <div class="cfg-links-header" style="margin-top:16px;">NOTIFICATIONS</div>
+        <div class="field-group">
+          <label>Discord webhook URL (optional — post notification on upload)</label>
+          <input type="url" id="cfg_discord_webhook_url" placeholder="https://discord.com/api/webhooks/…">
         </div>
 
         <div style="display:flex;align-items:center;gap:14px;margin-top:16px;">
@@ -1309,6 +1437,31 @@ function showAcmiPreview(text, isError) {
   el.style.color = isError ? 'var(--amber)' : 'var(--text2)';
 }
 
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  if (next === 'dark') {
+    root.removeAttribute('data-theme');
+    localStorage.removeItem('dcs-theme');
+    document.getElementById('themeToggleBtn').textContent = '☀';
+  } else {
+    root.setAttribute('data-theme', 'light');
+    localStorage.setItem('dcs-theme', 'light');
+    document.getElementById('themeToggleBtn').textContent = '🌙';
+  }
+}
+
+(function applyStoredTheme() {
+  const stored = localStorage.getItem('dcs-theme');
+  if (stored === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = '🌙';
+  }
+})();
+
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 function openTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1318,6 +1471,7 @@ function openTab(name) {
   const content = document.getElementById('tab-' + name);
   if (content) content.classList.add('active');
   if (name === 'history') loadHistory();
+  if (name === 'stats') loadStats();
   if (name === 'setup') { loadConfigForm(); loadDescriptionTemplates(); }
 }
 
@@ -1372,6 +1526,9 @@ async function pollStatus() {
       autoSelectPlaylists(data.result.metadata);
       resetUI(true);
       openTab('metadata');
+      if (data.result && data.result.fallback_warning) {
+        showAlert('⚠ ' + data.result.fallback_warning, 'warning');
+      }
     } else if (data.status === 'error') {
       clearInterval(pollInterval);
       showAlert(data.error || 'Analysis failed', 'error');
@@ -1478,6 +1635,18 @@ function renderMetadata(m) {
   document.getElementById('thumbnailGenBtn').textContent = 'GENERATE THUMBNAIL';
   document.getElementById('thumbnailGenMsg').textContent = '';
   currentThumbnailUrl = null;
+
+  // Social captions — show block, reset content on new analysis
+  const socialBlock = document.getElementById('socialBlock');
+  if (socialBlock) {
+    socialBlock.style.display = 'block';
+    const out = document.getElementById('socialCaptionsOutput');
+    if (out) out.style.display = 'none';
+    const msg = document.getElementById('socialGenMsg');
+    if (msg) msg.textContent = '';
+    const btn = document.getElementById('socialGenBtn');
+    if (btn) { btn.disabled = false; btn.textContent = 'GENERATE CAPTIONS'; }
+  }
 
   runSeoCheck();
 }
@@ -1966,23 +2135,59 @@ async function startYouTubeAuth() {
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
+let _historyData = [];
+
 async function loadHistory() {
   try {
     const res = await fetch('/api/history');
     const items = await res.json();
+    _historyData = [...items].reverse();
     const list = document.getElementById('historyList');
     if (!items.length) {
       list.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">No history yet</div>';
       return;
     }
-    list.innerHTML = [...items].reverse().map(v => `
-      <div class="history-item">
+    list.innerHTML = _historyData.map((v, idx) => `
+      <div class="history-item" onclick="showHistoryDetail(${idx})"
+           style="cursor:pointer;" title="Click for details">
         <span class="history-date">${v.date}</span>
         <span class="history-title">${v.title || v.filename}</span>
         <span class="history-aircraft">${v.aircraft || ''}</span>
       </div>
     `).join('');
   } catch(e) {}
+}
+
+function showHistoryDetail(idx) {
+  const v = _historyData[idx];
+  if (!v) return;
+  const panel = document.getElementById('historyDetailPanel');
+  const content = document.getElementById('historyDetailContent');
+  const ytLink = v.video_id
+    ? `<a href="https://www.youtube.com/watch?v=${v.video_id}" target="_blank"
+         style="color:var(--blue);font-family:var(--mono);font-size:11px;">
+         ▶ youtube.com/watch?v=${v.video_id}</a>`
+    : '<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Not uploaded yet</span>';
+
+  content.innerHTML = `
+    <div style="font-family:var(--mono);font-size:12px;line-height:2;display:grid;grid-template-columns:120px 1fr;gap:2px 8px;">
+      <span style="color:var(--text3)">DATE</span><span>${v.date || '—'}</span>
+      <span style="color:var(--text3)">AIRCRAFT</span><span>${v.aircraft || '—'}</span>
+      <span style="color:var(--text3)">MAP</span><span>${v.map || '—'}</span>
+      <span style="color:var(--text3)">MISSION</span><span>${v.mission_type || '—'}</span>
+      <span style="color:var(--text3)">LANGUAGE</span><span>${(v.language || '').toUpperCase() || '—'}</span>
+      <span style="color:var(--text3)">YOUTUBE</span><span>${ytLink}</span>
+    </div>
+    <div style="margin-top:12px;">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:2px;margin-bottom:6px;">TITLE</div>
+      <div style="font-family:var(--sans);font-size:15px;font-weight:600;color:var(--text)">${v.title || v.filename}</div>
+    </div>
+  `;
+  panel.style.display = 'block';
+}
+
+function closeHistoryDetail() {
+  document.getElementById('historyDetailPanel').style.display = 'none';
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
@@ -2082,6 +2287,8 @@ async function loadConfigForm() {
     document.getElementById('cfg_link_twitch').value = links.twitch || '';
     document.getElementById('cfg_link_buymeacoffee').value = links.buymeacoffee || '';
     document.getElementById('cfg_link_escuadron111').value = links.escuadron111 || '';
+    const discordEl = document.getElementById('cfg_discord_webhook_url');
+    if (discordEl) discordEl.value = cfg.discord_webhook_url || '';
   } catch(e) {
     console.error('Could not load config form:', e);
   }
@@ -2092,12 +2299,14 @@ async function saveConfig() {
   statusEl.style.color = 'var(--text2)';
   statusEl.textContent = 'Saving…';
 
+  const discordEl = document.getElementById('cfg_discord_webhook_url');
   const payload = {
     channel_name: document.getElementById('cfg_channel_name').value.trim(),
     channel_description: document.getElementById('cfg_channel_description').value.trim(),
     squadron: document.getElementById('cfg_squadron').value.trim(),
     frames_to_extract: parseInt(document.getElementById('cfg_frames').value, 10),
     model: document.getElementById('cfg_model').value,
+    discord_webhook_url: discordEl ? discordEl.value.trim() : '',
     default_links: {
       dcs_f18_playlist:  document.getElementById('cfg_link_dcs_f18_playlist').value.trim(),
       dcs_a10c_playlist: document.getElementById('cfg_link_dcs_a10c_playlist').value.trim(),
@@ -2219,6 +2428,124 @@ function showAlert(msg, type = 'error') {
 }
 function clearAlert() {
   document.getElementById('alertBox').className = 'alert';
+}
+
+// ── Social media captions ─────────────────────────────────────────────────────
+async function generateSocialCaptions() {
+  if (!currentMetadata) return;
+  const btn = document.getElementById('socialGenBtn');
+  const msg = document.getElementById('socialGenMsg');
+  btn.disabled = true;
+  btn.textContent = 'GENERATING...';
+  msg.textContent = 'Calling Gemini...';
+  try {
+    const res = await fetch('/api/social_captions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata: currentMetadata }),
+    });
+    const data = await res.json();
+    if (data.error) { msg.textContent = '⚠ ' + data.error; btn.disabled = false; btn.textContent = 'RETRY'; return; }
+    document.getElementById('social_twitter').value = data.twitter || '';
+    document.getElementById('social_instagram').value = data.instagram || '';
+    document.getElementById('social_linkedin').value = data.linkedin || '';
+    document.getElementById('social_tiktok').value = data.tiktok || '';
+    document.getElementById('socialCaptionsOutput').style.display = 'block';
+    msg.textContent = '';
+    updateTwitterCount();
+  } catch(e) {
+    msg.textContent = '⚠ Network error';
+  }
+  btn.disabled = false;
+  btn.textContent = 'REGENERATE';
+}
+
+function showSocialTab(platform, btn) {
+  document.querySelectorAll('.social-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.social-tab-btn').forEach(b => b.classList.remove('active'));
+  const content = document.getElementById('socialContent_' + platform);
+  if (content) content.style.display = 'block';
+  btn.classList.add('active');
+}
+
+function copySocial(platform, btn) {
+  const el = document.getElementById('social_' + platform);
+  if (!el) return;
+  el.select();
+  document.execCommand('copy');
+  const orig = btn.textContent;
+  btn.textContent = 'COPIED!';
+  setTimeout(() => btn.textContent = orig, 1500);
+}
+
+function toggleSocialPreview(platform) {
+  const preview = document.getElementById('preview_' + platform);
+  if (!preview) return;
+  const textarea = document.getElementById('social_' + platform);
+  const isHidden = preview.style.display === 'none';
+  if (isHidden) {
+    const previewText = document.getElementById('preview_' + platform + '_text');
+    if (previewText) {
+      previewText.textContent = textarea ? textarea.value : '';
+    }
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
+function updateTwitterCount() {
+  const val = document.getElementById('social_twitter');
+  const counter = document.getElementById('twitterCharCount');
+  if (!val || !counter) return;
+  const len = val.value.length;
+  counter.textContent = len + '/280';
+  counter.style.color = len > 280 ? 'var(--red)' : len > 260 ? 'var(--amber)' : 'var(--text3)';
+}
+
+// ── Stats tab ─────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const loading = document.getElementById('statsLoading');
+  const content = document.getElementById('statsContent');
+  if (loading) loading.style.display = 'block';
+  if (content) content.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+
+    const total = document.getElementById('statsTotalVideos');
+    if (total) total.textContent = data.total_videos || 0;
+
+    const byModule = document.getElementById('statsByModule');
+    if (byModule && data.by_module) {
+      const maxCount = Math.max(...Object.values(data.by_module), 1);
+      byModule.innerHTML = Object.entries(data.by_module).map(([mod, count]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text2);min-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod}</span>
+          <div style="flex:1;height:10px;background:var(--border);border-radius:2px;overflow:hidden;">
+            <div style="height:100%;width:${Math.round(count/maxCount*100)}%;background:var(--green);"></div>
+          </div>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text3);min-width:24px;text-align:right;">${count}</span>
+        </div>
+      `).join('');
+    }
+
+    const byMission = document.getElementById('statsByMission');
+    if (byMission && data.by_mission_type) {
+      byMission.innerHTML = Object.entries(data.by_mission_type).map(([mt, count]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text2);min-width:120px;">${mt}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--green);">${count}</span>
+        </div>
+      `).join('');
+    }
+
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'flex';
+  } catch(e) {
+    if (loading) loading.textContent = 'Could not load stats.';
+  }
 }
 </script>
 

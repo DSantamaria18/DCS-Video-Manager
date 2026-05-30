@@ -40,7 +40,8 @@ DEFAULT_CONFIG = {
     "frames_to_extract": 8,
     "model": "gemini-2.5-flash",
     "description_templates": {},
-    "recordings_folder": ""
+    "recordings_folder": "",
+    "discord_webhook_url": ""
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
