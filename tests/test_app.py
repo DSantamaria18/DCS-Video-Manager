@@ -448,3 +448,70 @@ def test_index_returns_html(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"DCS" in resp.data
+
+
+# ── POST /api/generate_shorts ─────────────────────────────────────────────────
+
+def test_generate_shorts_missing_video_path_returns_400(client):
+    resp = client.post("/api/generate_shorts", json={"metadata": {"title": "T"}})
+    assert resp.status_code == 400
+    assert "video_path" in resp.json["error"]
+
+
+def test_generate_shorts_missing_metadata_returns_400(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    resp = client.post("/api/generate_shorts", json={"video_path": str(video)})
+    assert resp.status_code == 400
+    assert "metadata" in resp.json["error"]
+
+
+def test_generate_shorts_file_not_found_returns_404(client):
+    resp = client.post("/api/generate_shorts", json={
+        "video_path": "/nonexistent/video.mp4",
+        "metadata": {"title": "T"},
+    })
+    assert resp.status_code == 404
+
+
+def test_generate_shorts_starts_job_and_returns_job_id(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
+    assert len(resp.json["job_id"]) == 8
+
+
+def test_generate_shorts_job_starts_in_running_state(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    job_id = resp.json["job_id"]
+    status = client.get(f"/api/status/{job_id}")
+    assert status.status_code == 200
+    assert status.json["status"] == "running"
+
+
+def test_generate_shorts_empty_acmi_events_accepted(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "acmi_events": {},
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
