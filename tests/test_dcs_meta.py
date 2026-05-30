@@ -818,7 +818,7 @@ _GEMINI_DEBRIEF_RESPONSE = json.dumps({
 })
 
 
-def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatch=None, tmp_path=None):
+def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatch=None, tmp_path=None, acmi_events=None):
     """Helper to call generate_debrief with mocked ffprobe/ffmpeg/Gemini."""
     video = tmp_path / "mission.mkv"
     video.write_bytes(b"")
@@ -837,7 +837,7 @@ def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatc
     monkeypatch.setattr(dcs_meta, "call_gemini", lambda *a, **kw: response)
 
     cfg = {**dcs_meta.DEFAULT_CONFIG}
-    return dcs_meta.generate_debrief(meta, video, cfg)
+    return dcs_meta.generate_debrief(meta, video, cfg, acmi_events=acmi_events)
 
 
 def test_debrief_english_contains_aircraft(tmp_path, monkeypatch):
@@ -926,6 +926,40 @@ def test_debrief_eject_result_shown_in_spanish_report(tmp_path, monkeypatch):
     assert "✗ EJECT" in report
 
 
+def test_debrief_acmi_ejection_overrides_rtb(tmp_path, monkeypatch):
+    # Gemini says RTB but ACMI confirms pilot ejected → must report EJECT
+    rtb_response = json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
+                               "max_mach": "--", "max_altitude": "--",
+                               "fuel_remaining": "--", "narrative": ""})
+    acmi = {
+        "ejection_events": [{"time_s": 900.0, "time": "15:00", "name": "friendly pilot"}],
+        "friendly_losses": [{"time_s": 900.0, "time": "15:00", "name": "F/A-18C"}],
+        "kills": [], "sam_launches": [], "bvr_launches": [],
+        "ir_launches": [], "bomb_releases": [], "events_text": "",
+    }
+    report = _make_debrief(language="en", gemini_response=rtb_response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path, acmi_events=acmi)
+    assert "✗ EJECT" in report
+    assert "✓ RTB" not in report
+
+
+def test_debrief_acmi_friendly_loss_overrides_rtb(tmp_path, monkeypatch):
+    # Gemini says RTB but ACMI confirms aircraft destroyed (no ejection) → must report CRASH
+    rtb_response = json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
+                               "max_mach": "--", "max_altitude": "--",
+                               "fuel_remaining": "--", "narrative": ""})
+    acmi = {
+        "ejection_events": [],
+        "friendly_losses": [{"time_s": 600.0, "time": "10:00", "name": "F/A-18C"}],
+        "kills": [], "sam_launches": [], "bvr_launches": [],
+        "ir_launches": [], "bomb_releases": [], "events_text": "",
+    }
+    report = _make_debrief(language="en", gemini_response=rtb_response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path, acmi_events=acmi)
+    assert "✗ CRASH" in report
+    assert "✓ RTB" not in report
+
+
 def test_debrief_prompt_includes_eject_option(tmp_path, monkeypatch):
     captured = {}
 
@@ -968,7 +1002,7 @@ def test_parse_acmi_events_kill_on_enemy_air(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies",
         "#135",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert len(result["kills"]) == 1
@@ -981,7 +1015,7 @@ def test_parse_acmi_events_kill_time_recorded(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=Su-27,Coalition=Enemies",
         "#300",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert result["kills"][0]["time_s"] == 300.0
@@ -992,7 +1026,7 @@ def test_parse_acmi_events_friendly_not_counted_as_kill(tmp_path):
         "#0",
         "B001,Type=FixedWing+Air+FixedWing,Name=F-16C,Coalition=Allies",
         "#200",
-        "B001,Destroyed",
+        "-B001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert result["kills"] == []
@@ -1039,7 +1073,7 @@ def test_parse_acmi_events_events_text_populated(tmp_path):
         "#0",
         "A001,Type=FixedWing+Air+FixedWing,Name=MiG-21,Coalition=Enemies",
         "#90",
-        "A001,Destroyed",
+        "-A001",
     ]
     result = dcs_meta.parse_acmi_events(_write_acmi(tmp_path, lines))
     assert "kill" in result["events_text"]
@@ -1055,6 +1089,25 @@ def test_parse_acmi_events_empty_text_when_no_events(tmp_path):
 def test_parse_acmi_events_missing_file_returns_empty():
     result = dcs_meta.parse_acmi_events(Path("/nonexistent/mission.acmi"))
     assert result == {}
+
+
+def test_parse_acmi_events_zip_acmi(tmp_path):
+    import zipfile
+    # Build a plain ACMI in memory and wrap it in a zip — mimics TacView's .zip.acmi format
+    header = "FileType=text/acmi/tacview\nFileVersion=2.2\n0,ReferenceTime=2023-01-01T00:00:00Z\n"
+    inner_content = (
+        header
+        + "#0\n"
+        + "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies\n"
+        + "#135\n"
+        + "-A001\n"
+    )
+    zip_path = tmp_path / "mission.zip.acmi"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mission.acmi", inner_content)
+    result = dcs_meta.parse_acmi_events(zip_path)
+    assert len(result["kills"]) == 1
+    assert result["kills"][0]["name"] == "MiG-29"
 
 
 def test_parse_acmi_events_duration_tracked(tmp_path):
@@ -1160,3 +1213,300 @@ def test_build_prompt_no_patreon_hallucination(monkeypatch):
     prompt = dcs_meta.build_prompt("", cfg, is_squadron=False, memory=mem)
     assert "patreon" not in prompt.lower()
     assert "[link]" not in prompt
+
+
+# ── generate_short_metadata ───────────────────────────────────────────────────
+
+_BASE_META_FOR_SHORTS = {
+    "title": "DCS World | F/A-18C | SEAD Mission",
+    "description": "This is a great SEAD mission over the Caucasus with lots of action and SAM evasion.",
+    "tags": ["dcs", "fa18", "hornet", "sead", "caucasus", "f18", "sim", "gaming", "jet", "military"],
+    "aircraft": "F/A-18C Hornet",
+}
+
+_SAMPLE_CLIP = {
+    "hook": "This kill 🔥",
+    "score": 10,
+    "start_sec": 45.0,
+    "duration_sec": 60.0,
+    "clip_path": "/output/shorts/test_short_1.mp4",
+}
+
+
+def test_generate_short_metadata_title_contains_hook():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "This kill" in result["title"]
+
+
+def test_generate_short_metadata_title_contains_shorts_hashtag():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "#Shorts" in result["title"]
+
+
+def test_generate_short_metadata_title_within_100_chars():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert len(result["title"]) <= 100
+
+
+def test_generate_short_metadata_title_contains_aircraft():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "F/A-18C Hornet" in result["title"]
+
+
+def test_generate_short_metadata_description_contains_shorts():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "#Shorts" in result["description"]
+
+
+def test_generate_short_metadata_description_contains_dcsworld():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "#DCSWorld" in result["description"]
+
+
+def test_generate_short_metadata_description_contains_base_text():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "SEAD mission" in result["description"]
+
+
+def test_generate_short_metadata_tags_include_shorts():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "Shorts" in result["tags"]
+    assert "DCSWorld" in result["tags"]
+    assert "YouTube Shorts" in result["tags"]
+
+
+def test_generate_short_metadata_tags_include_base_tags():
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
+    assert "dcs" in result["tags"]
+    assert "fa18" in result["tags"]
+
+
+def test_generate_short_metadata_base_tags_capped_at_10():
+    long_meta = {**_BASE_META_FOR_SHORTS, "tags": [f"tag{i}" for i in range(20)]}
+    result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, long_meta, {})
+    base_tags = [t for t in result["tags"] if t not in ("Shorts", "DCSWorld", "YouTube Shorts")]
+    assert len(base_tags) <= 10
+
+
+def test_generate_short_metadata_title_very_long_aircraft_truncated():
+    long_aircraft = "F/A-18C Hornet Super Lot II Very Long Name That Goes On And On"
+    clip = {**_SAMPLE_CLIP, "hook": "Precision strike 💣"}
+    meta = {**_BASE_META_FOR_SHORTS, "aircraft": long_aircraft}
+    result = dcs_meta.generate_short_metadata(clip, meta, {})
+    assert len(result["title"]) <= 100
+
+
+# ── detect_short_clips ────────────────────────────────────────────────────────
+
+def _make_fake_process(returncode=0):
+    """Return a mock subprocess.CompletedProcess."""
+    return type("Proc", (), {"returncode": returncode, "stdout": "", "stderr": ""})()
+
+
+def test_detect_short_clips_returns_list_with_acmi_kill(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {"kills": [{"time_s": 60.0}], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    assert isinstance(clips, list)
+    assert len(clips) >= 1
+    assert clips[0]["hook"] == "This kill 🔥"
+    assert clips[0]["score"] == 10
+
+
+def test_detect_short_clips_sorted_by_score_desc(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {
+        "kills": [{"time_s": 100.0}],
+        "sam_launches": [{"time_s": 200.0}],
+        "bvr_launches": [],
+        "ejection_events": [],
+        "guided_bomb_drops": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    scores = [c["score"] for c in clips]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_detect_short_clips_caps_at_five(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 3600.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    many_kills = [{"time_s": float(i * 120)} for i in range(10)]
+    acmi = {"kills": many_kills, "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    assert len(clips) <= 5
+
+
+def test_detect_short_clips_empty_acmi_falls_back_to_audio(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    call_log = []
+
+    def fake_run(args, *a, **kw):
+        call_log.append(args)
+        return _make_fake_process()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    acmi = {"kills": [], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+    dcs_meta.detect_short_clips(video, acmi, {})
+    # At least one ffmpeg call for audio peak detection should happen
+    assert any("astats" in " ".join(str(a) for a in cmd) for cmd in call_log)
+
+
+def test_detect_short_clips_clip_path_in_shorts_dir(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    monkeypatch.setattr(dcs_meta, "OUTPUT_PATH", tmp_path / "output")
+    acmi = {"kills": [{"time_s": 60.0}], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    if clips:
+        assert "shorts" in clips[0]["clip_path"]
+
+
+def test_detect_short_clips_deduplicates_nearby_timestamps(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {
+        "kills": [{"time_s": 100.0}, {"time_s": 115.0}],
+        "sam_launches": [], "bvr_launches": [],
+        "ejection_events": [], "guided_bomb_drops": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    # Two timestamps within 30s should be deduplicated to 1
+    assert len(clips) == 1
+
+
+def test_detect_short_clips_ffmpeg_failure_skips_clip(tmp_path, monkeypatch):
+    import subprocess as _sp
+
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+
+    def failing_run(args, *a, **kw):
+        if "crop" in " ".join(str(a) for a in args):
+            raise _sp.CalledProcessError(1, args)
+        return _make_fake_process()
+
+    monkeypatch.setattr("subprocess.run", failing_run)
+    acmi = {"kills": [{"time_s": 60.0}], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    # Failed clip extraction returns empty list (clip skipped)
+    assert clips == []
+
+
+# ── _deduplicate_candidates ───────────────────────────────────────────────────
+
+def test_deduplicate_keeps_higher_priority_event():
+    candidates = [(100.0, "bvr"), (110.0, "kill")]
+    result = dcs_meta._deduplicate_candidates(candidates)
+    assert len(result) == 1
+    assert result[0][1] == "kill"
+
+
+def test_deduplicate_keeps_both_when_far_apart():
+    candidates = [(100.0, "kill"), (200.0, "kill")]
+    result = dcs_meta._deduplicate_candidates(candidates)
+    assert len(result) == 2
+
+
+# ── _parse_audio_peaks ────────────────────────────────────────────────────────
+
+def test_parse_audio_peaks_detects_above_threshold():
+    stderr = "pts_time:30.0\nlavfi.astats.Overall.RMS_level=-15.0\n"
+    peaks = dcs_meta._parse_audio_peaks(stderr, threshold_db=-20.0)
+    assert 30.0 in peaks
+
+
+def test_parse_audio_peaks_ignores_below_threshold():
+    stderr = "pts_time:30.0\nlavfi.astats.Overall.RMS_level=-25.0\n"
+    peaks = dcs_meta._parse_audio_peaks(stderr, threshold_db=-20.0)
+    assert peaks == []
+
+
+def test_collect_candidate_uses_bomb_releases_key():
+    acmi = {
+        "bomb_releases": [{"time_s": 500.0, "name": "GBU-12"}],
+        "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
+    }
+    candidates = dcs_meta._collect_candidate_timestamps(acmi)
+    assert any(evt == "guided_bomb" for _, evt in candidates)
+
+
+def test_collect_candidate_ignores_wrong_key():
+    acmi = {
+        "guided_bomb_drops": [{"time_s": 500.0, "name": "GBU-12"}],  # old wrong key
+        "bomb_releases": [],
+        "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
+    }
+    candidates = dcs_meta._collect_candidate_timestamps(acmi)
+    assert not any(evt == "guided_bomb" for _, evt in candidates)
+
+
+def test_detect_short_clips_ffmpeg_y_before_input(tmp_path, monkeypatch):
+    """Verify -y global option is before -i so ffmpeg doesn't treat it as a second output."""
+    captured_cmds = []
+
+    def fake_run(cmd, *a, **kw):
+        captured_cmds.append(cmd)
+        class R:
+            stdout = json.dumps({"format": {"duration": "600.0"}})
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    acmi = {
+        "kills": [{"time_s": 120.0, "time": "2:00", "name": "SA-6"}],
+        "ejection_events": [], "bomb_releases": [], "sam_launches": [], "bvr_launches": [],
+    }
+    dcs_meta.detect_short_clips(video, acmi, dcs_meta.DEFAULT_CONFIG)
+    crop_cmds = [c for c in captured_cmds if "crop" in str(c)]
+    assert crop_cmds, "No ffmpeg crop command was issued"
+    for cmd in crop_cmds:
+        y_idx = cmd.index("-y")
+        i_idx = cmd.index("-i")
+        assert y_idx < i_idx, "-y must come before -i in the ffmpeg crop command"
+
+
+def test_detect_short_clips_multi_clip_distinct_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+
+    def fake_run(cmd, *a, **kw):
+        class R:
+            stdout = json.dumps({"format": {"duration": "600.0"}})
+            stderr = ""
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    video = tmp_path / "mission.mkv"
+    video.write_bytes(b"")
+    acmi = {
+        "kills": [{"time_s": 60.0, "time": "1:00", "name": "SA-6"}],
+        "ejection_events": [{"time_s": 300.0, "time": "5:00", "name": "friendly pilot"}],
+        "bomb_releases": [{"time_s": 450.0, "time": "7:30", "name": "GBU-12"}],
+        "sam_launches": [], "bvr_launches": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, dcs_meta.DEFAULT_CONFIG)
+    assert len(clips) > 1, "Expected multiple clips from distinct events at spread timestamps"

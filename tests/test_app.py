@@ -107,12 +107,16 @@ def test_upload_youtube_missing_metadata_returns_400(client):
     assert resp.status_code == 400
 
 
-def test_upload_youtube_not_authenticated_returns_500(client):
-    resp = client.post("/api/upload_youtube", json={
-        "video_path": "/some/video.mp4",
-        "metadata": {"title": "Test", "description": "desc", "tags": []}
-    })
-    assert resp.status_code == 500
+def test_upload_youtube_not_authenticated_returns_job_id(client):
+    """Upload is now async — endpoint always returns 200 with job_id; auth errors surface via status poll."""
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/some/video.mp4",
+            "metadata": {"title": "Test", "description": "desc", "tags": []}
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
 
 
 # ── POST /api/upload_youtube — thumbnail path resolution ─────────────────────
@@ -193,6 +197,40 @@ def test_upload_youtube_missing_thumbnail_file_ignored(client):
     # upload_video should have been called with thumbnail_path=None
     mock_uv.assert_called_once()
     assert mock_uv.call_args.kwargs.get("thumbnail_path") is None
+
+
+def test_upload_youtube_passes_publish_at_to_upload_video(client):
+    """publish_at ISO string must be forwarded to upload_video."""
+    upload_result = {"video_id": "Z", "url": "https://youtu.be/Z",
+                     "status": "uploaded", "privacy": "private",
+                     "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "publish_at": "2026-06-01T19:00:00Z"
+        })
+
+    mock_uv.assert_called_once()
+    assert mock_uv.call_args.kwargs.get("publish_at") == "2026-06-01T19:00:00Z"
+
+
+def test_upload_youtube_omits_publish_at_when_empty(client):
+    """Empty publish_at string must become None (not forwarded as empty string)."""
+    upload_result = {"video_id": "Z2", "url": "https://youtu.be/Z2",
+                     "status": "uploaded", "privacy": "private",
+                     "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "publish_at": ""
+        })
+
+    mock_uv.assert_called_once()
+    assert mock_uv.call_args.kwargs.get("publish_at") is None
 
 
 # ── GET /api/youtube/status ───────────────────────────────────────────────────
@@ -313,13 +351,14 @@ def test_suggest_playlists_matches_campaign(client):
     assert "PL4" in resp.json["suggested"]
 
 
-def test_suggest_playlists_no_match_returns_empty(client):
+def test_suggest_playlists_no_match_still_includes_dcs_world(client):
+    # UH-1H has no specific playlist but "DCS World Beginner" (PL5) is always included
     resp = client.post("/api/suggest_playlists", json={
         "metadata": {"aircraft": "UH-1H Huey", "mission_type": "Transport", "campaign": ""},
         "playlists": PLAYLISTS,
     })
     assert resp.status_code == 200
-    assert resp.json["suggested"] == []
+    assert "PL5" in resp.json["suggested"]  # Rule 1: DCS World always included
 
 
 def test_suggest_playlists_multiple_matches(client):
@@ -332,13 +371,14 @@ def test_suggest_playlists_multiple_matches(client):
     assert "PL3" in suggested
 
 
-def test_suggest_playlists_empty_metadata_returns_empty(client):
+def test_suggest_playlists_empty_metadata_still_returns_dcs_world(client):
+    # Even empty metadata → Rule 1 always adds "DCS World" playlist
     resp = client.post("/api/suggest_playlists", json={
         "metadata": {"aircraft": "", "mission_type": "", "campaign": ""},
         "playlists": PLAYLISTS,
     })
     assert resp.status_code == 200
-    assert resp.json["suggested"] == []
+    assert "PL5" in resp.json["suggested"]
 
 
 def test_suggest_playlists_no_body_returns_400(client):
@@ -366,11 +406,47 @@ def test_suggest_playlist_ids_pure_function():
     )
     assert "PL1" in result
     assert "PL2" in result
+    assert "PL5" in result  # Rule 1: DCS World always included
 
 
 def test_suggest_playlist_ids_empty_playlists():
     from app import _suggest_playlist_ids
     assert _suggest_playlist_ids({"aircraft": "Hornet"}, []) == []
+
+
+def test_suggest_playlist_ids_dcs_world_always_included():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "DW", "title": "DCS World"},
+        {"id": "XX", "title": "Unrelated Playlist"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "mission_type": "", "campaign": ""}, playlists)
+    assert "DW" in result
+    assert "XX" not in result
+
+
+def test_suggest_playlist_ids_shorts_rule():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "SH", "title": "SHORTS"},
+        {"id": "DW", "title": "DCS World"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "duration_s": 45}, playlists)
+    assert "SH" in result  # Rule 3: < 60 s
+    result_long = _suggest_playlist_ids({"aircraft": "", "duration_s": 300}, playlists)
+    assert "SH" not in result_long
+
+
+def test_suggest_playlist_ids_largos_rule():
+    from app import _suggest_playlist_ids
+    playlists = [
+        {"id": "LG", "title": "LARGOS"},
+        {"id": "DW", "title": "DCS World"},
+    ]
+    result = _suggest_playlist_ids({"aircraft": "", "duration_s": 2000}, playlists)
+    assert "LG" in result  # Rule 4: > 1800 s
+    result_short = _suggest_playlist_ids({"aircraft": "", "duration_s": 600}, playlists)
+    assert "LG" not in result_short
 
 
 # ── GET /api/description_templates ───────────────────────────────────────────
@@ -448,3 +524,70 @@ def test_index_returns_html(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"DCS" in resp.data
+
+
+# ── POST /api/generate_shorts ─────────────────────────────────────────────────
+
+def test_generate_shorts_missing_video_path_returns_400(client):
+    resp = client.post("/api/generate_shorts", json={"metadata": {"title": "T"}})
+    assert resp.status_code == 400
+    assert "video_path" in resp.json["error"]
+
+
+def test_generate_shorts_missing_metadata_returns_400(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    resp = client.post("/api/generate_shorts", json={"video_path": str(video)})
+    assert resp.status_code == 400
+    assert "metadata" in resp.json["error"]
+
+
+def test_generate_shorts_file_not_found_returns_404(client):
+    resp = client.post("/api/generate_shorts", json={
+        "video_path": "/nonexistent/video.mp4",
+        "metadata": {"title": "T"},
+    })
+    assert resp.status_code == 404
+
+
+def test_generate_shorts_starts_job_and_returns_job_id(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
+    assert len(resp.json["job_id"]) == 8
+
+
+def test_generate_shorts_job_starts_in_running_state(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
+    job_id = resp.json["job_id"]
+    status = client.get(f"/api/status/{job_id}")
+    assert status.status_code == 200
+    assert status.json["status"] == "running"
+
+
+def test_generate_shorts_empty_acmi_events_accepted(client, tmp_path):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/generate_shorts", json={
+            "video_path": str(video),
+            "metadata": {"title": "T", "description": "D", "tags": []},
+            "acmi_events": {},
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json

@@ -16,7 +16,8 @@ TOKEN_PATH         = BASE / "config" / "youtube_token.json"
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
-    "https://www.googleapis.com/auth/youtube.force-ssl"
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/yt-analytics.readonly"
 ]
 
 _auth_state = {"result": None, "done": threading.Event()}
@@ -168,14 +169,26 @@ def _upload_thumbnail(youtube, video_id: str, thumbnail_path: str) -> None:
     youtube.thumbnails().set(videoId=video_id, media_body=media).execute()
 
 
-def _do_insert(youtube, body: dict, video_path: str) -> dict:
-    """Execute a resumable video insert and return the completed API response."""
+def _do_insert(youtube, body: dict, video_path: str, progress_callback=None) -> dict:
+    """Execute a resumable video insert and return the completed API response.
+
+    If progress_callback is provided it is called with an int 0-100 each time the
+    percentage changes during the chunked upload.
+    """
     from googleapiclient.http import MediaFileUpload
     media = MediaFileUpload(video_path, mimetype="video/*", resumable=True, chunksize=10 * 1024 * 1024)
     req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = None
+    last_pct = -1
+    file_size = getattr(media, "_size", None) or os.path.getsize(video_path)
     while response is None:
         _, response = req.next_chunk()
+        if progress_callback is not None and file_size:
+            uploaded = getattr(media, "resumable_progress", 0) or 0
+            pct = int(uploaded / file_size * 100)
+            if pct != last_pct:
+                progress_callback(pct)
+                last_pct = pct
     return response
 
 
@@ -188,9 +201,15 @@ def upload_video(
     privacy: str = "private",
     playlist_ids: list = None,
     language: str = "en",
-    thumbnail_path: str = None
+    thumbnail_path: str = None,
+    publish_at: str = None,
+    progress_callback=None,
 ) -> dict:
-    """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail."""
+    """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail.
+
+    Pass publish_at as an ISO 8601 datetime string (e.g. '2026-06-01T19:00:00Z') to schedule
+    future publication. progress_callback, if provided, is called with an int 0-100 after each chunk.
+    """
     sanitized_tags = _sanitize_tags(tags)
     lang = language if language in ("es", "en") else "en"
 
@@ -198,6 +217,9 @@ def upload_video(
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
     youtube = _build_service()
+
+    effective_privacy = "private" if publish_at else privacy
+
     body = {
         "snippet": {
             "title": title[:100],
@@ -208,21 +230,26 @@ def upload_video(
             "defaultAudioLanguage": lang
         },
         "status": {
-            "privacyStatus": privacy,
+            "privacyStatus": effective_privacy,
             "selfDeclaredMadeForKids": False
         }
     }
 
+    if publish_at:
+        body["status"]["publishAt"] = publish_at
+
     tags_skipped = False
     try:
-        response = _do_insert(youtube, body, video_path)
+        response = _do_insert(youtube, body, video_path, progress_callback=progress_callback)
     except Exception as e:
         if "invalidTags" not in str(e):
             raise
-        print("  ⚠ invalidTags error — retrying without tags...")
+        # Tags rejected by Google — unverified apps cannot set tags via the API.
+        # This is a permanent limit for apps in OAuth Testing mode, not a scope issue.
+        print("  ⚠ Tags rejected by Google (unverified app limit) — retrying without tags...")
         body["snippet"]["tags"] = []
-        response = _do_insert(youtube, body, video_path)
-        print("  ✓ Uploaded without tags — add them manually in YouTube Studio")
+        response = _do_insert(youtube, body, video_path, progress_callback=progress_callback)
+        print("  ✓ Tags rejected by Google (unverified app limit) — uploaded without tags.")
         tags_skipped = True
 
     video_id = response["id"]
@@ -230,7 +257,8 @@ def upload_video(
         "video_id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "status": "uploaded",
-        "privacy": privacy,
+        "privacy": effective_privacy,
+        "publish_at": publish_at,
         "tags_skipped": tags_skipped,
         "playlists_added": []
     }
@@ -264,3 +292,71 @@ def upload_video(
             print(f"  ⚠ Could not set thumbnail: {e}")
 
     return result
+
+
+# ── Analytics ──────────────────────────────────────────────────────────────────
+
+def build_analytics_service():
+    """Build and return an authenticated YouTube Analytics API v2 service client."""
+    from googleapiclient.discovery import build
+    return build("youtubeAnalytics", "v2", credentials=_get_credentials())
+
+
+def fetch_video_analytics(video_id: str) -> dict:
+    """Fetch views, watch minutes, and likes for video_id from the YouTube Analytics API.
+
+    Returns a dict with keys views, watch_minutes, likes, fetched_at, or {} on error.
+    """
+    from datetime import datetime, timezone, timedelta
+    try:
+        svc = build_analytics_service()
+        today = datetime.now(timezone.utc).date()
+        end = today + timedelta(days=2)
+        response = svc.reports().query(
+            ids="channel==MINE",
+            dimensions="video",
+            filters=f"video=={video_id}",
+            metrics="views,estimatedMinutesWatched,likes",
+            startDate=str(today),
+            endDate=str(end)
+        ).execute()
+        rows = response.get("rows", [])
+        row = rows[0] if rows else None
+        return {
+            "views": int(row[1]) if row else 0,
+            "watch_minutes": int(row[2]) if row else 0,
+            "likes": int(row[3]) if row else 0,
+            "fetched_at": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        print(f"  ⚠ Analytics fetch failed for {video_id}: {e}")
+        return {}
+
+
+def schedule_analytics_polling(video_id: str, filename: str) -> None:
+    """Start daemon threads that poll YouTube Analytics at 1h, 6h, 12h, and 24h after upload.
+
+    Each poll result is appended to the 'analytics' list of the matching history.json entry.
+    Uses dcs_meta._memory_lock for thread-safe writes.
+    """
+    import dcs_meta
+
+    POLL_OFFSETS = [3600, 21600, 43200, 86400]
+
+    def _make_poll(delay: int):
+        def _run():
+            data = fetch_video_analytics(video_id)
+            if data:
+                with dcs_meta._memory_lock:
+                    memory = dcs_meta.load_memory()
+                    for entry in reversed(memory["videos"]):
+                        if entry.get("video_id") == video_id or entry.get("filename") == filename:
+                            entry.setdefault("analytics", []).append(data)
+                            break
+                    dcs_meta.save_memory(memory)
+        t = threading.Timer(delay, _run)
+        t.daemon = True
+        t.start()
+
+    for offset in POLL_OFFSETS:
+        _make_poll(offset)
