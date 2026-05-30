@@ -188,9 +188,15 @@ def upload_video(
     privacy: str = "private",
     playlist_ids: list = None,
     language: str = "en",
-    thumbnail_path: str = None
+    thumbnail_path: str = None,
+    publish_at: str = None,
 ) -> dict:
-    """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail."""
+    """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail.
+
+    Pass publish_at as an ISO 8601 datetime string (e.g. '2026-06-01T19:00:00Z') to schedule
+    the video for future publication. The video is uploaded as private and YouTube publishes it
+    automatically at the specified time.
+    """
     sanitized_tags = _sanitize_tags(tags)
     lang = language if language in ("es", "en") else "en"
 
@@ -198,6 +204,9 @@ def upload_video(
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
     youtube = _build_service()
+
+    effective_privacy = "private" if publish_at else privacy
+
     body = {
         "snippet": {
             "title": title[:100],
@@ -208,10 +217,13 @@ def upload_video(
             "defaultAudioLanguage": lang
         },
         "status": {
-            "privacyStatus": privacy,
+            "privacyStatus": effective_privacy,
             "selfDeclaredMadeForKids": False
         }
     }
+
+    if publish_at:
+        body["status"]["publishAt"] = publish_at
 
     tags_skipped = False
     try:
@@ -219,10 +231,12 @@ def upload_video(
     except Exception as e:
         if "invalidTags" not in str(e):
             raise
-        print("  ⚠ invalidTags error — retrying without tags...")
+        # Tags rejected by Google — unverified apps cannot set tags via the API.
+        # This is a permanent limit for apps in OAuth Testing mode, not a scope issue.
+        print("  ⚠ Tags rejected by Google (unverified app limit) — retrying without tags...")
         body["snippet"]["tags"] = []
         response = _do_insert(youtube, body, video_path)
-        print("  ✓ Uploaded without tags — add them manually in YouTube Studio")
+        print("  ✓ Tags rejected by Google (unverified app limit) — uploaded without tags.")
         tags_skipped = True
 
     video_id = response["id"]
@@ -230,7 +244,8 @@ def upload_video(
         "video_id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "status": "uploaded",
-        "privacy": privacy,
+        "privacy": effective_privacy,
+        "publish_at": publish_at,
         "tags_skipped": tags_skipped,
         "playlists_added": []
     }
