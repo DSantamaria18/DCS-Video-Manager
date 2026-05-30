@@ -1100,18 +1100,18 @@
     <!-- HISTORY TAB -->
     <div class="tab-content" id="tab-history">
       <div class="section-label">Recent videos</div>
-      <div class="history-list" id="historyList">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">
-          No history yet
-        </div>
-      </div>
-      <!-- History detail panel — slides in when a row is clicked -->
-      <div id="historyDetailPanel" style="display:none;margin-top:16px;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;">
+      <!-- History detail panel — appears above the list when a row is clicked -->
+      <div id="historyDetailPanel" style="display:none;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <span class="section-label" style="margin:0">VIDEO DETAIL</span>
           <button class="copy-btn" onclick="closeHistoryDetail()">CLOSE</button>
         </div>
         <div id="historyDetailContent"></div>
+      </div>
+      <div class="history-list" id="historyList">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">
+          No history yet
+        </div>
       </div>
     </div>
 
@@ -2501,6 +2501,10 @@ function showHistoryDetail(idx) {
   if (!v) return;
   const panel = document.getElementById('historyDetailPanel');
   const content = document.getElementById('historyDetailContent');
+  // Highlight selected row
+  document.querySelectorAll('.history-item').forEach((el, i) => {
+    el.style.borderColor = i === idx ? 'var(--green)' : '';
+  });
   const ytLink = v.video_id
     ? `<a href="https://www.youtube.com/watch?v=${v.video_id}" target="_blank"
          style="color:var(--blue);font-family:var(--mono);font-size:11px;">
@@ -2522,10 +2526,12 @@ function showHistoryDetail(idx) {
     </div>
   `;
   panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function closeHistoryDetail() {
   document.getElementById('historyDetailPanel').style.display = 'none';
+  document.querySelectorAll('.history-item').forEach(el => { el.style.borderColor = ''; });
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
