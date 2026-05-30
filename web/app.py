@@ -162,7 +162,7 @@ def parse_acmi():
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
-                        "description_templates"}
+                        "description_templates", "discord_webhook_url"}
 
 
 @app.route("/api/config")
@@ -361,6 +361,36 @@ def job_status(job_id):
     return jsonify(processing_status[job_id])
 
 
+def _post_discord_webhook(webhook_url: str, title: str, youtube_url: str,
+                           description: str, thumbnail_url: str = "") -> None:
+    """POST an embed to a Discord webhook. Non-fatal: logs and returns on failure."""
+    import urllib.request as _req
+    import urllib.error as _err
+
+    embed = {
+        "title": title,
+        "url": youtube_url,
+        "description": description[:200],
+        "color": 3447003,
+    }
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
+
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+    request_obj = _req.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with _req.urlopen(request_obj, timeout=10):
+            pass
+        print(f"  ✓ Discord webhook posted")
+    except (_err.HTTPError, _err.URLError, OSError) as e:
+        print(f"  ⚠ Discord webhook failed (non-fatal): {e}")
+
+
 @app.route("/api/upload_youtube", methods=["POST"])
 def upload_youtube():
     """Upload video to YouTube with generated metadata."""
@@ -396,6 +426,19 @@ def upload_youtube():
         video_id = result.get("video_id")
         if video_id:
             dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
+
+        # Post Discord webhook notification if configured — non-fatal
+        cfg = dcs_meta.load_config()
+        webhook_url = cfg.get("discord_webhook_url", "").strip()
+        if webhook_url and video_id:
+            yt_url = f"https://www.youtube.com/watch?v={video_id}"
+            _post_discord_webhook(
+                webhook_url,
+                title=metadata.get("title", ""),
+                youtube_url=yt_url,
+                description=metadata.get("description", ""),
+            )
+
         return jsonify(result)
     except ImportError:
         return jsonify({"error": "youtube_uploader module not found"}), 500
@@ -552,6 +595,43 @@ def get_playlists():
         return jsonify(playlists)
     except Exception as e:
         return jsonify({"error": str(e), "playlists": []}), 200
+
+
+# ── Channel stats ─────────────────────────────────────────────────────────────
+
+@app.route("/api/stats")
+def get_stats():
+    """GET /api/stats — return aggregated channel history for the Stats dashboard tab."""
+    from collections import Counter
+
+    mem = dcs_meta.load_memory()
+    videos = mem.get("videos", [])
+
+    module_counts = Counter(v.get("aircraft", "Unknown") for v in videos if v.get("aircraft"))
+    map_counts = Counter(v.get("map", "Unknown") for v in videos if v.get("map"))
+    mission_counts = Counter(v.get("mission_type", "Unknown") for v in videos if v.get("mission_type"))
+
+    uploads_by_month: dict = {}
+    for v in videos:
+        date = v.get("date", "")
+        if date and len(date) >= 7:
+            month = date[:7]
+            uploads_by_month[month] = uploads_by_month.get(month, 0) + 1
+
+    top_by_views = [
+        {"title": v.get("title", ""), "video_id": v.get("video_id", "")}
+        for v in videos
+        if v.get("video_id")
+    ][:5]
+
+    return jsonify({
+        "total_videos": len(videos),
+        "by_module": dict(module_counts.most_common(10)),
+        "by_map": dict(map_counts.most_common(5)),
+        "by_mission_type": dict(mission_counts.most_common(5)),
+        "uploads_by_month": uploads_by_month,
+        "top_videos": top_by_views,
+    })
 
 
 if __name__ == "__main__":
