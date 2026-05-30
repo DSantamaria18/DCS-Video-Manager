@@ -39,7 +39,8 @@ DEFAULT_CONFIG = {
     },
     "frames_to_extract": 8,
     "model": "gemini-2.5-flash",
-    "description_templates": {}
+    "description_templates": {},
+    "recordings_folder": ""
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
@@ -97,6 +98,16 @@ _memory_lock = threading.Lock()
 _BVR_MISSILE_NAMES = frozenset({
     "aim-120", "aim-7", "aim-54", "r-77", "r-27", "meteor",
     "mica", "derby", "python",
+})
+_IR_MISSILE_NAMES = frozenset({
+    "aim-9", "r-73", "r-60", "r-73m", "aa-11", "archer",
+    "magic", "python-3", "python-4", "python-5",
+    "aim-9x", "aim-9m", "aim-9l", "aim-9p",
+})
+_GUIDED_BOMB_NAMES = frozenset({
+    "gbu-12", "gbu-31", "gbu-38", "gbu-10", "gbu-16", "gbu-24",
+    "mk-82", "mk-84", "mk-83", "jdam", "paveway",
+    "kab-500", "kab-1500",
 })
 _SAM_NAME_FRAGMENTS = frozenset({
     "sa-2", "sa-3", "sa-6", "sa-8", "sa-10", "sa-11", "sa-12",
@@ -797,6 +808,58 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         return {}
 
 
+def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -> dict:
+    """Build minimal usable metadata when Gemini analysis fails (quota, timeout, bad key).
+
+    Derives the title from the filename and user_context. Uses the generic English medium
+    description template. Returns a dict compatible with the normal metadata structure.
+    """
+    stem = video_path.stem.replace("_", " ").replace("-", " ").strip()
+    aircraft = ""
+    for module, profile in MODULE_PROFILES.items():
+        for tag in profile["tags"]:
+            if tag.lower() in (user_context + " " + stem).lower():
+                aircraft = module
+                break
+        if aircraft:
+            break
+
+    title_parts = ["DCS World"]
+    if aircraft:
+        title_parts.append(aircraft)
+    if user_context.strip():
+        title_parts.append(user_context.strip()[:40])
+    elif stem:
+        title_parts.append(stem[:40])
+    title = " | ".join(title_parts)[:100]
+
+    desc_template = _DESCRIPTION_TEMPLATES.get("en_medium", "")
+    links = config.get("default_links", {})
+    description = (desc_template
+        .replace("Twitter: [link]", f"Twitter: {links.get('twitter', '')}")
+        .replace("Twitch: [link]", f"Twitch: {links.get('twitch', '')}")
+        .replace("Buy Me a Coffee: [link]", f"Buy Me a Coffee: {links.get('buymeacoffee', '')}"))
+
+    tags = ["dcs", "dcs world", "eagle dynamics", "digital combat simulator",
+            "flight simulator", "thecylonpilot", "cylon pilot"]
+    if aircraft:
+        profile = MODULE_PROFILES.get(aircraft, {})
+        tags.extend(profile.get("tags", []))
+
+    return {
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "chapters": [],
+        "language": "en",
+        "aircraft": aircraft,
+        "map": "",
+        "mission_type": "",
+        "campaign": "",
+        "analysis_notes": "Fallback metadata — Gemini analysis failed.",
+    }
+
+
 def _recover_json(raw: str) -> dict:
     """Best-effort recovery of a truncated JSON string."""
     # Find the last complete field by trimming to the last comma or closing brace
@@ -1051,9 +1114,10 @@ def _parse_acmi_props(props_str: str) -> tuple[dict, set]:
 
 
 def parse_acmi_events(acmi_path: Path) -> dict:
-    """Parse a Tacview ACMI 2.2 file and return kills, SAM launches, and BVR launches.
+    """Parse a Tacview ACMI 2.2 file and return kills, SAM/IR/bomb launches, BVR launches, and ejections.
 
-    Returns a dict with keys kills, sam_launches, bvr_launches, events_text, duration_s.
+    Returns a dict with keys kills, sam_launches, bvr_launches, ir_launches, bomb_releases,
+    friendly_losses, ejection_events, events_text, duration_s.
     Returns empty dict on any parse or IO failure.
     """
     objects: dict = {}
@@ -1062,6 +1126,10 @@ def parse_acmi_events(acmi_path: Path) -> dict:
     kills: list = []
     sam_launches: list = []
     bvr_launches: list = []
+    ir_launches: list = []
+    bomb_releases: list = []
+    friendly_losses: list = []
+    ejection_events: list = []
 
     try:
         with open(acmi_path, encoding="utf-8-sig", errors="replace") as f:
@@ -1087,7 +1155,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
                 is_new = obj_id not in objects
                 if is_new:
-                    objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": ""}
+                    objects[obj_id] = {"type": "", "name": "", "coalition": "", "parent": "", "tags": ""}
                 obj = objects[obj_id]
 
                 props, flags = _parse_acmi_props(line[comma_pos + 1:])
@@ -1099,10 +1167,15 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                     obj["coalition"] = props["Coalition"].lower()
                 if "Parent" in props:
                     obj["parent"] = props["Parent"]
+                if "Tags" in props:
+                    obj["tags"] = props["Tags"].lower()
+
+                t = obj.get("type", "")
+                name_lower = obj.get("name", "").lower()
+                coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
 
                 # Destroyed event on a hostile air/ground object → kill
                 if "Destroyed" in flags:
-                    t = obj.get("type", "")
                     if obj.get("coalition", "") in _HOSTILE_COALITIONS and (
                         "air" in t or ("ground" in t and "weapon" not in t)
                     ):
@@ -1111,24 +1184,52 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                             "time": _seconds_to_chapter_time(current_time_s),
                             "name": obj.get("name", "unknown"),
                         })
-
-                # New missile object → detect BVR launch or SAM launch
-                if is_new and "weapon" in obj.get("type", "") and "missile" in obj.get("type", ""):
-                    name_lower = obj.get("name", "").lower()
-                    coal = obj.get("coalition", "") or objects.get(obj.get("parent", ""), {}).get("coalition", "")
-
-                    if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
-                        bvr_launches.append({
+                    # Friendly aircraft shootdown
+                    elif obj.get("coalition", "") in _FRIENDLY_COALITIONS and "air" in t and "weapon" not in t:
+                        friendly_losses.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "BVR missile"),
+                            "name": obj.get("name", "friendly aircraft"),
                         })
-                    elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
-                        sam_launches.append({
+
+                # Ejection: friendly pilot/ejected object appearing as new object
+                obj_tags = obj.get("tags", "")
+                if is_new and obj.get("coalition", "") in _FRIENDLY_COALITIONS:
+                    if "pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags:
+                        ejection_events.append({
                             "time_s": current_time_s,
                             "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "SAM"),
+                            "name": obj.get("name", "friendly pilot"),
                         })
+
+                # New weapon object → classify launch type
+                if is_new and "weapon" in t:
+                    if "missile" in t:
+                        if coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _BVR_MISSILE_NAMES):
+                            bvr_launches.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "BVR missile"),
+                            })
+                        elif coal in _FRIENDLY_COALITIONS and any(m in name_lower for m in _IR_MISSILE_NAMES):
+                            ir_launches.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "IR missile"),
+                            })
+                        elif coal in _HOSTILE_COALITIONS and any(frag in name_lower for frag in _SAM_NAME_FRAGMENTS):
+                            sam_launches.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "SAM"),
+                            })
+                    elif "bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES):
+                        if coal in _FRIENDLY_COALITIONS:
+                            bomb_releases.append({
+                                "time_s": current_time_s,
+                                "time": _seconds_to_chapter_time(current_time_s),
+                                "name": obj.get("name", "guided bomb"),
+                            })
 
     except (OSError, IOError):
         return {}
@@ -1140,14 +1241,162 @@ def parse_acmi_events(acmi_path: Path) -> dict:
         parts.append(f"{len(sam_launches)} SAM launch(es) at {', '.join(s['time'] for s in sam_launches[:4])}")
     if bvr_launches:
         parts.append(f"{len(bvr_launches)} BVR missile(s) fired at {', '.join(b['time'] for b in bvr_launches[:4])}")
+    if ir_launches:
+        parts.append(f"{len(ir_launches)} IR missile(s) fired at {', '.join(m['time'] for m in ir_launches[:4])}")
+    if bomb_releases:
+        parts.append(f"{len(bomb_releases)} guided bomb(s) released at {', '.join(b['time'] for b in bomb_releases[:4])}")
+    if friendly_losses:
+        parts.append(f"{len(friendly_losses)} friendly aircraft lost at {', '.join(l['time'] for l in friendly_losses[:3])}")
+    if ejection_events:
+        parts.append(f"{len(ejection_events)} ejection(s) at {', '.join(e['time'] for e in ejection_events[:3])}")
 
     return {
         "duration_s": max_time_s,
         "kills": kills,
         "sam_launches": sam_launches,
         "bvr_launches": bvr_launches,
+        "ir_launches": ir_launches,
+        "bomb_releases": bomb_releases,
+        "friendly_losses": friendly_losses,
+        "ejection_events": ejection_events,
         "events_text": "; ".join(parts) if parts else "",
     }
+
+
+# ── Narration script ─────────────────────────────────────────────────────────
+
+def generate_narration_script(metadata: dict, video_path: Path, config: dict) -> str:
+    """Generate a 200-300 word voiceover narration script via Gemini.
+
+    Uses a narration-focused prompt with the existing metadata and a small set of
+    representative frames. Falls back to a minimal template if the API call fails.
+    """
+    frames = extract_frames(video_path, min(4, config.get("frames_to_extract", 8)))
+    aircraft = metadata.get("aircraft", "your aircraft")
+    map_name = metadata.get("map", "the map")
+    mission_type = metadata.get("mission_type", "this mission")
+    description = metadata.get("description", "")[:600]
+
+    prompt = (
+        "You are writing a natural, engaging YouTube voiceover script for a DCS World gameplay video.\n\n"
+        f"MISSION CONTEXT:\n"
+        f"- Aircraft: {aircraft}\n"
+        f"- Map: {map_name}\n"
+        f"- Mission type: {mission_type}\n"
+        f"- Description excerpt: {description}\n\n"
+        "Write a 200-300 word voiceover script in English, first person, natural spoken language.\n"
+        "Include key events visible in the frames. Do not use bullet points — write flowing prose.\n"
+        "Begin directly with the script text. No preamble, no stage directions, no markdown.\n"
+    )
+
+    model = config.get("model", DEFAULT_CONFIG["model"])
+    try:
+        return call_gemini(frames, prompt, model).strip()
+    except Exception:
+        return (
+            f"Today we're flying the {aircraft} over {map_name}. "
+            f"This is a {mission_type} mission. "
+            "Let's see how it unfolds."
+        )
+
+
+# ── Duplicate detection ───────────────────────────────────────────────────────
+
+def check_duplicate(metadata: dict, history: dict) -> dict:
+    """Compare metadata against history to detect near-duplicate missions.
+
+    Compares aircraft, map, and mission_type fields. Returns a dict with
+    is_duplicate (bool), similarity (0.0-1.0), matching_title (str|None),
+    and diff (human-readable difference summary).
+    """
+    aircraft = metadata.get("aircraft", "").lower().strip()
+    map_name = metadata.get("map", "").lower().strip()
+    mission_type = metadata.get("mission_type", "").lower().strip()
+
+    best_score = 0.0
+    best_match = None
+
+    for v in history.get("videos", []):
+        score = 0.0
+        checks = 0
+
+        if aircraft:
+            checks += 1
+            if aircraft in v.get("aircraft", "").lower():
+                score += 1.0
+        if map_name:
+            checks += 1
+            if map_name in v.get("map", "").lower():
+                score += 1.0
+        if mission_type:
+            checks += 1
+            if mission_type in v.get("mission_type", "").lower():
+                score += 1.0
+
+        similarity = score / checks if checks else 0.0
+        if similarity > best_score:
+            best_score = similarity
+            best_match = v
+
+    is_dup = best_score >= 0.85
+
+    diff_parts = []
+    if best_match:
+        if metadata.get("aircraft", "").lower() != best_match.get("aircraft", "").lower():
+            diff_parts.append(f"different aircraft ({metadata.get('aircraft')} vs {best_match.get('aircraft')})")
+        if metadata.get("map", "").lower() != best_match.get("map", "").lower():
+            diff_parts.append(f"different map ({metadata.get('map')} vs {best_match.get('map')})")
+        if metadata.get("mission_type", "").lower() != best_match.get("mission_type", "").lower():
+            diff_parts.append(f"different mission type ({metadata.get('mission_type')} vs {best_match.get('mission_type')})")
+
+    diff = " | ".join(diff_parts) if diff_parts else "same aircraft, map, and mission type"
+
+    return {
+        "is_duplicate": is_dup,
+        "similarity": round(best_score, 2),
+        "matching_title": best_match.get("title") if best_match else None,
+        "diff": diff,
+    }
+
+
+# ── OBS scene metadata ────────────────────────────────────────────────────────
+
+def extract_obs_metadata(video_path: Path) -> dict:
+    """Extract OBS scene metadata from MKV file tags using ffprobe.
+
+    Reads the DESCRIPTION tag (if an OBS script wrote scene names) and
+    CHAPTER markers. Returns a dict with obs_description (str) and
+    chapters (list of {time, title} dicts). Returns empty values if not found.
+    """
+    result = {"obs_description": "", "chapters": []}
+    try:
+        import subprocess as _sp
+        proc = _sp.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", "-show_chapters", str(video_path)],
+            capture_output=True, text=True, timeout=30
+        )
+        if proc.returncode != 0:
+            return result
+        data = json.loads(proc.stdout)
+    except Exception:
+        return result
+
+    fmt_tags = data.get("format", {}).get("tags", {})
+    obs_desc = fmt_tags.get("DESCRIPTION") or fmt_tags.get("description") or ""
+    result["obs_description"] = obs_desc
+
+    for ch in data.get("chapters", []):
+        start_s = float(ch.get("start_time", 0))
+        title = (ch.get("tags", {}).get("title") or
+                 ch.get("tags", {}).get("TITLE") or "")
+        result["chapters"].append({
+            "time": _seconds_to_chapter_time(start_s),
+            "title": title,
+            "start_s": start_s,
+        })
+
+    return result
 
 
 # ── Debrief ───────────────────────────────────────────────────────────────────
@@ -1284,6 +1533,116 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
         lines.append(sep)
 
     return "\n".join(lines)
+
+
+# ── Social media captions ────────────────────────────────────────────────────
+
+def generate_social_captions(metadata: dict, config: dict) -> dict:
+    """Generate platform-adapted social media captions from metadata via Gemini.
+
+    Returns a dict with keys twitter, instagram, linkedin, tiktok. Each value
+    is a platform-appropriate caption string with hashtags. Falls back to
+    simple templates if the Gemini call fails.
+    """
+    title = metadata.get("title", "DCS World video")
+    aircraft = metadata.get("aircraft", "")
+    map_name = metadata.get("map", "")
+    mission_type = metadata.get("mission_type", "")
+    description = metadata.get("description", "")[:300]
+    tags = metadata.get("tags", [])[:10]
+    hashtags_base = " ".join(f"#{t.replace(' ', '')}" for t in ["DCSWorld", "FlightSim", aircraft.replace("/", "").replace("-", "").replace(" ", "")] if t)
+
+    prompt = (
+        "Generate social media captions for this DCS World gameplay video. "
+        "Return ONLY a valid JSON object with keys: twitter, instagram, linkedin, tiktok.\n\n"
+        f"VIDEO TITLE: {title}\n"
+        f"AIRCRAFT: {aircraft}\n"
+        f"MAP: {map_name}\n"
+        f"MISSION TYPE: {mission_type}\n"
+        f"DESCRIPTION EXCERPT: {description}\n\n"
+        "REQUIREMENTS:\n"
+        "- twitter: max 280 chars, punchy, 3-5 hashtags at end\n"
+        "- instagram: engaging with CTA, 8-10 hashtags on new lines after caption\n"
+        "- linkedin: professional/educational tone, 2-3 hashtags max, no spam\n"
+        "- tiktok: energetic, 15-20 hashtags, trending format\n\n"
+        "Return raw JSON only. No markdown fences."
+    )
+
+    model = config.get("model", DEFAULT_CONFIG["model"])
+    try:
+        raw = call_gemini([], prompt, model).strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        result = json.loads(raw)
+        return {
+            "twitter": result.get("twitter", ""),
+            "instagram": result.get("instagram", ""),
+            "linkedin": result.get("linkedin", ""),
+            "tiktok": result.get("tiktok", ""),
+        }
+    except Exception:
+        fallback = f"{title} {hashtags_base}"
+        return {
+            "twitter": fallback[:280],
+            "instagram": fallback,
+            "linkedin": f"New DCS World video: {title}",
+            "tiktok": fallback,
+        }
+
+
+# ── Pre-upload checklist ──────────────────────────────────────────────────────
+
+def run_upload_checklist(metadata: dict, config: dict) -> list[dict]:
+    """Validate metadata before upload and return a checklist of rule results.
+
+    Returns a list of dicts with keys: rule (str), status ('ok'|'warn'|'fail'), message (str).
+    """
+    title = metadata.get("title", "")
+    description = metadata.get("description", "")
+    tags = metadata.get("tags", [])
+    aircraft = metadata.get("aircraft", "")
+    chapters = metadata.get("chapters", [])
+
+    checks = []
+
+    title_len = len(title)
+    if 50 <= title_len <= 70:
+        checks.append({"rule": "Title length", "status": "ok", "message": f"{title_len} chars (50-70 recommended)"})
+    else:
+        checks.append({"rule": "Title length", "status": "warn",
+                       "message": f"{title_len} chars — optimal range is 50-70 chars"})
+
+    desc_len = len(description)
+    if desc_len >= 300:
+        checks.append({"rule": "Description length", "status": "ok", "message": f"{desc_len} chars"})
+    else:
+        checks.append({"rule": "Description length", "status": "fail",
+                       "message": f"{desc_len} chars — minimum 300 recommended"})
+
+    tag_count = len(tags)
+    if 7 <= tag_count <= 15:
+        checks.append({"rule": "Tag count", "status": "ok", "message": f"{tag_count} tags (7-15 recommended)"})
+    else:
+        checks.append({"rule": "Tag count", "status": "warn",
+                       "message": f"{tag_count} tags — optimal range is 7-15"})
+
+    has_dcs = "dcs world" in title.lower() or "dcs world" in description.lower()
+    checks.append({
+        "rule": '"DCS World" present',
+        "status": "ok" if has_dcs else "fail",
+        "message": "Found in title/description" if has_dcs else '"DCS World" missing from title and description',
+    })
+
+    if aircraft:
+        has_aircraft = aircraft.lower() in title.lower() or aircraft.lower() in description.lower()
+        checks.append({
+            "rule": "Aircraft name present",
+            "status": "ok" if has_aircraft else "warn",
+            "message": f"{aircraft} found" if has_aircraft else f"{aircraft} missing from title/description",
+        })
+
+    return checks
 
 
 # ── SEO ───────────────────────────────────────────────────────────────────────

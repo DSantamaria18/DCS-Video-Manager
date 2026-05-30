@@ -8,6 +8,7 @@ Then open: http://localhost:5000
 import os
 import sys
 import json
+import uuid
 import subprocess
 import threading
 import webbrowser
@@ -162,7 +163,7 @@ def parse_acmi():
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
-                        "description_templates"}
+                        "description_templates", "recordings_folder"}
 
 
 @app.route("/api/config")
@@ -243,8 +244,6 @@ def get_history():
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     """Start async analysis job."""
-    import uuid
-
     data = request.get_json()
     video_path = data.get("video_path", "").strip()
     context = data.get("context", "").strip()
@@ -288,15 +287,24 @@ def analyze():
                 processing_status[job_id]["error"] = "Could not extract frames. Is ffmpeg installed?"
                 return
 
-            processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Claude..."
+            processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Gemini..."
             processing_status[job_id]["progress"] = 50
 
-            metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
-                                                   acmi_path=acmi_path)
+            gemini_error = None
+            try:
+                metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
+                                                       acmi_path=acmi_path)
+            except Exception as e:
+                gemini_error = str(e)
+                metadata = None
+
             if not metadata:
-                processing_status[job_id]["status"] = "error"
-                processing_status[job_id]["error"] = "Claude returned empty metadata. Try adding more context."
-                return
+                metadata = dcs_meta.build_fallback_metadata(path, context, cfg)
+                processing_status[job_id]["fallback_warning"] = (
+                    "Analysis failed — using fallback metadata. Edit before upload."
+                )
+                if gemini_error:
+                    processing_status[job_id]["gemini_error"] = gemini_error
 
             processing_status[job_id]["message"] = "Saving output files..."
             processing_status[job_id]["progress"] = 80
@@ -311,7 +319,8 @@ def analyze():
                 "metadata": metadata,
                 "txt_path": str(txt_path),
                 "json_path": str(json_path),
-                "video_name": path.name
+                "video_name": path.name,
+                "fallback_warning": processing_status[job_id].get("fallback_warning"),
             }
 
         except Exception as e:
@@ -369,6 +378,7 @@ def upload_youtube():
     metadata = data.get("metadata", {})
     playlist_ids = data.get("playlist_ids", [])  # list of playlist IDs
     thumbnail_url = data.get("thumbnail_url", "").strip()
+    publish_at = data.get("publish_at", "").strip() or None  # ISO 8601 string, optional
 
     if not video_path or not metadata:
         return jsonify({"error": "Missing video_path or metadata"}), 400
@@ -391,7 +401,8 @@ def upload_youtube():
             privacy="private",
             playlist_ids=playlist_ids,
             language=metadata.get("language", "en"),
-            thumbnail_path=thumbnail_path
+            thumbnail_path=thumbnail_path,
+            publish_at=publish_at,
         )
         video_id = result.get("video_id")
         if video_id:
@@ -503,11 +514,32 @@ def debrief():
         return jsonify({"error": str(e)}), 500
 
 
+# Aircraft alias map: canonical fragments → list of alias tokens to match against playlist titles
+_AIRCRAFT_ALIASES: dict[str, list[str]] = {
+    "f/a-18":  ["fa18", "fa-18", "hornet", "f18", "f-18"],
+    "f-18":    ["fa18", "fa-18", "hornet", "f18", "f-18"],
+    "hornet":  ["fa18", "fa-18", "hornet", "f18", "f-18"],
+    "f-16":    ["f16", "viper", "f-16c", "f16c"],
+    "viper":   ["f16", "viper", "f-16c", "f16c"],
+    "f-14":    ["f14", "tomcat", "f-14b", "f14b", "phoenix"],
+    "tomcat":  ["f14", "tomcat", "f-14b", "f14b"],
+    "uh-1":    ["uh1h", "uh-1h", "huey", "helicopter"],
+    "huey":    ["uh1h", "uh-1h", "huey"],
+    "a-10":    ["a10c", "a-10c", "warthog", "thunderbolt"],
+    "warthog": ["a10c", "a-10c", "warthog"],
+    "c-130":   ["c130j", "c-130j", "hercules"],
+    "hercules":["c130j", "c-130j", "hercules"],
+    "ah-64":   ["ah64d", "ah-64d", "apache", "longbow"],
+    "apache":  ["ah64d", "ah-64d", "apache"],
+}
+
+
 def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
     """Return playlist IDs whose title matches terms from aircraft/mission_type/campaign.
 
-    Tokenises each metadata field into lowercase words (≥2 chars, letters/digits only)
-    and checks if any token appears in the playlist title (case-insensitive).
+    Tokenises each metadata field into lowercase words (≥2 chars, letters/digits only),
+    then expands aircraft tokens through _AIRCRAFT_ALIASES so common aircraft names
+    (e.g. 'F/A-18C' → 'hornet', 'fa18', 'fa-18') match playlist titles like 'Hornet Pilot'.
     """
     import re as _re
     fields = [
@@ -515,11 +547,21 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
         metadata.get("mission_type", ""),
         metadata.get("campaign", ""),
     ]
-    terms = set()
+    terms: set[str] = set()
     for field in fields:
         for tok in _re.split(r"[^a-z0-9]+", field.lower()):
             if len(tok) >= 2:
                 terms.add(tok)
+                # Expand via alias map: check if any alias key is a substring of the token or vice versa
+                for alias_key, alias_list in _AIRCRAFT_ALIASES.items():
+                    if alias_key in field.lower():
+                        terms.update(alias_list)
+
+    # Also directly expand the raw aircraft string against alias keys
+    aircraft_raw = metadata.get("aircraft", "").lower()
+    for alias_key, alias_list in _AIRCRAFT_ALIASES.items():
+        if alias_key in aircraft_raw:
+            terms.update(alias_list)
 
     if not terms:
         return []
@@ -552,6 +594,229 @@ def get_playlists():
         return jsonify(playlists)
     except Exception as e:
         return jsonify({"error": str(e), "playlists": []}), 200
+
+
+# ── Batch watcher endpoints ───────────────────────────────────────────────────
+
+@app.route("/api/batch/start", methods=["POST"])
+def batch_start():
+    """POST /api/batch/start — start the folder watcher for automatic .mkv queuing."""
+    import batch_watcher
+
+    cfg = dcs_meta.load_config()
+    folder = cfg.get("recordings_folder", "").strip()
+    if not folder:
+        return jsonify({"error": "recordings_folder not configured. Set it in Setup."}), 400
+
+    if batch_watcher.is_running():
+        return jsonify({"ok": True, "message": "Watcher already running"})
+
+    def _enqueue(file_path: str):
+        """Queue a new .mkv file discovered by the folder watcher."""
+        _evict_old_jobs()
+        job_id = str(uuid.uuid4())[:8]
+        processing_status[job_id] = {
+            "status": "queued",
+            "progress": 0,
+            "message": f"Queued: {Path(file_path).name}",
+            "result": None,
+            "error": None,
+            "video_path": file_path,
+            "batch": True,
+        }
+
+    try:
+        batch_watcher.start_watcher(folder, _enqueue)
+        return jsonify({"ok": True, "folder": folder})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/batch/stop", methods=["POST"])
+def batch_stop():
+    """POST /api/batch/stop — stop the folder watcher."""
+    import batch_watcher
+    batch_watcher.stop_watcher()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/batch/status")
+def batch_status():
+    """GET /api/batch/status — return all queued/running batch jobs."""
+    import batch_watcher
+    batch_jobs = {
+        jid: info for jid, info in processing_status.items()
+        if info.get("batch")
+    }
+    return jsonify({
+        "running": batch_watcher.is_running(),
+        "jobs": batch_jobs,
+    })
+
+
+@app.route("/api/export_history_csv")
+def export_history_csv():
+    """GET /api/export_history_csv — return history.json as a downloadable CSV file."""
+    from flask import Response
+    import csv
+    import io
+
+    mem = dcs_meta.load_memory()
+    videos = mem.get("videos", [])
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=["date", "filename", "aircraft", "map", "mission_type", "title", "video_id"],
+        extrasaction="ignore",
+    )
+    writer.writeheader()
+    for v in videos:
+        writer.writerow({
+            "date": v.get("date", ""),
+            "filename": v.get("filename", ""),
+            "aircraft": v.get("aircraft", ""),
+            "map": v.get("map", ""),
+            "mission_type": v.get("mission_type", ""),
+            "title": v.get("title", ""),
+            "video_id": v.get("video_id", ""),
+        })
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=dcs_history.csv"},
+    )
+
+
+# ── Narration script ──────────────────────────────────────────────────────────
+
+@app.route("/api/narration", methods=["POST"])
+def narration():
+    """POST /api/narration — generate a voiceover narration script via Gemini."""
+    data = request.get_json()
+    video_path = data.get("video_path", "").strip()
+    metadata = data.get("metadata", {})
+
+    if not video_path or not metadata:
+        return jsonify({"error": "Missing video_path or metadata"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    cfg = dcs_meta.load_config()
+    try:
+        script = dcs_meta.generate_narration_script(metadata, path, cfg)
+        return jsonify({"script": script})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Duplicate check ───────────────────────────────────────────────────────────
+
+@app.route("/api/check_duplicate", methods=["POST"])
+def check_duplicate_endpoint():
+    """POST /api/check_duplicate — check if the analysed video is a duplicate of a history entry."""
+    data = request.get_json()
+    metadata = data.get("metadata", {})
+    if not metadata:
+        return jsonify({"error": "Missing metadata"}), 400
+    mem = dcs_meta.load_memory()
+    result = dcs_meta.check_duplicate(metadata, mem)
+    return jsonify(result)
+
+
+# ── OBS metadata extraction ───────────────────────────────────────────────────
+
+@app.route("/api/obs_metadata", methods=["POST"])
+def obs_metadata():
+    """POST /api/obs_metadata — extract OBS scene metadata from MKV file tags."""
+    data = request.get_json()
+    video_path = data.get("video_path", "").strip()
+    if not video_path:
+        return jsonify({"error": "Missing video_path"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    try:
+        obs_data = dcs_meta.extract_obs_metadata(path)
+        return jsonify(obs_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Social media captions ─────────────────────────────────────────────────────
+
+@app.route("/api/social_captions", methods=["POST"])
+def social_captions():
+    """POST /api/social_captions — generate platform-adapted social captions from metadata."""
+    data = request.get_json()
+    metadata = data.get("metadata", {})
+    if not metadata:
+        return jsonify({"error": "Missing metadata"}), 400
+    cfg = dcs_meta.load_config()
+    try:
+        captions = dcs_meta.generate_social_captions(metadata, cfg)
+        return jsonify(captions)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Pre-upload checklist ──────────────────────────────────────────────────────
+
+@app.route("/api/upload_checklist", methods=["POST"])
+def upload_checklist():
+    """POST /api/upload_checklist — run pre-upload metadata validation; returns checklist items."""
+    data = request.get_json()
+    metadata = data.get("metadata", {})
+    if not metadata:
+        return jsonify({"error": "Missing metadata"}), 400
+    cfg = dcs_meta.load_config()
+    checks = dcs_meta.run_upload_checklist(metadata, cfg)
+    return jsonify({"checklist": checks})
+
+
+# ── Competitor analysis ───────────────────────────────────────────────────────
+
+@app.route("/api/competitors")
+def competitors():
+    """GET /api/competitors?aircraft=<aircraft>&mission_type=<mission_type> — search YouTube for similar videos."""
+    aircraft = request.args.get("aircraft", "").strip()
+    mission_type = request.args.get("mission_type", "").strip()
+
+    if not aircraft and not mission_type:
+        return jsonify({"error": "Provide aircraft or mission_type query parameter"}), 400
+
+    query = f"DCS World {aircraft} {mission_type}".strip()
+
+    try:
+        from youtube_uploader import _build_service
+        youtube = _build_service()
+        from datetime import datetime, timedelta, timezone
+        published_after = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        resp = youtube.search().list(
+            part="snippet",
+            q=query,
+            type="video",
+            maxResults=5,
+            publishedAfter=published_after,
+            order="viewCount",
+        ).execute()
+        results = []
+        for item in resp.get("items", []):
+            snippet = item.get("snippet", {})
+            results.append({
+                "title": snippet.get("title", ""),
+                "channel": snippet.get("channelTitle", ""),
+                "published": snippet.get("publishedAt", ""),
+                "video_id": item.get("id", {}).get("videoId", ""),
+            })
+        return jsonify({"results": results, "query": query})
+    except Exception as e:
+        return jsonify({"results": [], "error": str(e), "query": query})
 
 
 if __name__ == "__main__":
