@@ -1528,6 +1528,14 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
         acmi_sams = acmi_events.get("sam_launches", [])
         if acmi_sams:
             sam_str = str(len(acmi_sams))
+        # ACMI-confirmed loss/ejection always overrides Gemini's frame-based guess.
+        # Ejection takes priority: aircraft was destroyed AND pilot survived by ejecting.
+        if acmi_events.get("ejection_events"):
+            result_raw = "EJECT"
+            result_str = _DEBRIEF_RESULT_ICON["EJECT"]
+        elif acmi_events.get("friendly_losses"):
+            result_raw = "CRASH"
+            result_str = _DEBRIEF_RESULT_ICON["CRASH"]
 
     sep = "━" * 44
     narrative = (data.get("narrative") or "").strip()

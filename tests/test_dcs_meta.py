@@ -818,7 +818,7 @@ _GEMINI_DEBRIEF_RESPONSE = json.dumps({
 })
 
 
-def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatch=None, tmp_path=None):
+def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatch=None, tmp_path=None, acmi_events=None):
     """Helper to call generate_debrief with mocked ffprobe/ffmpeg/Gemini."""
     video = tmp_path / "mission.mkv"
     video.write_bytes(b"")
@@ -837,7 +837,7 @@ def _make_debrief(metadata=None, language="en", gemini_response=None, monkeypatc
     monkeypatch.setattr(dcs_meta, "call_gemini", lambda *a, **kw: response)
 
     cfg = {**dcs_meta.DEFAULT_CONFIG}
-    return dcs_meta.generate_debrief(meta, video, cfg)
+    return dcs_meta.generate_debrief(meta, video, cfg, acmi_events=acmi_events)
 
 
 def test_debrief_english_contains_aircraft(tmp_path, monkeypatch):
@@ -924,6 +924,40 @@ def test_debrief_eject_result_shown_in_spanish_report(tmp_path, monkeypatch):
     report = _make_debrief(language="es", gemini_response=response,
                            monkeypatch=monkeypatch, tmp_path=tmp_path)
     assert "✗ EJECT" in report
+
+
+def test_debrief_acmi_ejection_overrides_rtb(tmp_path, monkeypatch):
+    # Gemini says RTB but ACMI confirms pilot ejected → must report EJECT
+    rtb_response = json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
+                               "max_mach": "--", "max_altitude": "--",
+                               "fuel_remaining": "--", "narrative": ""})
+    acmi = {
+        "ejection_events": [{"time_s": 900.0, "time": "15:00", "name": "friendly pilot"}],
+        "friendly_losses": [{"time_s": 900.0, "time": "15:00", "name": "F/A-18C"}],
+        "kills": [], "sam_launches": [], "bvr_launches": [],
+        "ir_launches": [], "bomb_releases": [], "events_text": "",
+    }
+    report = _make_debrief(language="en", gemini_response=rtb_response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path, acmi_events=acmi)
+    assert "✗ EJECT" in report
+    assert "✓ RTB" not in report
+
+
+def test_debrief_acmi_friendly_loss_overrides_rtb(tmp_path, monkeypatch):
+    # Gemini says RTB but ACMI confirms aircraft destroyed (no ejection) → must report CRASH
+    rtb_response = json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
+                               "max_mach": "--", "max_altitude": "--",
+                               "fuel_remaining": "--", "narrative": ""})
+    acmi = {
+        "ejection_events": [],
+        "friendly_losses": [{"time_s": 600.0, "time": "10:00", "name": "F/A-18C"}],
+        "kills": [], "sam_launches": [], "bvr_launches": [],
+        "ir_launches": [], "bomb_releases": [], "events_text": "",
+    }
+    report = _make_debrief(language="en", gemini_response=rtb_response,
+                           monkeypatch=monkeypatch, tmp_path=tmp_path, acmi_events=acmi)
+    assert "✗ CRASH" in report
+    assert "✓ RTB" not in report
 
 
 def test_debrief_prompt_includes_eject_option(tmp_path, monkeypatch):
