@@ -402,62 +402,97 @@ def _post_discord_webhook(webhook_url: str, title: str, youtube_url: str,
 
 @app.route("/api/upload_youtube", methods=["POST"])
 def upload_youtube():
-    """Upload video to YouTube with generated metadata."""
+    """Upload video to YouTube asynchronously; returns job_id for progress polling."""
+    import uuid
     data = request.get_json()
     video_path = str(Path(data.get("video_path", "").strip()).resolve())
     metadata = data.get("metadata", {})
-    playlist_ids = data.get("playlist_ids", [])  # list of playlist IDs
+    playlist_ids = data.get("playlist_ids", [])
     thumbnail_url = data.get("thumbnail_url", "").strip()
     publish_at = data.get("publish_at", "").strip() or None  # ISO 8601 string, optional
 
     if not video_path or not metadata:
         return jsonify({"error": "Missing video_path or metadata"}), 400
 
-    # Resolve the thumbnail URL (/output/filename.jpg) to a local filesystem path
     thumbnail_path = None
     if thumbnail_url.startswith("/output/"):
         candidate = OUTPUT_DIR / Path(thumbnail_url).name
         if candidate.exists():
             thumbnail_path = str(candidate)
 
-    try:
-        from youtube_uploader import upload_video
-        result = upload_video(
-            video_path=video_path,
-            title=metadata.get("title", ""),
-            description=metadata.get("description", ""),
-            tags=metadata.get("tags", []),
-            chapters=metadata.get("chapters", []),
-            privacy="private",
-            playlist_ids=playlist_ids,
-            language=metadata.get("language", "en"),
-            thumbnail_path=thumbnail_path,
-            publish_at=publish_at,
-        )
-        video_id = result.get("video_id")
-        if video_id:
-            dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {
+        "status": "uploading",
+        "upload_progress": 0,
+        "message": "Starting upload...",
+        "result": None,
+        "error": None
+    }
 
-        # Post Discord webhook notification if configured — non-fatal
-        cfg = dcs_meta.load_config()
-        webhook_url = cfg.get("discord_webhook_url", "").strip()
-        if webhook_url and video_id:
-            yt_url = f"https://www.youtube.com/watch?v={video_id}"
-            _post_discord_webhook(
-                webhook_url,
+    def run_upload():
+        try:
+            from youtube_uploader import upload_video, schedule_analytics_polling
+
+            def on_progress(pct):
+                processing_status[job_id]["upload_progress"] = pct
+                processing_status[job_id]["message"] = f"Uploading... {pct}%"
+
+            result = upload_video(
+                video_path=video_path,
                 title=metadata.get("title", ""),
-                youtube_url=yt_url,
                 description=metadata.get("description", ""),
+                tags=metadata.get("tags", []),
+                chapters=metadata.get("chapters", []),
+                privacy="private",
+                playlist_ids=playlist_ids,
+                language=metadata.get("language", "en"),
+                thumbnail_path=thumbnail_path,
+                progress_callback=on_progress
             )
+            video_id = result.get("video_id")
+            if video_id:
+                dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
+                try:
+                    schedule_analytics_polling(video_id, Path(video_path).name)
+                except Exception:
+                    pass
 
-        return jsonify(result)
-    except ImportError:
-        return jsonify({"error": "youtube_uploader module not found"}), 500
-    except Exception as e:
-        import traceback
-        full_error = traceback.format_exc()
-        print(f"\n=== UPLOAD ERROR ===\n{full_error}\n===================")
-        return jsonify({"error": str(e), "traceback": full_error}), 500
+            processing_status[job_id]["status"] = "done"
+            processing_status[job_id]["upload_progress"] = 100
+            processing_status[job_id]["message"] = "Upload complete"
+            processing_status[job_id]["result"] = result
+        except ImportError:
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = "youtube_uploader module not found"
+        except Exception as e:
+            import traceback
+            full_error = traceback.format_exc()
+            print(f"\n=== UPLOAD ERROR ===\n{full_error}\n===================")
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+
+    threading.Thread(target=run_upload, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/analytics/<video_id>")
+def get_analytics(video_id):
+    """GET /api/analytics/<video_id> — return stored analytics poll results for a video, or fetch on demand."""
+    mem = dcs_meta.load_memory()
+    for entry in reversed(mem.get("videos", [])):
+        if entry.get("video_id") == video_id:
+            stored = entry.get("analytics", [])
+            if stored:
+                return jsonify(stored)
+            break
+
+    try:
+        from youtube_uploader import fetch_video_analytics
+        result = fetch_video_analytics(video_id)
+        return jsonify([result] if result else [])
+    except Exception:
+        return jsonify([])
 
 
 @app.route("/api/youtube/auth_url")
