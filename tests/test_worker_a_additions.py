@@ -335,7 +335,7 @@ def test_upload_video_publish_at_sets_private_and_publishAt(monkeypatch):
     import youtube_uploader as yu
     captured = {}
 
-    def _mock_do_insert(youtube, body, video_path):
+    def _mock_do_insert(youtube, body, video_path, progress_callback=None):
         captured["body"] = body
         return {"id": "vid123"}
 
@@ -362,7 +362,7 @@ def test_upload_video_no_publish_at_uses_requested_privacy(monkeypatch):
     import youtube_uploader as yu
     captured = {}
 
-    def _mock_do_insert(youtube, body, video_path):
+    def _mock_do_insert(youtube, body, video_path, progress_callback=None):
         captured["body"] = body
         return {"id": "vid456"}
 
