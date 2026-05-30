@@ -997,10 +997,28 @@
           <div class="meta-block-body">
             <div style="display:flex;align-items:center;gap:12px;padding:4px 0">
               <button class="action-btn" id="debriefGenBtn" onclick="generateDebrief()">GENERATE DEBRIEF</button>
+              <button class="action-btn" id="shortsGenBtn" onclick="generateShorts()" style="background:var(--amber2);border-color:var(--amber);">GENERATE SHORTS</button>
               <span id="debriefGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
             </div>
             <textarea class="editable" id="debriefOutput" rows="16" readonly
               style="display:none;font-family:var(--mono);font-size:11px;resize:vertical;white-space:pre;overflow-wrap:normal;overflow-x:auto;margin-top:10px"></textarea>
+          </div>
+        </div>
+
+        <!-- YouTube Shorts -->
+        <div class="meta-block" id="shortsBlock" style="display:none">
+          <div class="meta-block-header">
+            <span class="meta-block-title">YouTube Shorts</span>
+          </div>
+          <div class="meta-block-body">
+            <div id="shortsMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:4px 0"></div>
+            <div id="shortsGrid" style="display:none;margin-top:10px">
+              <div id="shortsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;"></div>
+              <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+                <button class="action-btn" onclick="uploadSelectedShorts()" style="background:var(--blue2);border-color:var(--blue);">UPLOAD SELECTED</button>
+                <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">Select clips then upload manually in YouTube Studio</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1338,6 +1356,51 @@
         </div>
       </div>
 
+      <div class="setup-section">
+        <h3>DISCORD INTEGRATION</h3>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:16px;">
+          Configure Discord notifications and the E111 squadron bot.
+          The webhook posts upload notifications; the bot enables interactive debriefs.
+        </p>
+
+        <div class="field-group">
+          <label>Webhook URL</label>
+          <input type="url" id="cfg_discord_webhook_url" placeholder="https://discord.com/api/webhooks/…">
+        </div>
+
+        <div class="cfg-grid-2" style="margin-top:10px;">
+          <div class="field-group">
+            <label>Bot Token</label>
+            <input type="password" id="cfg_discord_bot_token" placeholder="Bot token from Discord Developer Portal"
+              autocomplete="new-password">
+          </div>
+          <div class="field-group">
+            <label>Channel ID</label>
+            <input type="text" id="cfg_discord_channel_id" placeholder="Right-click channel → Copy Channel ID">
+          </div>
+        </div>
+
+        <div class="setup-step" style="margin-top:12px;">
+          <span class="step-num">1</span>
+          <span class="step-text">Create a bot at <a href="https://discord.com/developers/applications" target="_blank">discord.com/developers</a> → Bot → copy token</span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">2</span>
+          <span class="step-text">Invite the bot to your server with <code>bot</code> + <code>applications.commands</code> scopes</span>
+        </div>
+        <div class="setup-step">
+          <span class="step-num">3</span>
+          <span class="step-text">Run <code>python discord_bot.py</code> — then use <code>!debrief</code> and <code>!stats</code> in your channel</span>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:14px;margin-top:16px;">
+          <button class="btn btn-primary" onclick="saveConfig()"
+            style="width:auto;padding:8px 20px;font-size:11px;letter-spacing:1px;">
+            SAVE DISCORD CONFIG
+          </button>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -1653,6 +1716,16 @@ function renderMetadata(m) {
   document.getElementById('debriefGenBtn').textContent = 'GENERATE DEBRIEF';
   document.getElementById('debriefGenMsg').textContent = '';
 
+  // Shorts — reset on new analysis
+  if (_shortsJobInterval) { clearInterval(_shortsJobInterval); _shortsJobInterval = null; }
+  _shortsJobId = null;
+  document.getElementById('shortsBlock').style.display = 'none';
+  document.getElementById('shortsGrid').style.display = 'none';
+  document.getElementById('shortsCards').innerHTML = '';
+  document.getElementById('shortsMsg').textContent = '';
+  document.getElementById('shortsGenBtn').disabled = false;
+  document.getElementById('shortsGenBtn').textContent = 'GENERATE SHORTS';
+
   // Thumbnail — always show block with generate button, reset any previous result
   document.getElementById('thumbnailBlock').style.display = 'block';
   document.getElementById('thumbnailGrid').style.display = 'none';
@@ -1830,6 +1903,168 @@ async function generateDebrief() {
     btn.textContent = 'RETRY';
     btn.disabled = false;
   }
+}
+
+// ── YouTube Shorts ────────────────────────────────────────────────────────────
+let _shortsJobId = null;
+let _shortsJobInterval = null;
+
+async function generateShorts() {
+  if (!currentMetadata || !currentVideoPath) return;
+  const btn   = document.getElementById('shortsGenBtn');
+  const msg   = document.getElementById('shortsMsg');
+  const block = document.getElementById('shortsBlock');
+  const grid  = document.getElementById('shortsGrid');
+
+  btn.disabled = true;
+  btn.textContent = 'DETECTING...';
+  msg.textContent = 'Starting Shorts generation...';
+  msg.style.color = 'var(--text3)';
+  block.style.display = '';
+  grid.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/generate_shorts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_path: currentVideoPath,
+        metadata: currentMetadata,
+        acmi_events: currentAcmiEvents || {},
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      msg.textContent = data.error;
+      msg.style.color = 'var(--red)';
+      btn.textContent = 'GENERATE SHORTS';
+      btn.disabled = false;
+      return;
+    }
+    _shortsJobId = data.job_id;
+    _shortsJobInterval = setInterval(pollShortsJob, 2000);
+  } catch (_) {
+    msg.textContent = 'Network error';
+    msg.style.color = 'var(--red)';
+    btn.textContent = 'GENERATE SHORTS';
+    btn.disabled = false;
+  }
+}
+
+async function pollShortsJob() {
+  if (!_shortsJobId) return;
+  try {
+    const res = await fetch('/api/status/' + _shortsJobId);
+    const data = await res.json();
+    const msg = document.getElementById('shortsMsg');
+
+    if (data.status === 'done') {
+      clearInterval(_shortsJobInterval);
+      _shortsJobInterval = null;
+      _shortsJobId = null;
+      const clips = (data.result || {}).clips || [];
+      renderShortsGrid(clips);
+      msg.textContent = clips.length ? `${clips.length} clip(s) ready` : 'No action moments detected.';
+      msg.style.color = clips.length ? 'var(--green)' : 'var(--amber)';
+      document.getElementById('shortsGenBtn').textContent = 'REGENERATE SHORTS';
+      document.getElementById('shortsGenBtn').disabled = false;
+    } else if (data.status === 'error') {
+      clearInterval(_shortsJobInterval);
+      _shortsJobInterval = null;
+      _shortsJobId = null;
+      msg.textContent = data.error || 'Generation failed';
+      msg.style.color = 'var(--red)';
+      document.getElementById('shortsGenBtn').textContent = 'GENERATE SHORTS';
+      document.getElementById('shortsGenBtn').disabled = false;
+    } else {
+      msg.textContent = data.message || 'Processing...';
+    }
+  } catch (_) { /* network hiccup — keep polling */ }
+}
+
+function renderShortsGrid(clips) {
+  const cards = document.getElementById('shortsCards');
+  const grid  = document.getElementById('shortsGrid');
+  cards.innerHTML = '';
+
+  clips.forEach((clip, idx) => {
+    const meta = clip.metadata || {};
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:10px;position:relative;';
+
+    const checkId = 'short_sel_' + idx;
+    const thumbUrl = clip.clip_url ? clip.clip_url.replace(/\.mp4$/, '_thumb.jpg') : '';
+
+    card.innerHTML = `
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="${checkId}" data-idx="${idx}"
+          style="margin-top:3px;accent-color:var(--amber);">
+        <div style="flex:1;min-width:0;">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--amber);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${escHtml(clip.hook || '')}
+          </div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text2);">
+            ${Math.round(clip.duration_sec || 0)}s
+            <span style="background:var(--bg3);border:1px solid var(--border);border-radius:2px;padding:1px 5px;margin-left:6px;color:var(--green);">
+              ★ ${clip.score || 0}
+            </span>
+          </div>
+          <div style="font-size:11px;color:var(--text);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(meta.title || '')}">
+            ${escHtml((meta.title || '').slice(0, 60))}
+          </div>
+        </div>
+      </label>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+        <button class="copy-btn" onclick="copyShortMeta(${idx})" style="font-size:10px;">COPY META</button>
+        <a href="${escHtml(clip.clip_url || '#')}" download
+          class="copy-btn" style="font-size:10px;text-decoration:none;">DOWNLOAD</a>
+      </div>
+    `;
+    cards.appendChild(card);
+  });
+
+  grid.style.display = clips.length ? '' : 'none';
+  grid.__clips = clips;
+}
+
+function copyShortMeta(idx) {
+  const cards = document.getElementById('shortsCards');
+  const clips = (document.getElementById('shortsGrid').__clips) || [];
+  const clip = clips[idx];
+  if (!clip) return;
+  const meta = clip.metadata || {};
+  const text = `TITLE:\n${meta.title || ''}\n\nDESCRIPTION:\n${meta.description || ''}\n\nTAGS:\n${(meta.tags || []).join(', ')}`;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Metadata copied!');
+  }).catch(() => {
+    showToast('Copy failed — check browser permissions', 'error');
+  });
+}
+
+function uploadSelectedShorts() {
+  showToast('Select clips and upload manually to YouTube Studio');
+}
+
+function showToast(msg, type) {
+  const existing = document.getElementById('_toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = '_toast';
+  el.textContent = msg;
+  el.style.cssText = `
+    position:fixed;bottom:24px;right:24px;z-index:9999;
+    background:${type === 'error' ? 'var(--red)' : 'var(--green3)'};
+    color:${type === 'error' ? '#fff' : 'var(--green)'};
+    border:1px solid ${type === 'error' ? 'var(--red)' : 'var(--green)'};
+    padding:10px 18px;border-radius:4px;font-family:var(--mono);font-size:12px;
+    box-shadow:0 2px 12px rgba(0,0,0,0.5);
+  `;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── SEO Check ─────────────────────────────────────────────────────────────────
@@ -2390,8 +2625,9 @@ async function loadConfigForm() {
     document.getElementById('cfg_link_twitch').value = links.twitch || '';
     document.getElementById('cfg_link_buymeacoffee').value = links.buymeacoffee || '';
     document.getElementById('cfg_link_escuadron111').value = links.escuadron111 || '';
-    const discordEl = document.getElementById('cfg_discord_webhook_url');
-    if (discordEl) discordEl.value = cfg.discord_webhook_url || '';
+    document.getElementById('cfg_discord_webhook_url').value = cfg.discord_webhook_url || '';
+    document.getElementById('cfg_discord_bot_token').value = cfg.discord_bot_token || '';
+    document.getElementById('cfg_discord_channel_id').value = cfg.discord_channel_id || '';
   } catch(e) {
     console.error('Could not load config form:', e);
   }
@@ -2418,7 +2654,10 @@ async function saveConfig() {
       twitch:            document.getElementById('cfg_link_twitch').value.trim(),
       buymeacoffee:      document.getElementById('cfg_link_buymeacoffee').value.trim(),
       escuadron111:      document.getElementById('cfg_link_escuadron111').value.trim(),
-    }
+    },
+    discord_webhook_url: document.getElementById('cfg_discord_webhook_url').value.trim(),
+    discord_bot_token:   document.getElementById('cfg_discord_bot_token').value.trim(),
+    discord_channel_id:  document.getElementById('cfg_discord_channel_id').value.trim(),
   };
 
   try {

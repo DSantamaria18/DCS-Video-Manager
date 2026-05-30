@@ -163,7 +163,8 @@ def parse_acmi():
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
-                        "description_templates", "recordings_folder", "discord_webhook_url"}
+                        "description_templates", "recordings_folder",
+                        "discord_webhook_url", "discord_bot_token", "discord_channel_id"}
 
 
 @app.route("/api/config")
@@ -650,6 +651,83 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
         if any(term in title_lower for term in terms):
             matched.append(pl["id"])
     return matched
+
+
+@app.route("/api/generate_shorts", methods=["POST"])
+def generate_shorts():
+    """POST /api/generate_shorts — detect action clips and crop to 9:16 for YouTube Shorts.
+
+    Request body: {"video_path": str, "metadata": dict, "acmi_events": dict (optional)}.
+    Starts a background job and returns {"job_id": str}. Poll /api/status/<job_id> for
+    results. On completion, result contains {"clips": [...]}.
+    """
+    import uuid
+
+    data = request.get_json()
+    video_path = (data.get("video_path") or "").strip()
+    metadata = data.get("metadata") or {}
+    acmi_events = data.get("acmi_events") or {}
+
+    if not video_path:
+        return jsonify({"error": "Missing video_path"}), 400
+    if not metadata:
+        return jsonify({"error": "Missing metadata"}), 400
+
+    path = Path(video_path)
+    if not path.exists():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": "Detecting action moments...",
+        "result": None,
+        "error": None,
+    }
+
+    def run_shorts():
+        try:
+            cfg = dcs_meta.load_config()
+            processing_status[job_id]["progress"] = 20
+            processing_status[job_id]["message"] = "Extracting short clips..."
+
+            clips = dcs_meta.detect_short_clips(path, acmi_events, cfg)
+
+            processing_status[job_id]["progress"] = 80
+            processing_status[job_id]["message"] = "Generating metadata..."
+
+            clips_with_meta = []
+            for clip in clips:
+                short_meta = dcs_meta.generate_short_metadata(clip, metadata, cfg)
+                clip_name = Path(clip["clip_path"]).name
+                clips_with_meta.append({
+                    **clip,
+                    "clip_url": f"/output/shorts/{clip_name}",
+                    "metadata": short_meta,
+                })
+
+            processing_status[job_id]["status"] = "done"
+            processing_status[job_id]["progress"] = 100
+            processing_status[job_id]["message"] = f"Done! {len(clips_with_meta)} clip(s) generated."
+            processing_status[job_id]["result"] = {"clips": clips_with_meta}
+
+        except Exception as e:
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+
+    thread = threading.Thread(target=run_shorts, daemon=True)
+    thread.start()
+
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/output/shorts/<path:filename>")
+def serve_shorts_file(filename):
+    """GET /output/shorts/<filename> — serve a generated Shorts clip from the output/shorts folder."""
+    shorts_dir = OUTPUT_DIR / "shorts"
+    return send_from_directory(str(shorts_dir), filename)
 
 
 @app.route("/api/suggest_playlists", methods=["POST"])
