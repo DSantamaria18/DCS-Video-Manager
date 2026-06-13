@@ -1915,19 +1915,19 @@ _SCORE_MAP = {
 }
 
 
-def _collect_candidate_timestamps(acmi_events: dict) -> list[tuple[float, str]]:
-    """Extract (timestamp_sec, event_type) pairs from acmi_events, sorted by priority."""
-    candidates: list[tuple[float, str]] = []
+def _collect_candidate_timestamps(acmi_events: dict) -> list[tuple[float, str, str]]:
+    """Extract (timestamp_sec, event_type, event_name) triples from acmi_events."""
+    candidates: list[tuple[float, str, str]] = []
     for ev in acmi_events.get("kills", []):
-        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "kill"))
+        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "kill", ev.get("name", "unknown")))
     for ev in acmi_events.get("ejection_events", []):
-        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "ejection"))
+        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "ejection", ev.get("name", "friendly pilot")))
     for ev in acmi_events.get("bomb_releases", []):
-        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "guided_bomb"))
+        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "guided_bomb", ev.get("name", "guided bomb")))
     for ev in acmi_events.get("sam_launches", []):
-        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "sam"))
+        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "sam", ev.get("name", "SAM")))
     for ev in acmi_events.get("bvr_launches", []):
-        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "bvr"))
+        candidates.append((float(ev.get("time_s", ev.get("timestamp_sec", 0))), "bvr", ev.get("name", "BVR missile")))
     return candidates
 
 
@@ -1953,67 +1953,84 @@ def _parse_audio_peaks(stderr: str, threshold_db: float = -20.0) -> list[float]:
 
 
 def _deduplicate_candidates(
-    candidates: list[tuple[float, str]], min_gap_s: float = 30.0
-) -> list[tuple[float, str]]:
+    candidates: list[tuple[float, str, str]], min_gap_s: float = 30.0
+) -> list[tuple[float, str, str]]:
     """Remove candidates within min_gap_s of a higher-priority one (keep higher-score event)."""
     priority_order = ["kill", "ejection", "guided_bomb", "sam", "bvr", "audio_peak"]
     sorted_by_priority = sorted(
         candidates,
         key=lambda x: priority_order.index(x[1]) if x[1] in priority_order else 99,
     )
-    kept: list[tuple[float, str]] = []
-    for ts, evt in sorted_by_priority:
+    kept: list[tuple[float, str, str]] = []
+    for ts, evt, name in sorted_by_priority:
         if not any(abs(ts - k[0]) < min_gap_s for k in kept):
-            kept.append((ts, evt))
+            kept.append((ts, evt, name))
     return kept
 
 
-def detect_short_clips(video_path: Path, acmi_events: dict, config: dict) -> list[dict]:
-    """Detect action moments and extract candidate Shorts clips from a gameplay video.
+def detect_short_clips(
+    video_path: Path, acmi_events: dict, config: dict, window_minutes: int = 5
+) -> list[dict]:
+    """Detect action moments using a window-based approach and extract candidate Shorts clips.
 
-    Collects candidate timestamps from acmi_events (kills, ejections, guided bombs —
-    highest priority; SAM launches, BVR launches — medium). Falls back to audio peak
-    detection if no ACMI events are available. Returns a list of clip dicts with keys:
-    start_sec, duration_sec, clip_path, hook, score. Sorted by score descending.
+    Divides the video into windows of window_minutes each. For each window, selects the
+    highest-priority ACMI event, falling back to an audio peak, then the window midpoint.
+    Returns one clip per window; no hard cap on total clips.
     """
+    import math
+
     try:
         video_duration = _get_video_duration(video_path)
     except Exception:
         video_duration = 0.0
 
-    candidates = _collect_candidate_timestamps(acmi_events)
+    acmi_candidates = _collect_candidate_timestamps(acmi_events)
 
-    if not candidates:
-        try:
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-i", str(video_path),
-                    "-af", "astats=metadata=1:reset=1,"
-                           "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
-                    "-f", "null", "-",
-                ],
-                capture_output=True, text=True,
-            )
-            peaks = _parse_audio_peaks(result.stderr)
-            candidates = [(t, "audio_peak") for t in peaks]
-        except (FileNotFoundError, OSError):
-            pass
+    audio_peaks: list[float] = []
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-i", str(video_path),
+                "-af", "astats=metadata=1:reset=1,"
+                       "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True,
+        )
+        audio_peaks = _parse_audio_peaks(result.stderr)
+    except (FileNotFoundError, OSError):
+        pass
 
-    candidates = _deduplicate_candidates(candidates)
-    candidates = sorted(candidates, key=lambda x: _SCORE_MAP.get(x[1], 0), reverse=True)
-    candidates = candidates[:5]
+    window_sec = window_minutes * 60
+    num_windows = max(1, math.ceil(video_duration / window_sec)) if video_duration else 1
 
     shorts_dir = OUTPUT_PATH / "shorts"
     shorts_dir.mkdir(parents=True, exist_ok=True)
 
     clips: list[dict] = []
-    for n, (ts, evt) in enumerate(candidates, start=1):
+    for i in range(num_windows):
+        window_start = i * window_sec
+        window_end = min((i + 1) * window_sec, video_duration) if video_duration else (i + 1) * window_sec
+
+        window_acmi = [
+            (ts, evt, name)
+            for ts, evt, name in acmi_candidates
+            if window_start <= ts < window_end
+        ]
+        if window_acmi:
+            ts, evt, event_name = max(window_acmi, key=lambda x: _SCORE_MAP.get(x[1], 0))
+        else:
+            peaks_in_window = [t for t in audio_peaks if window_start <= t < window_end]
+            ts = peaks_in_window[0] if peaks_in_window else (window_start + window_end) / 2
+            evt = "audio_peak"
+            event_name = "audio_peak"
+
         start = max(0.0, ts - 15.0)
         duration = min(60.0, video_duration - start) if video_duration else 60.0
         if duration <= 0:
             continue
 
-        output_path = shorts_dir / f"{video_path.stem}_short_{n}.mp4"
+        output_path = shorts_dir / f"{video_path.stem}_short_{i + 1}.mp4"
         try:
             subprocess.run(
                 [
@@ -2039,29 +2056,64 @@ def detect_short_clips(video_path: Path, acmi_events: dict, config: dict) -> lis
             "clip_path": str(output_path),
             "hook": _HOOK_MAP.get(evt, "Action moment ✈️"),
             "score": _SCORE_MAP.get(evt, 5),
+            "event_type": evt,
+            "event_name": event_name,
         })
 
     clips.sort(key=lambda x: x["score"], reverse=True)
     return clips
 
 
-def generate_short_metadata(clip: dict, base_metadata: dict, config: dict) -> dict:
-    """Generate YouTube Shorts metadata for a single clip.
+_EVENT_TITLE_MAP: dict[str, object] = {
+    "kill":        lambda n: f"{n} Kill" if n and n not in ("unknown", "") else "Air Kill",
+    "ejection":    lambda n: "Ejection Sequence",
+    "guided_bomb": lambda n: f"{n} Strike" if n and n not in ("guided bomb", "") else "Precision Strike",
+    "sam":         lambda n: f"{n} Evasion" if n and n not in ("SAM", "") else "SAM Evasion",
+    "bvr":         lambda n: f"{n} Shot" if n and n not in ("BVR missile", "") else "BVR Shot",
+    "audio_peak":  lambda n: "Cockpit Footage",
+}
 
-    Returns a dict with keys title, description, and tags. Title is capped at
-    100 characters. Description uses the first 200 chars of the base description
-    plus Shorts hashtags. Tags combine the first 10 base tags with Shorts-specific ones.
+_EVENT_DESC_MAP: dict[str, object] = {
+    "kill":        lambda n: f"Air-to-air kill of a {n} in DCS World." if n and n not in ("unknown", "") else "Air-to-air kill in DCS World.",
+    "ejection":    lambda n: "Ejection sequence captured during a DCS World mission.",
+    "guided_bomb": lambda n: f"Precision strike with a {n} in DCS World." if n and n not in ("guided bomb", "") else "Precision strike in DCS World.",
+    "sam":         lambda n: f"SAM evasion — {n} fired at us in DCS World." if n and n not in ("SAM", "") else "SAM evasion in DCS World.",
+    "bvr":         lambda n: f"BVR engagement — {n} fired in DCS World." if n and n not in ("BVR missile", "") else "BVR engagement in DCS World.",
+    "audio_peak":  lambda n: "Cockpit footage from a DCS World mission.",
+}
+
+_EVENT_TAGS_MAP: dict[str, object] = {
+    "kill":        lambda n: ["Kill", n] if n and n not in ("unknown", "") else ["Kill"],
+    "ejection":    lambda n: ["Ejection"],
+    "guided_bomb": lambda n: ["PrecisionStrike", n] if n and n not in ("guided bomb", "") else ["PrecisionStrike"],
+    "sam":         lambda n: ["SAMEvasion", n] if n and n not in ("SAM", "") else ["SAMEvasion"],
+    "bvr":         lambda n: ["BVR", n] if n and n not in ("BVR missile", "") else ["BVR"],
+    "audio_peak":  lambda n: ["Cockpit"],
+}
+
+
+def generate_short_metadata(clip: dict, base_metadata: dict, config: dict) -> dict:
+    """Generate YouTube Shorts metadata unique to this clip's event context.
+
+    Uses event_type and event_name from the clip to build a distinct title, description,
+    and tag set. Falls back to audio_peak defaults when event context is absent.
     """
     aircraft = base_metadata.get("aircraft", "")
-    raw_title = f'{clip["hook"]} | DCS World {aircraft} #Shorts'
+    event_type = clip.get("event_type", "audio_peak")
+    event_name = clip.get("event_name", "")
+
+    title_fn = _EVENT_TITLE_MAP.get(event_type, _EVENT_TITLE_MAP["audio_peak"])
+    raw_title = f"{title_fn(event_name)} | DCS {aircraft} #Shorts"
     title = raw_title[:100]
 
-    base_desc = base_metadata.get("description", "")[:200]
+    event_desc = _EVENT_DESC_MAP.get(event_type, _EVENT_DESC_MAP["audio_peak"])(event_name)
+    base_desc = base_metadata.get("description", "")[:150]
     aircraft_tag = aircraft.replace(" ", "").replace("/", "").replace("-", "")
-    description = f"{base_desc}\n\n#Shorts #DCSWorld #{aircraft_tag}"
+    description = f"{event_desc}\n\n{base_desc}\n\n#Shorts #DCSWorld #{aircraft_tag}"
 
+    event_tags: list[str] = _EVENT_TAGS_MAP.get(event_type, _EVENT_TAGS_MAP["audio_peak"])(event_name)
     base_tags = base_metadata.get("tags", [])[:10]
-    tags = base_tags + ["Shorts", "DCSWorld", "YouTube Shorts"]
+    tags = base_tags + event_tags + ["Shorts", "DCSWorld", "YouTube Shorts"]
 
     return {"title": title, "description": description, "tags": tags}
 

@@ -679,7 +679,8 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
 def generate_shorts():
     """POST /api/generate_shorts — detect action clips and crop to 9:16 for YouTube Shorts.
 
-    Request body: {"video_path": str, "metadata": dict, "acmi_events": dict (optional)}.
+    Request body: {"video_path": str, "metadata": dict, "acmi_events": dict (optional),
+    "window_minutes": int (optional, default 5)}.
     Starts a background job and returns {"job_id": str}. Poll /api/status/<job_id> for
     results. On completion, result contains {"clips": [...]}.
     """
@@ -689,6 +690,7 @@ def generate_shorts():
     video_path = (data.get("video_path") or "").strip()
     metadata = data.get("metadata") or {}
     acmi_events = data.get("acmi_events") or {}
+    window_minutes = int(data.get("window_minutes") or 5)
 
     if not video_path:
         return jsonify({"error": "Missing video_path"}), 400
@@ -715,7 +717,7 @@ def generate_shorts():
             processing_status[job_id]["progress"] = 20
             processing_status[job_id]["message"] = "Extracting short clips..."
 
-            clips = dcs_meta.detect_short_clips(path, acmi_events, cfg)
+            clips = dcs_meta.detect_short_clips(path, acmi_events, cfg, window_minutes=window_minutes)
 
             processing_status[job_id]["progress"] = 80
             processing_status[job_id]["message"] = "Generating metadata..."
