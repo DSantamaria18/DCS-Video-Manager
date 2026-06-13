@@ -48,6 +48,17 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 
 ---
 
+## YouTube Shorts
+
+- **Window-based clip detection (#49)** — `detect_short_clips()` divides the video into windows of configurable duration (default 5 min, UI-adjustable). For each window it picks the highest-priority ACMI event (kill → ejection → guided bomb → SAM → BVR), falls back to the loudest audio peak in that window, and finally uses the window midpoint. No hard cap on clip count — a 60-min video produces ~12 candidates.
+- **Configurable window size** — the "WINDOW (MIN)" input next to the GENERATE SHORTS button controls the window length (1–30 min, default 5). Sent as `window_minutes` in `POST /api/generate_shorts`.
+- **Event-context metadata** — `generate_short_metadata()` generates a distinct title and description per clip using event type and event name from ACMI: `Su-27 Kill | DCS F/A-18C #Shorts`, `AIM-120C Shot | DCS F/A-18C #Shorts`, `SA-10 Evasion | ...`, `GBU-12 Strike | ...`, `Ejection Sequence | ...`, `Cockpit Footage | ...`. Event-specific tags are appended (Kill, BVR, SAMEvasion, PrecisionStrike, etc.).
+- **9:16 crop** — each clip is cropped to vertical format (`crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920`) for YouTube Shorts compatibility.
+- **Card grid + copy metadata** — generated clips appear as selectable cards with COPY META and DOWNLOAD buttons per clip.
+- **Inline metadata editor** — each card has an EDIT button that expands an inline panel with editable title (input), description (textarea), and tags (comma-separated input). SAVE updates the in-memory clip and refreshes the card's title display; COPY META and subsequent copies use the edited values.
+
+---
+
 ## Thumbnail
 
 - **Smart frame selection** — extracts 6 candidate frames between 18% and 78% of the video and scores each by sharpness (edge detection), brightness (penalises dark or washed-out frames), and colorfulness (per-channel standard deviation).

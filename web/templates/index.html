@@ -1012,6 +1012,11 @@
             <div style="display:flex;align-items:center;gap:12px;padding:4px 0">
               <button class="action-btn" id="debriefGenBtn" onclick="generateDebrief()">GENERATE DEBRIEF</button>
               <button class="action-btn" id="shortsGenBtn" onclick="generateShorts()" style="background:var(--amber2);border-color:var(--amber);">GENERATE SHORTS</button>
+              <label style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--text3);">
+                WINDOW (MIN)
+                <input type="number" id="shortsWindowMin" value="5" min="1" max="30"
+                  style="width:46px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:3px 5px;border-radius:2px;text-align:center;">
+              </label>
               <span id="debriefGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
             </div>
             <textarea class="editable" id="debriefOutput" rows="16" readonly
@@ -1945,6 +1950,7 @@ async function generateShorts() {
         video_path: currentVideoPath,
         metadata: currentMetadata,
         acmi_events: currentAcmiEvents || {},
+        window_minutes: parseInt(document.getElementById('shortsWindowMin').value) || 5,
       }),
     });
     const data = await res.json();
@@ -2004,10 +2010,10 @@ function renderShortsGrid(clips) {
   clips.forEach((clip, idx) => {
     const meta = clip.metadata || {};
     const card = document.createElement('div');
+    card.id = 'short_card_' + idx;
     card.style.cssText = 'background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:10px;position:relative;';
 
     const checkId = 'short_sel_' + idx;
-    const thumbUrl = clip.clip_url ? clip.clip_url.replace(/\.mp4$/, '_thumb.jpg') : '';
 
     card.innerHTML = `
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
@@ -2023,7 +2029,7 @@ function renderShortsGrid(clips) {
               ★ ${clip.score || 0}
             </span>
           </div>
-          <div style="font-size:11px;color:var(--text);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(meta.title || '')}">
+          <div id="short_title_${idx}" style="font-size:11px;color:var(--text);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(meta.title || '')}">
             ${escHtml((meta.title || '').slice(0, 60))}
           </div>
         </div>
@@ -2032,6 +2038,28 @@ function renderShortsGrid(clips) {
         <button class="copy-btn" onclick="copyShortMeta(${idx})" style="font-size:10px;">COPY META</button>
         <a href="${escHtml(clip.clip_url || '#')}" download
           class="copy-btn" style="font-size:10px;text-decoration:none;">DOWNLOAD</a>
+        <button class="copy-btn" onclick="toggleShortEdit(${idx})" style="font-size:10px;">EDIT</button>
+      </div>
+      <div id="short_edit_${idx}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+        <div style="margin-bottom:6px;">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:3px;">TITLE</div>
+          <input id="short_edit_title_${idx}" type="text" value="${escHtml(meta.title || '')}"
+            style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;">
+        </div>
+        <div style="margin-bottom:6px;">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:3px;">DESCRIPTION</div>
+          <textarea id="short_edit_desc_${idx}" rows="5"
+            style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;resize:vertical;">${escHtml(meta.description || '')}</textarea>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:3px;">TAGS (comma-separated)</div>
+          <input id="short_edit_tags_${idx}" type="text" value="${escHtml((meta.tags || []).join(', '))}"
+            style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;">
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="copy-btn" onclick="saveShortMeta(${idx})" style="font-size:10px;background:var(--green3);border-color:var(--green2);">SAVE</button>
+          <button class="copy-btn" onclick="toggleShortEdit(${idx})" style="font-size:10px;">CANCEL</button>
+        </div>
       </div>
     `;
     cards.appendChild(card);
@@ -2042,7 +2070,6 @@ function renderShortsGrid(clips) {
 }
 
 function copyShortMeta(idx) {
-  const cards = document.getElementById('shortsCards');
   const clips = (document.getElementById('shortsGrid').__clips) || [];
   const clip = clips[idx];
   if (!clip) return;
@@ -2053,6 +2080,34 @@ function copyShortMeta(idx) {
   }).catch(() => {
     showToast('Copy failed — check browser permissions', 'error');
   });
+}
+
+function toggleShortEdit(idx) {
+  const panel = document.getElementById('short_edit_' + idx);
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+function saveShortMeta(idx) {
+  const clips = (document.getElementById('shortsGrid').__clips) || [];
+  const clip = clips[idx];
+  if (!clip) return;
+
+  const title = (document.getElementById('short_edit_title_' + idx)?.value || '').trim();
+  const description = (document.getElementById('short_edit_desc_' + idx)?.value || '').trim();
+  const tagsRaw = document.getElementById('short_edit_tags_' + idx)?.value || '';
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+
+  clip.metadata = { ...(clip.metadata || {}), title, description, tags };
+
+  const titleEl = document.getElementById('short_title_' + idx);
+  if (titleEl) {
+    titleEl.textContent = title.slice(0, 60);
+    titleEl.title = title;
+  }
+
+  toggleShortEdit(idx);
+  showToast('Metadata saved');
 }
 
 function uploadSelectedShorts() {

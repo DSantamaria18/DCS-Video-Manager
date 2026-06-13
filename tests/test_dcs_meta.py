@@ -1230,12 +1230,14 @@ _SAMPLE_CLIP = {
     "start_sec": 45.0,
     "duration_sec": 60.0,
     "clip_path": "/output/shorts/test_short_1.mp4",
+    "event_type": "kill",
+    "event_name": "Su-27",
 }
 
 
-def test_generate_short_metadata_title_contains_hook():
+def test_generate_short_metadata_title_contains_event_context():
     result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, _BASE_META_FOR_SHORTS, {})
-    assert "This kill" in result["title"]
+    assert "Su-27 Kill" in result["title"]
 
 
 def test_generate_short_metadata_title_contains_shorts_hashtag():
@@ -1284,7 +1286,8 @@ def test_generate_short_metadata_tags_include_base_tags():
 def test_generate_short_metadata_base_tags_capped_at_10():
     long_meta = {**_BASE_META_FOR_SHORTS, "tags": [f"tag{i}" for i in range(20)]}
     result = dcs_meta.generate_short_metadata(_SAMPLE_CLIP, long_meta, {})
-    base_tags = [t for t in result["tags"] if t not in ("Shorts", "DCSWorld", "YouTube Shorts")]
+    fixed_tags = {"Shorts", "DCSWorld", "YouTube Shorts", "Kill", "Su-27"}
+    base_tags = [t for t in result["tags"] if t not in fixed_tags]
     assert len(base_tags) <= 10
 
 
@@ -1334,16 +1337,16 @@ def test_detect_short_clips_sorted_by_score_desc(tmp_path, monkeypatch):
     assert scores == sorted(scores, reverse=True)
 
 
-def test_detect_short_clips_caps_at_five(tmp_path, monkeypatch):
+def test_detect_short_clips_one_per_window(tmp_path, monkeypatch):
     video = tmp_path / "mission.mp4"
     video.write_bytes(b"fake")
-    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 3600.0)
+    # 15-minute video → 3 windows of 5 minutes each
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 900.0)
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
-    many_kills = [{"time_s": float(i * 120)} for i in range(10)]
-    acmi = {"kills": many_kills, "sam_launches": [], "bvr_launches": [],
-            "ejection_events": [], "guided_bomb_drops": []}
+    kills = [{"time_s": 60.0, "name": "Su-27"}, {"time_s": 360.0, "name": "MiG-29"}, {"time_s": 660.0, "name": "Su-25"}]
+    acmi = {"kills": kills, "sam_launches": [], "bvr_launches": [], "ejection_events": [], "bomb_releases": []}
     clips = dcs_meta.detect_short_clips(video, acmi, {})
-    assert len(clips) <= 5
+    assert len(clips) == 3
 
 
 def test_detect_short_clips_empty_acmi_falls_back_to_audio(tmp_path, monkeypatch):
@@ -1377,18 +1380,18 @@ def test_detect_short_clips_clip_path_in_shorts_dir(tmp_path, monkeypatch):
         assert "shorts" in clips[0]["clip_path"]
 
 
-def test_detect_short_clips_deduplicates_nearby_timestamps(tmp_path, monkeypatch):
+def test_detect_short_clips_same_window_gives_one_clip(tmp_path, monkeypatch):
     video = tmp_path / "mission.mp4"
     video.write_bytes(b"fake")
-    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    # Single 5-min window — both kills land in it, only one clip produced
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 200.0)
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
     acmi = {
-        "kills": [{"time_s": 100.0}, {"time_s": 115.0}],
+        "kills": [{"time_s": 60.0, "name": "Su-27"}, {"time_s": 90.0, "name": "MiG-29"}],
         "sam_launches": [], "bvr_launches": [],
-        "ejection_events": [], "guided_bomb_drops": [],
+        "ejection_events": [], "bomb_releases": [],
     }
     clips = dcs_meta.detect_short_clips(video, acmi, {})
-    # Two timestamps within 30s should be deduplicated to 1
     assert len(clips) == 1
 
 
@@ -1415,14 +1418,14 @@ def test_detect_short_clips_ffmpeg_failure_skips_clip(tmp_path, monkeypatch):
 # ── _deduplicate_candidates ───────────────────────────────────────────────────
 
 def test_deduplicate_keeps_higher_priority_event():
-    candidates = [(100.0, "bvr"), (110.0, "kill")]
+    candidates = [(100.0, "bvr", "AIM-120"), (110.0, "kill", "Su-27")]
     result = dcs_meta._deduplicate_candidates(candidates)
     assert len(result) == 1
     assert result[0][1] == "kill"
 
 
 def test_deduplicate_keeps_both_when_far_apart():
-    candidates = [(100.0, "kill"), (200.0, "kill")]
+    candidates = [(100.0, "kill", "Su-27"), (200.0, "kill", "MiG-29")]
     result = dcs_meta._deduplicate_candidates(candidates)
     assert len(result) == 2
 
@@ -1447,7 +1450,7 @@ def test_collect_candidate_uses_bomb_releases_key():
         "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
     }
     candidates = dcs_meta._collect_candidate_timestamps(acmi)
-    assert any(evt == "guided_bomb" for _, evt in candidates)
+    assert any(evt == "guided_bomb" for _, evt, _ in candidates)
 
 
 def test_collect_candidate_ignores_wrong_key():
@@ -1457,7 +1460,7 @@ def test_collect_candidate_ignores_wrong_key():
         "kills": [], "ejection_events": [], "sam_launches": [], "bvr_launches": [],
     }
     candidates = dcs_meta._collect_candidate_timestamps(acmi)
-    assert not any(evt == "guided_bomb" for _, evt in candidates)
+    assert not any(evt == "guided_bomb" for _, evt, _ in candidates)
 
 
 def test_detect_short_clips_ffmpeg_y_before_input(tmp_path, monkeypatch):
@@ -1510,3 +1513,90 @@ def test_detect_short_clips_multi_clip_distinct_events(tmp_path, monkeypatch):
     }
     clips = dcs_meta.detect_short_clips(video, acmi, dcs_meta.DEFAULT_CONFIG)
     assert len(clips) > 1, "Expected multiple clips from distinct events at spread timestamps"
+
+
+def test_detect_short_clips_window_minutes_param(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    # 10-minute video: window_minutes=10 → 1 window; window_minutes=5 → 2 windows
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 600.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {"kills": [], "sam_launches": [], "bvr_launches": [], "ejection_events": [], "bomb_releases": []}
+    clips_1win = dcs_meta.detect_short_clips(video, acmi, {}, window_minutes=10)
+    clips_2win = dcs_meta.detect_short_clips(video, acmi, {}, window_minutes=5)
+    assert len(clips_1win) == 1
+    assert len(clips_2win) == 2
+
+
+def test_detect_short_clips_event_name_in_clip(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {
+        "kills": [{"time_s": 60.0, "name": "Su-27"}],
+        "sam_launches": [], "bvr_launches": [], "ejection_events": [], "bomb_releases": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    assert clips[0]["event_type"] == "kill"
+    assert clips[0]["event_name"] == "Su-27"
+
+
+def test_detect_short_clips_picks_highest_score_in_window(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    acmi = {
+        "kills": [{"time_s": 60.0, "name": "Su-27"}],
+        "sam_launches": [{"time_s": 120.0, "name": "SA-10"}],
+        "bvr_launches": [], "ejection_events": [], "bomb_releases": [],
+    }
+    clips = dcs_meta.detect_short_clips(video, acmi, {})
+    # kill (score 10) beats sam (score 7) in the same window
+    assert clips[0]["event_type"] == "kill"
+
+
+# ── generate_short_metadata — event context ───────────────────────────────────
+
+def test_generate_short_metadata_kill_uses_event_name():
+    clip = {**_SAMPLE_CLIP, "event_type": "kill", "event_name": "Su-27"}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "Su-27 Kill" in result["title"]
+    assert "Kill" in result["tags"]
+    assert "Su-27" in result["tags"]
+
+
+def test_generate_short_metadata_bvr_uses_weapon_name():
+    clip = {**_SAMPLE_CLIP, "event_type": "bvr", "event_name": "AIM-120C", "score": 6}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "AIM-120C Shot" in result["title"]
+    assert "BVR" in result["tags"]
+    assert "AIM-120C" in result["tags"]
+
+
+def test_generate_short_metadata_audio_peak_uses_cockpit_footage():
+    clip = {**_SAMPLE_CLIP, "event_type": "audio_peak", "event_name": "audio_peak", "score": 5}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "Cockpit Footage" in result["title"]
+    assert "Cockpit" in result["tags"]
+
+
+def test_generate_short_metadata_sam_uses_sam_name():
+    clip = {**_SAMPLE_CLIP, "event_type": "sam", "event_name": "SA-10", "score": 7}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "SA-10 Evasion" in result["title"]
+    assert "SAMEvasion" in result["tags"]
+    assert "SA-10" in result["tags"]
+
+
+def test_generate_short_metadata_description_contains_event_context():
+    clip = {**_SAMPLE_CLIP, "event_type": "kill", "event_name": "Su-27"}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "Su-27" in result["description"]
+
+
+def test_generate_short_metadata_no_event_type_falls_back_to_cockpit():
+    clip = {k: v for k, v in _SAMPLE_CLIP.items() if k not in ("event_type", "event_name")}
+    result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
+    assert "Cockpit Footage" in result["title"]
