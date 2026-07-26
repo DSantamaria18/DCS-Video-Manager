@@ -54,6 +54,12 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 | DOC-01 | `README.md` desactualizado | P1 | S | No menciona YouTube Shorts, TacView ACMI, el debrief de misión, los guiones de narración, las captions sociales, la pestaña Stats, el watcher de lotes, la publicación programada ni el bot de Discord. Tampoco documenta `discord_bot.py` pese a que `discord.py` es dependencia de producción. Un lector del README se forma una idea equivocada de lo que hace la app. |
 | DOC-02 | `FEATURES.md` documenta features por número de issue sin trazabilidad | P3 | S | Las entradas citan `(#30, #43)`, `(#49)`, etc., pero no hay issues en el repositorio a los que apunten. Propuesta: decidir si se abren issues reales o si se sustituyen las referencias por identificadores del backlog. |
 
+**Hecho (2026-07-26):** split de `CLAUDE.md` y `DECISIONS.md` para bajar el coste de tokens fijo por
+sesión/tarea (~52% menos combinado). Roles/DoD/flujo de PR → `.claude/team-workflow.md` (solo se lee al
+orquestar multi-agente). Rationale de decisiones técnicas de código → `DECISIONS_TECHNICAL.md` (solo al
+tocar el fichero/feature concreto). §6 de `CLAUDE.md` eliminada por redundante con este fichero y con
+`DECISIONS.md`.
+
 ---
 
 ## Features propuestas
