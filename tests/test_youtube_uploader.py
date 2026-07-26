@@ -1,9 +1,6 @@
 """Tests for youtube_uploader — thumbnail upload behaviour."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,8 +36,8 @@ def _make_youtube_mock(video_id="ABC123"):
 
 def test_upload_thumbnail_calls_thumbnails_set(tmp_path):
     """_upload_thumbnail must call thumbnails().set() with correct videoId and media."""
+
     from youtube_uploader import _upload_thumbnail
-    from googleapiclient.http import MediaFileUpload
 
     img = tmp_path / "thumb.jpg"
     img.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)  # minimal fake JPEG header

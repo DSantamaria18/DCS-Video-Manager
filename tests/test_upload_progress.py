@@ -1,9 +1,6 @@
 """Tests for Task #3 (upload progress) and Task #40 (analytics tracking)."""
 
-import threading
-import pytest
-from unittest.mock import MagicMock, patch, call
-
+from unittest.mock import MagicMock, patch
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

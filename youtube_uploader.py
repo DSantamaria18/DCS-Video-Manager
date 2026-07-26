@@ -4,7 +4,6 @@ Uses YouTube Data API v3 with OAuth2.
 Credential type: Desktop app (InstalledAppFlow)
 """
 
-import json
 import os
 import threading
 from pathlib import Path
@@ -72,8 +71,8 @@ def wait_for_auth() -> dict:
 
 def _get_credentials():
     """Load OAuth2 credentials from token file and refresh them if expired."""
-    from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
 
     if not TOKEN_PATH.exists():
         raise PermissionError("Not authenticated. Complete YouTube OAuth setup first.")
@@ -162,8 +161,9 @@ def _sanitize_tags(tags: list) -> list:
 
 def _upload_thumbnail(youtube, video_id: str, thumbnail_path: str) -> None:
     """Set a custom thumbnail for an uploaded video via thumbnails.set."""
-    from googleapiclient.http import MediaFileUpload
     import mimetypes
+
+    from googleapiclient.http import MediaFileUpload
     mime = mimetypes.guess_type(thumbnail_path)[0] or "image/jpeg"
     media = MediaFileUpload(thumbnail_path, mimetype=mime, resumable=False)
     youtube.thumbnails().set(videoId=video_id, media_body=media).execute()
@@ -322,7 +322,7 @@ def fetch_video_analytics(video_id: str) -> dict:
 
     Returns a dict with keys views, watch_minutes, likes, fetched_at, or {} on error.
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     try:
         svc = build_analytics_service()
         today = datetime.now(timezone.utc).date()

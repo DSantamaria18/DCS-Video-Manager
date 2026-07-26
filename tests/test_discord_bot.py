@@ -2,7 +2,7 @@ import json
 import sys
 import types
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,8 +37,7 @@ def _make_discord_stub():
 
 
 _make_discord_stub()
-import discord_bot  # noqa: E402
-
+import discord_bot
 
 # ── load_config ───────────────────────────────────────────────────────────────
 

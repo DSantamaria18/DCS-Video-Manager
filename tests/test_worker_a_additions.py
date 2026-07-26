@@ -5,15 +5,14 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-import pytest
 
 # Ensure the web app and root modules are importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "web"))
 
-import dcs_meta
 from app import _suggest_playlist_ids
 
+import dcs_meta
 
 # ── #42 _suggest_playlist_ids aircraft aliases ────────────────────────────────
 
@@ -161,7 +160,7 @@ def test_build_fallback_no_gemini_error_when_used(tmp_path, monkeypatch):
 # ── #38 app analyze endpoint with Gemini failure ─────────────────────────────
 
 def test_analyze_uses_fallback_on_gemini_failure(monkeypatch, tmp_path):
-    from app import app as flask_app, processing_status
+    from app import app as flask_app
     flask_app.config["TESTING"] = True
 
     video = tmp_path / "test.mp4"

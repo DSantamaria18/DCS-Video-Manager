@@ -1,8 +1,9 @@
-import os
-import pytest
 from unittest.mock import patch
-from app import app as flask_app
+
 import app as app_module
+import pytest
+from app import app as flask_app
+
 import dcs_meta
 
 

@@ -3,13 +3,16 @@
 import json
 import sys
 from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "web"))
 
+from app import _post_discord_webhook
+from app import app as flask_app
+
 import dcs_meta
-from app import app as flask_app, _post_discord_webhook
 
 
 @pytest.fixture
@@ -34,8 +37,8 @@ def test_config_allowed_keys_includes_discord_webhook():
 # ── #33 _post_discord_webhook ─────────────────────────────────────────────────
 
 def test_post_discord_webhook_does_not_raise_on_failure(monkeypatch):
-    import urllib.request as _req
     import urllib.error as _err
+    import urllib.request as _req
 
     def _mock_urlopen(*a, **k):
         raise _err.URLError("simulated failure")
@@ -177,7 +180,8 @@ def test_upload_tags_skipped_message_is_specific(monkeypatch):
     monkeypatch.setattr(yu, "_do_insert", _mock_do_insert)
     monkeypatch.setattr(yu, "_sanitize_tags", lambda t: t)
 
-    import os, tempfile
+    import os
+    import tempfile
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
         f.write(b"fake")
         fp = f.name

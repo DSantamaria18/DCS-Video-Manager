@@ -5,15 +5,16 @@ Run: python web/app.py
 Then open: http://localhost:5000
 """
 
-import os
-import sys
 import json
-import uuid
+import os
 import subprocess
+import sys
 import threading
+import uuid
 import webbrowser
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_from_directory
+
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 # Add parent dir to path so we can import dcs_meta
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -374,8 +375,8 @@ def job_status(job_id):
 def _post_discord_webhook(webhook_url: str, title: str, youtube_url: str,
                            description: str, thumbnail_url: str = "") -> None:
     """POST an embed to a Discord webhook. Non-fatal: logs and returns on failure."""
-    import urllib.request as _req
     import urllib.error as _err
+    import urllib.request as _req
 
     embed = {
         "title": title,
@@ -396,7 +397,7 @@ def _post_discord_webhook(webhook_url: str, title: str, youtube_url: str,
     try:
         with _req.urlopen(request_obj, timeout=10):
             pass
-        print(f"  ✓ Discord webhook posted")
+        print("  ✓ Discord webhook posted")
     except (_err.HTTPError, _err.URLError, OSError) as e:
         print(f"  ⚠ Discord webhook failed (non-fatal): {e}")
 
@@ -433,7 +434,7 @@ def upload_youtube():
 
     def run_upload():
         try:
-            from youtube_uploader import upload_video, schedule_analytics_polling
+            from youtube_uploader import schedule_analytics_polling, upload_video
 
             def on_progress(pct):
                 processing_status[job_id]["upload_progress"] = pct
@@ -837,9 +838,10 @@ def batch_status():
 @app.route("/api/export_history_csv")
 def export_history_csv():
     """GET /api/export_history_csv — return history.json as a downloadable CSV file."""
-    from flask import Response
     import csv
     import io
+
+    from flask import Response
 
     mem = dcs_meta.load_memory()
     videos = mem.get("videos", [])

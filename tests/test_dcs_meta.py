@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
-import pytest
-import dcs_meta
 
+import pytest
+
+import dcs_meta
 
 # ── is_squadron_video ─────────────────────────────────────────────────────────
 

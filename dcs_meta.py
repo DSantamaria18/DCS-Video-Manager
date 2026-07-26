@@ -5,19 +5,19 @@ Analyzes DCS World video files and generates optimized YouTube metadata.
 Uses Google Gemini Vision API (gemini-1.5-flash) — free tier: 1500 req/day.
 """
 
+import argparse
+import base64
+import json
 import os
 import re
-import sys
-import json
-import base64
 import subprocess
-import argparse
+import sys
 import threading
-import urllib.request
 import urllib.error
-from pathlib import Path
-from datetime import datetime
+import urllib.request
 from collections import Counter
+from datetime import datetime
+from pathlib import Path
 
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
@@ -535,7 +535,7 @@ def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dic
 
     series_block = ""
     if series_context:
-        series_block = f"\n\nSERIES CONTEXT — this video is part of a campaign:\n"
+        series_block = "\n\nSERIES CONTEXT — this video is part of a campaign:\n"
         series_block += f"- Campaign: {series_context['campaign']}\n"
         series_block += f"- Episode: {series_context['episode']}\n"
         series_block += (
@@ -697,7 +697,7 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        raise EnvironmentError("GEMINI_API_KEY not set.")
+        raise OSError("GEMINI_API_KEY not set.")
 
     url = (
         f"https://generativelanguage.googleapis.com/v1/models/"
@@ -822,7 +822,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         return metadata
     except json.JSONDecodeError as e:
         # Try to recover truncated JSON by closing open braces/brackets
-        print(f"  ⚠ JSON truncated, attempting recovery...")
+        print("  ⚠ JSON truncated, attempting recovery...")
         recovered = _recover_json(raw)
         if recovered:
             print("  ✓ Recovered from truncated response")
@@ -933,7 +933,7 @@ def _load_font(size: int):
     for p in _FONT_PATHS:
         try:
             return ImageFont.truetype(p, size)
-        except (IOError, OSError):
+        except OSError:
             continue
     return ImageFont.load_default()
 
@@ -971,7 +971,8 @@ def _grade_frame(img):
 
     Caller must have already imported PIL (ImageEnhance, Image).
     """
-    from PIL import ImageEnhance, Image as _Img
+    from PIL import Image as _Img
+    from PIL import ImageEnhance
     img = ImageEnhance.Color(img).enhance(1.30)
     img = ImageEnhance.Contrast(img).enhance(1.15)
     r, g, b = img.split()
@@ -1081,8 +1082,9 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
     best-first so index 0 is the recommended thumbnail.
     """
     try:
-        from PIL import Image
         import io as _io
+
+        from PIL import Image
     except ImportError:
         raise RuntimeError("Pillow not installed: pip install Pillow")
 
@@ -1166,8 +1168,8 @@ def parse_acmi_events(acmi_path: Path) -> dict:
     ejection_events: list = []
 
     try:
-        import zipfile
         import io as _io
+        import zipfile
 
         acmi_path = Path(acmi_path)
         if zipfile.is_zipfile(acmi_path):
@@ -1291,7 +1293,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                             "name": obj.get("name", "guided bomb"),
                         })
 
-    except (OSError, IOError):
+    except OSError:
         return {}
 
     parts = []
@@ -1867,8 +1869,7 @@ def save_output(metadata: dict, video_path: Path, config: dict):
         chapters = metadata.get("chapters", [])
         if chapters:
             f.write(f"CHAPTERS\n{'─'*40}\n")
-            for ch in chapters:
-                f.write(f"{ch['time']} {ch['label']}\n")
+            f.writelines(f"{ch['time']} {ch['label']}\n" for ch in chapters)
             f.write("\n")
         f.write(f"DETECTED\n{'─'*40}\n")
         f.write(f"Aircraft:     {metadata.get('aircraft','?')}\n")
@@ -2205,7 +2206,7 @@ Examples:
         save_output(metadata, video, config)
         update_memory(metadata, video)
 
-    print(f"\n✓ Done. Check the output/ folder.\n")
+    print("\n✓ Done. Check the output/ folder.\n")
 
 
 if __name__ == "__main__":
