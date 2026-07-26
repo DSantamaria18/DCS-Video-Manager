@@ -96,8 +96,13 @@ Pendientes de respuesta. El Tech Lead las traslada; ningún otro agente pregunta
 2. **Alcance del CI.** No existe `.github/workflows/`. La Definition of Done exige CI real en verde, así
    que hoy es incumplible. ¿Qué debe correr el CI en la primera versión: solo pytest, o también linter y
    umbral de cobertura?
+   **Respuesta (2026-07-26):** pytest + linter (`ruff`) + coverage (`pytest-cov`), los tres bloqueantes
+   desde el primer CI. Coverage se mide y reporta pero sin umbral mínimo (ver pregunta 3). Pendiente de
+   ejecutar: INF-01 (crear `.github/workflows/`).
 3. **Umbral de cobertura.** ¿Qué porcentaje mínimo aceptas como quality gate, sabiendo que `dcs_meta.py`
    concentra la mayor parte de la lógica?
+   **Respuesta (2026-07-26):** sin umbral bloqueante por ahora. Se mide y reporta (`--cov-report=term-missing`
+   en `pytest.ini`), no falla el build por debajo de un %.
 4. **Refactor de `dcs_meta.py`.** Son ~2.200 líneas mezclando dominio, I/O, subprocesos y HTTP. Partirlo
    mejora el cumplimiento de la regla 4 (SOLID) pero es una PR grande y arriesgada. ¿Se aborda ahora, se
    hace de forma incremental, o se congela?

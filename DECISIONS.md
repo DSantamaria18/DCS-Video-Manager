@@ -23,6 +23,21 @@ Rationale de decisiones técnicas de código: `DECISIONS_TECHNICAL.md`.
 
 ## Decisiones de proceso
 
+### 2026-07-26 — Linter `ruff` y coverage `pytest-cov`, sin umbral bloqueante
+
+**Contexto.** Preguntas 2 y 3 de `SPEC.md`. `requirements-dev.txt` solo tenía `pytest`; no había
+herramienta de linting ni de coverage declarada.
+
+**Decisión.** `ruff` como linter (`ruff.toml`, excluye `.claude/worktrees`, cierra INF-04) y
+`pytest-cov` para coverage (`--cov-report=term-missing` en `pytest.ini`, sin `--cov-fail-under`: se mide
+y reporta, no bloquea el build).
+
+**Evidencia de la elección.** Verificado contra PyPI (`pip index versions`): `ruff` 0.16.0, `pytest-cov`
+7.1.0, ambos vigentes al fijar la versión en `requirements-dev.txt`.
+
+**Consecuencia.** El CI (INF-01, aún sin implementar) debe correr pytest + ruff + coverage, los tres
+bloqueantes salvo el umbral de coverage, que no bloquea.
+
 ### 2026-07-26 — Versionado con tags de git a partir de la próxima entrega
 
 **Contexto.** Pregunta 6 de `SPEC.md`. `CHANGELOG.md` ya sigue SemVer y arranca en `[No publicado]`,

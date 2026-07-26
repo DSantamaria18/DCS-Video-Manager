@@ -19,6 +19,10 @@ memory/history.json
 # ── Worktrees de agentes ────────────────────────────────────
 .claude/worktrees/
 
+# ── Coverage ─────────────────────────────────────────────────
+.coverage
+htmlcov/
+
 # ── Python ────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
