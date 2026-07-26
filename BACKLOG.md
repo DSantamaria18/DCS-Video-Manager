@@ -27,12 +27,8 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
-| INF-01 | ~~No existe pipeline de CI~~ **Hecho (2026-07-26)** | P0 | M | `.github/workflows/ci.yml`: Python 3.10 (sin matriz), instala `requirements.txt`+`requirements-dev.txt`, corre `ruff check .` (reporte, no bloquea — ver TEC-05) y `pytest -q` (bloqueante, con coverage reportado). Verificado en verde en GitHub tras el push. |
-| INF-02 | ~~`watchdog` no está declarado en `requirements.txt`~~ **Hecho (2026-07-26)** | P1 | S | Declarado como extra explícito en `requirements-batch.txt` (no en `requirements.txt`, respeta la filosofía de "Minimal dependencies" de `FEATURES.md`). `README.md`, `FEATURES.md` y el mensaje de error de `batch_watcher.py` apuntan ahí. |
-| INF-03 | ~~Sin linter ni medición de cobertura~~ **Hecho (2026-07-26)** | P1 | S | `ruff` (linter) y `pytest-cov` (coverage) añadidos a `requirements-dev.txt`. `ruff.toml` y `--cov` en `pytest.ini`, sin umbral bloqueante (ver `SPEC.md` preguntas 2-3, `DECISIONS.md`). Verificado en venv temporal: `ruff check .` corre (129 issues preexistentes detectados, sin arreglar aquí — fuera de alcance), `pytest -q` 341 tests en verde con reporte de coverage (61% total). Falta cablear en CI real (INF-01). |
-| INF-04 | ~~Excluir `.claude/worktrees/` de lint y test~~ **Hecho (2026-07-26)** | P1 | S | `pytest.ini` (`norecursedirs`) y `ruff.toml` (`extend-exclude`) excluyen `.claude/worktrees`; `.gitignore` también. Verificado con `pytest --collect-only`. |
 | INF-05 | El sondeo de analytics no sobrevive al reinicio | P2 | M | `schedule_analytics_polling()` usa cuatro `threading.Timer` daemon a 1 h, 6 h, 12 h y 24 h. Si la app se cierra antes, los sondeos pendientes se pierden sin dejar rastro. Propuesta: persistir los sondeos pendientes en `history.json` y reprogramarlos al arrancar. |
-| INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. Bloqueado hasta que INF-01 (CI) y SEC-01 estén resueltos — son los requisitos ya listados en `CHANGELOG.md` para cortar la primera versión. |
+| INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. CI (INF-01) ya resuelto; bloqueado solo por SEC-01 — único requisito que queda listado en `CHANGELOG.md` para cortar la primera versión. |
 
 ---
 
@@ -44,7 +40,6 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 | TEC-02 | `youtube_uploader` accede a `dcs_meta._memory_lock` | P2 | S | Uso de un símbolo privado de otro módulo desde `schedule_analytics_polling()`. Propuesta: exponer una función pública de escritura segura en `dcs_meta` (por ejemplo `append_analytics(video_id, filename, data)`) y que el uploader la llame. |
 | TEC-03 | `processing_status` se muta desde varios hilos sin lock | P2 | S | El diccionario global de `web/app.py` lo escriben los hilos de análisis, subida y Shorts, y lo lee el endpoint de estado. Cada job usa su propia clave, lo que en CPython funciona en la práctica, pero no es una garantía explícita del diseño y `_evict_old_jobs()` sí itera y borra sobre el diccionario completo. Propuesta: proteger con un `threading.Lock`. |
 | TEC-04 | Toda la UI en un único `index.html` | P3 | L | HTML, CSS y JavaScript conviven en un solo fichero sin build step. Es una decisión deliberada (ver `DECISIONS.md`) y aporta simplicidad de arranque, pero convierte cualquier PR de UI en un punto de conflicto garantizado entre Developers en paralelo. Revisar solo si el fichero se vuelve inmanejable. |
-| TEC-05 | ~~129 issues de `ruff` sin arreglar, CI no bloquea por ellas~~ **Hecho (2026-07-26)** | P2 | M | `ruff check .` → 0 issues. Fase 1 (45 mecánicos, `--fix`), fase 2a (37 `BLE001`: 13 narrowed en `dcs_meta.py` con las excepciones reales que `_get_video_duration()`/`call_gemini()` lanzan, 24 `noqa` justificado en fronteras HTTP/hilo y superficie de `googleapiclient` no verificable sin credenciales), fase 2b (47 restantes: firmas `Optional`, `subprocess.run(check=False)` explícito, variables muertas, nested-if, etc.). `|| true` quitado de `ci.yml`: ruff ya bloquea. |
 
 ---
 
@@ -52,14 +47,8 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
-| DOC-01 | ~~`README.md` desactualizado~~ **Hecho (2026-07-26)** | P1 | S | Añadidas secciones YouTube Shorts y Discord bot, más ítems de Features (ACMI, debrief, narration script, social captions, Stats tab, batch watcher, scheduled publish) y entradas de `batch_watcher.py`/`discord_bot.py` en la estructura del proyecto. |
-| DOC-02 | ~~`FEATURES.md` documenta features por número de issue sin trazabilidad~~ **Hecho (2026-07-26)** | P3 | S | David decidió quitar las referencias `(#NN)`: son features ya cerradas de un proyecto personal en solitario, sin backlog abierto que las trace ni justificación para abrir issues retroactivos. |
 
-**Hecho (2026-07-26):** split de `CLAUDE.md` y `DECISIONS.md` para bajar el coste de tokens fijo por
-sesión/tarea (~52% menos combinado). Roles/DoD/flujo de PR → `.claude/team-workflow.md` (solo se lee al
-orquestar multi-agente). Rationale de decisiones técnicas de código → `DECISIONS_TECHNICAL.md` (solo al
-tocar el fichero/feature concreto). §6 de `CLAUDE.md` eliminada por redundante con este fichero y con
-`DECISIONS.md`.
+Sin documentación pendiente ahora mismo.
 
 ---
 
@@ -72,7 +61,6 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 | FEA-01 | Reintento con backoff en las llamadas a Gemini | P2 | S | Hoy un fallo transitorio (rate limit, timeout) cae directamente al camino de `build_fallback_metadata()`, degradando la calidad del resultado por un error recuperable. Un reintento con espera exponencial ante `429` y `5xx` aprovecharía mejor la cuota diaria. |
 | FEA-02 | Caché de análisis por hash de fichero | P2 | M | Reanalizar el mismo vídeo vuelve a extraer frames y a gastar cuota de Gemini. Cachear el resultado indexado por hash o por (tamaño, mtime) ahorra coste y tiempo en las iteraciones de edición de metadatos. |
 | FEA-03 | Estimación de coste antes de analizar | P3 | S | La UI no indica cuántas llamadas a Gemini va a disparar una acción. Mostrar el número de frames y una estimación ayuda a decidir antes de gastar cuota, especialmente con `gemini-2.5-pro`. |
-| FEA-04 | ~~Modo de simulación para desarrollo~~ **Hecho (2026-07-26)** | P2 | M | `DCS_SIMULATE=1`: `call_gemini()` (`dcs_meta.py`) y `upload_video()` (`youtube_uploader.py`) devuelven datos de ejemplo sin llamar a las APIs reales. Documentado en `README.md`. Tests: `test_call_gemini_simulate_mode_skips_http`, `test_upload_video_simulate_mode_skips_service`. |
 | FEA-05 | Validación de rutas contra directorios permitidos | P2 | S | Complemento de SEC-02: restringir `video_path` y `acmi_path` a `recordings_folder` y a la última carpeta usada, en lugar de aceptar cualquier ruta del sistema. |
 
 ---

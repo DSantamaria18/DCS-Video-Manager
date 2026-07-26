@@ -22,7 +22,11 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `DECISIONS.md` — decisiones técnicas y de proceso, y lecciones aprendidas.
 - `CHANGELOG.md` — este fichero.
 - `SPEC.md` — plantilla de especificaciones, pendiente de rellenar con David.
-- Pipeline de CI en GitHub Actions (`ruff` bloqueante, `pytest` bloqueante con coverage).
+- Pipeline de CI en GitHub Actions (`ruff` bloqueante, `pytest` bloqueante con coverage) (INF-01).
+- Linter `ruff` (`ruff.toml`) y medición de cobertura `pytest-cov` (`--cov` en `pytest.ini`), sin
+  umbral bloqueante (INF-03).
+- `watchdog` declarado como dependencia opcional en `requirements-batch.txt` (solo para el batch
+  folder watcher), fuera de `requirements.txt` (INF-02).
 - `DCS_SIMULATE=1`: `call_gemini()` y `upload_video()` devuelven datos de ejemplo sin llamar a las APIs
   reales de Gemini ni de YouTube (FEA-04).
 
@@ -38,6 +42,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 ### Cambiado
 
 - `dcs_meta.py` y `web/app.py` marcados ejecutables (`chmod +x`), coherente con su shebang.
+- `.claude/worktrees/` excluido de lint y test (`pytest.ini` `norecursedirs`, `ruff.toml`
+  `extend-exclude`, `.gitignore`) (INF-04).
+- Split de `CLAUDE.md`/`DECISIONS.md` para bajar el coste de tokens fijo por sesión: roles, DoD y
+  flujo de PR movidos a `.claude/team-workflow.md` (solo se lee al orquestar multi-agente); rationale
+  de decisiones técnicas de código movido a `DECISIONS_TECHNICAL.md` (solo al tocar el fichero/feature
+  concreto).
 
 ### Pendiente antes de poder cortar la primera versión
 
