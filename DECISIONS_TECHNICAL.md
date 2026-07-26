@@ -106,3 +106,21 @@ los primeros minutos.
 
 **Consecuencia.** No hay tests de componentes de frontend en el sentido habitual. La validación del
 JavaScript exige navegador real.
+
+### Extracción incremental de `dcs_meta.py` por dominios (TEC-01), un módulo plano por PR
+
+**Evidencia.** `acmi.py` (TEC-01a) extrae `_parse_acmi_props`/`parse_acmi_events` de `dcs_meta.py`.
+`dcs_meta.py` termina con `from acmi import _parse_acmi_props, parse_acmi_events  # noqa: F401`.
+
+**Motivo.** `BACKLOG.md` (TEC-01) proponía subcarpetas por dominio (`acmi/`, `media/`, etc.); se optó
+por módulos planos (`acmi.py`) en la raíz, igual que `dcs_meta.py`/`youtube_uploader.py`/
+`discord_bot.py`, porque cada dominio de este primer corte cabe en un único fichero y un paquete con
+`__init__.py` no aporta nada aquí. `dcs_meta.py` reexporta cada símbolo movido para que los 47 call
+sites existentes (`web/app.py`, `discord_bot.py`, `batch_watcher.py`, `youtube_uploader.py`), todos
+como `dcs_meta.X`, sigan funcionando sin cambios en cada PR del refactor.
+
+**Consecuencia.** `parse_acmi_events()` necesita `_seconds_to_chapter_time()`, que sigue en
+`dcs_meta.py` hasta TEC-01c (dominio `media`). Para no crear un import circular a nivel de módulo
+(`dcs_meta` → `acmi` → `dcs_meta`), el import de `_seconds_to_chapter_time` dentro de `acmi.py` es
+diferido (dentro de la función, no a nivel de módulo). Desaparece en TEC-01c cuando esa función se
+mueva también fuera de `dcs_meta.py`.

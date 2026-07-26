@@ -32,6 +32,8 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - Caché de análisis por fichero (`memory/analysis_cache.json`, clave ruta + tamaño + mtime): reanalizar
   el mismo vídeo sin cambios reutiliza el resultado de Gemini en vez de repetir extracción de frames y
   llamada a la API (FEA-02).
+- `acmi.py`: parsing de ficheros TacView `.acmi` extraído de `dcs_meta.py` como primer paso del refactor
+  incremental del monolito, reexportado desde `dcs_meta` para no romper call sites existentes (TEC-01a).
 
 ### Corregido
 

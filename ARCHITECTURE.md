@@ -37,7 +37,8 @@ No hay base de datos. **Todo el estado persistente son ficheros JSON en disco.**
 
 | Módulo | Responsabilidad | Notas |
 |---|---|---|
-| `dcs_meta.py` | Motor de dominio: config, memoria, extracción de frames, construcción del prompt, llamada a Gemini, miniaturas, ACMI, debrief, SEO, Shorts, salida a disco. También expone una CLI (`main()`). | ~2.200 líneas. Es el monolito del proyecto (ver §7). |
+| `dcs_meta.py` | Motor de dominio: config, memoria, extracción de frames, construcción del prompt, llamada a Gemini, miniaturas, debrief, SEO, Shorts, salida a disco. También expone una CLI (`main()`). | ~2.170 líneas. Monolito en extracción incremental por dominios (TEC-01, ver §7). |
+| `acmi.py` | Parsing de ficheros TacView `.acmi`: kills, lanzamientos SAM/BVR/IR, bombas guiadas, pérdidas propias, eyecciones. | Extraído de `dcs_meta.py` (TEC-01a). Reexportado desde `dcs_meta` para no romper call sites existentes. |
 | `web/app.py` | Capa HTTP: servidor Flask, endpoints REST, orquestación de trabajos en background, selector de ficheros nativo del SO. | Importa `dcs_meta` inyectando el directorio padre en `sys.path`. |
 | `web/templates/index.html` | Toda la UI: HTML, CSS y JavaScript en un único fichero. Pestañas Metadata / History / Stats / Setup. | Sin framework ni build step. |
 | `youtube_uploader.py` | Integración con Google: OAuth2, subida resumible, playlists, miniatura, YouTube Analytics API v2. | Importa `dcs_meta` *dentro* de una función para el polling de analytics. |
@@ -214,9 +215,10 @@ verdes (ver `CLAUDE.md`, sección de verificación).
 
 Verificado en el código; cada punto tiene su entrada correspondiente en `BACKLOG.md`.
 
-1. **`dcs_meta.py` es un monolito de ~2.200 líneas** que mezcla configuración, I/O de ficheros,
-   invocación de subprocesos ffmpeg, cliente HTTP de Gemini, procesado de imagen, parsing de ACMI y
-   reglas de negocio de SEO. Viola la regla 4 (SOLID) y dificulta el testing por comportamiento.
+1. **`dcs_meta.py` es un monolito de ~2.170 líneas** que mezcla configuración, I/O de ficheros,
+   invocación de subprocesos ffmpeg, cliente HTTP de Gemini, procesado de imagen y reglas de negocio
+   de SEO. Viola la regla 4 (SOLID) y dificulta el testing por comportamiento. Extracción por dominios
+   en curso (TEC-01a–e en `BACKLOG.md`); el parsing de ACMI ya vive en `acmi.py` (TEC-01a).
 2. **`config/config.json` está rastreado en git y admite `discord_bot_token`.** Hoy está vacío, pero
    la pestaña Setup lo escribe: en cuanto David introduzca el token, un `git commit` lo publica en un
    repositorio público.
