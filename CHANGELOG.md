@@ -29,6 +29,9 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   folder watcher), fuera de `requirements.txt` (INF-02).
 - `DCS_SIMULATE=1`: `call_gemini()` y `upload_video()` devuelven datos de ejemplo sin llamar a las APIs
   reales de Gemini ni de YouTube (FEA-04).
+- Caché de análisis por fichero (`memory/analysis_cache.json`, clave ruta + tamaño + mtime): reanalizar
+  el mismo vídeo sin cambios reutiliza el resultado de Gemini en vez de repetir extracción de frames y
+  llamada a la API (FEA-02).
 
 ### Corregido
 

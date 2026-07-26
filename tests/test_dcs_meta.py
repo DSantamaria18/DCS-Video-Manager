@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -140,6 +141,52 @@ def test_update_memory_persists_to_disk(tmp_path, monkeypatch):
     dcs_meta.update_memory(SAMPLE_META, Path("video.mp4"))
     saved = json.loads(history_file.read_text())
     assert saved["videos"][0]["title"] == SAMPLE_META["title"]
+
+
+def test_get_cached_metadata_miss_on_empty_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", tmp_path / "analysis_cache.json")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    assert dcs_meta.get_cached_metadata(video) is None
+
+
+def test_set_then_get_cached_metadata_hit(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", tmp_path / "analysis_cache.json")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    dcs_meta.set_cached_metadata(video, SAMPLE_META)
+    assert dcs_meta.get_cached_metadata(video) == SAMPLE_META
+
+
+def test_get_cached_metadata_miss_when_size_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", tmp_path / "analysis_cache.json")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    dcs_meta.set_cached_metadata(video, SAMPLE_META)
+    video.write_bytes(b"different, longer fake video bytes")
+    assert dcs_meta.get_cached_metadata(video) is None
+
+
+def test_get_cached_metadata_miss_when_mtime_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", tmp_path / "analysis_cache.json")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    dcs_meta.set_cached_metadata(video, SAMPLE_META)
+    new_mtime = video.stat().st_mtime + 120
+    os.utime(video, (new_mtime, new_mtime))
+    assert dcs_meta.get_cached_metadata(video) is None
+
+
+def test_cached_metadata_survives_reload(tmp_path, monkeypatch):
+    cache_file = tmp_path / "analysis_cache.json"
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", cache_file)
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    dcs_meta.set_cached_metadata(video, SAMPLE_META)
+    saved = json.loads(cache_file.read_text())
+    entry = saved[str(video.resolve())]
+    assert entry["metadata"] == SAMPLE_META
+    assert entry["size"] == video.stat().st_size
 
 
 # ── build_prompt ──────────────────────────────────────────────────────────────

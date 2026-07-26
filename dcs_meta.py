@@ -22,6 +22,7 @@ from pathlib import Path
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
 MEMORY_PATH = Path(__file__).parent / "memory" / "history.json"
+ANALYSIS_CACHE_PATH = Path(__file__).parent / "memory" / "analysis_cache.json"
 OUTPUT_PATH = Path(__file__).parent / "output"
 
 # Exceptions _get_video_duration() can raise (see its docstring): ffprobe missing
@@ -166,6 +167,55 @@ def save_memory(memory):
     MEMORY_PATH.parent.mkdir(exist_ok=True)
     with open(MEMORY_PATH, "w", encoding="utf-8") as f:
         json.dump(memory, f, indent=2, ensure_ascii=False)
+
+
+_analysis_cache_lock = threading.Lock()
+
+
+def load_analysis_cache() -> dict:
+    """Load analysis_cache.json, returning an empty cache if absent."""
+    ANALYSIS_CACHE_PATH.parent.mkdir(exist_ok=True)
+    if ANALYSIS_CACHE_PATH.exists():
+        with open(ANALYSIS_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_analysis_cache(cache: dict) -> None:
+    """Persist the analysis cache dict to analysis_cache.json."""
+    ANALYSIS_CACHE_PATH.parent.mkdir(exist_ok=True)
+    with open(ANALYSIS_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, ensure_ascii=False)
+
+
+def get_cached_metadata(video_path: Path) -> dict | None:
+    """Return cached Gemini metadata for video_path if size and mtime still match.
+
+    Keyed by resolved absolute path. A stale entry (file replaced/re-encoded, so size
+    or mtime changed) is treated as a miss — the caller re-analyses and overwrites it.
+    """
+    stat = video_path.stat()
+    with _analysis_cache_lock:
+        entry = load_analysis_cache().get(str(video_path.resolve()))
+    if not entry:
+        return None
+    if entry.get("size") != stat.st_size or entry.get("mtime") != stat.st_mtime:
+        return None
+    return entry.get("metadata")
+
+
+def set_cached_metadata(video_path: Path, metadata: dict) -> None:
+    """Store metadata for video_path, keyed by resolved path + current size/mtime."""
+    stat = video_path.stat()
+    with _analysis_cache_lock:
+        cache = load_analysis_cache()
+        cache[str(video_path.resolve())] = {
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "metadata": metadata,
+            "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # noqa: DTZ005 — hora local de la máquina, coherente con el resto de timestamps del proyecto
+        }
+        save_analysis_cache(cache)
 
 
 def is_squadron_video(user_context: str) -> bool:
