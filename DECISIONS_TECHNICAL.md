@@ -123,4 +123,5 @@ como `dcs_meta.X`, sigan funcionando sin cambios en cada PR del refactor.
 `dcs_meta.py` hasta TEC-01c (dominio `media`). Para no crear un import circular a nivel de módulo
 (`dcs_meta` → `acmi` → `dcs_meta`), el import de `_seconds_to_chapter_time` dentro de `acmi.py` es
 diferido (dentro de la función, no a nivel de módulo). Desaparece en TEC-01c cuando esa función se
-mueva también fuera de `dcs_meta.py`.
+mueva también fuera de `dcs_meta.py`. Mismo patrón en `thumbnail.py` (TEC-01b) para `OUTPUT_PATH`,
+`_get_video_duration` y `_DURATION_ERRORS`, todavía en `dcs_meta.py`.

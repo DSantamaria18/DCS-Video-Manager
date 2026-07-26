@@ -34,6 +34,8 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   llamada a la API (FEA-02).
 - `acmi.py`: parsing de ficheros TacView `.acmi` extraído de `dcs_meta.py` como primer paso del refactor
   incremental del monolito, reexportado desde `dcs_meta` para no romper call sites existentes (TEC-01a).
+- `thumbnail.py`: generación de miniaturas (selección de frames, gradación cinematográfica, overlay,
+  guardado JPEG) extraída de `dcs_meta.py`, reexportando solo `generate_thumbnail_on_demand` (TEC-01b).
 
 ### Corregido
 
