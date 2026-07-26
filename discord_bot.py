@@ -194,9 +194,8 @@ def main():
         )
         sys.exit(1)
 
-    try:
-        import discord  # noqa: F401
-    except ImportError:
+    import importlib.util
+    if importlib.util.find_spec("discord") is None:
         print(
             "[discord_bot] ERROR: discord.py is not installed.\n"
             "Run: pip install discord.py>=2.3.0"

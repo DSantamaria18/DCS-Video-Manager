@@ -189,7 +189,7 @@ def test_upload_youtube_missing_thumbnail_file_ignored(client):
                      "tags_skipped": False, "playlists_added": []}
 
     with patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
-        resp = client.post("/api/upload_youtube", json={
+        client.post("/api/upload_youtube", json={
             "video_path": "/fake/video.mp4",
             "metadata": {"title": "T", "description": "D", "tags": []},
             "thumbnail_url": "/output/nonexistent_thumb.jpg"

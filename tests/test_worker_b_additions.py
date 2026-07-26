@@ -172,7 +172,7 @@ def test_upload_tags_skipped_message_is_specific(monkeypatch):
     def _mock_do_insert(youtube, body, video_path):
         call_count["n"] += 1
         if call_count["n"] == 1 and body["snippet"].get("tags"):
-            raise Exception("invalidTags — The request contains an invalid argument.")
+            raise RuntimeError("invalidTags — The request contains an invalid argument.")
         captured["body"] = body
         return {"id": "vid789"}
 
@@ -188,7 +188,7 @@ def test_upload_tags_skipped_message_is_specific(monkeypatch):
     try:
         result = yu.upload_video(fp, "T", "D", ["tag1"])
         assert result.get("tags_skipped") is True
-    except Exception:  # noqa: BLE001 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
+    except Exception:  # noqa: BLE001, S110 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
         pass
     finally:
         os.unlink(fp)

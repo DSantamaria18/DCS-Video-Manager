@@ -193,7 +193,7 @@ def _seconds_to_chapter_time(s: float) -> str:
 
 def detect_audio_chapters(
     video_path: Path,
-    duration_seconds: float = None,
+    duration_seconds: float | None = None,
     noise_db: int = -30,
     min_silence_s: float = 3.0,
     min_gap_s: float = 60.0,
@@ -210,7 +210,7 @@ def detect_audio_chapters(
                 "-af", f"silencedetect=noise={noise_db}dB:duration={min_silence_s}",
                 "-f", "null", "-",
             ],
-            capture_output=True, text=True,
+            capture_output=True, text=True, check=False,
         )
         stderr = result.stderr
     except (FileNotFoundError, OSError):
@@ -503,7 +503,7 @@ Twitch: https://www.twitch.tv/thecylonpilot
 }
 
 
-def _build_description_rules(is_squadron: bool, category: str, config: dict = None) -> str:
+def _build_description_rules(is_squadron: bool, category: str, config: dict | None = None) -> str:
     """Return length-adapted description template for the Gemini prompt.
 
     Returns a non-empty custom override from config if present, otherwise the hardcoded default.
@@ -530,8 +530,8 @@ def _build_module_guide() -> str:
 
 
 def build_prompt(user_context: str, config: dict, is_squadron: bool, memory: dict,
-                 duration_seconds: float = None, series_context: dict = None,
-                 aircraft_suggestions: list = None,
+                 duration_seconds: float | None = None, series_context: dict | None = None,
+                 aircraft_suggestions: list | None = None,
                  audio_markers: list[str] | None = None,
                  acmi_events: dict | None = None) -> str:
     """Build the full Gemini prompt, injecting memory, length rules, series context, and the module guide."""
@@ -751,7 +751,7 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
 # ── Main analysis ─────────────────────────────────────────────────────────────
 
 def generate_metadata(video_path: Path, user_context: str, config: dict, memory: dict,
-                      frames: list = None, acmi_path: Path = None) -> dict:
+                      frames: list | None = None, acmi_path: Path | None = None) -> dict:
     """Analyse a video and return YouTube metadata via Gemini.
 
     Pass `frames` to skip re-extraction; pass `acmi_path` to inject TacView event context.
@@ -914,10 +914,9 @@ def _recover_json(raw: str) -> dict:
     for i, ch in enumerate(raw):
         if ch in ('{', '['):
             stack.append(ch)
-        elif ch in ('}', ']'):
-            if stack:
-                stack.pop()
-                last_good = i + 1
+        elif ch in ('}', ']') and stack:
+            stack.pop()
+            last_good = i + 1
 
     # Try closing all open brackets
     suffix = ''.join(closers[c] for c in reversed(stack))
@@ -1068,7 +1067,7 @@ def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
     """Save thumbnail JPEG under 2 MB, reducing quality if needed."""
     import io
     OUTPUT_PATH.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 — nombre de fichero en hora local de la máquina, intencional
     path = OUTPUT_PATH / f"{video_path.stem}_{ts}_{suffix}.jpg"
     for quality in (90, 80, 70, 60, 50):
         buf = io.BytesIO()
@@ -1187,11 +1186,15 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                 raw_bytes = zf.read(inner)
             _lines_src = _io.TextIOWrapper(_io.BytesIO(raw_bytes), encoding="utf-8-sig", errors="replace")
         else:
-            _lines_src = open(acmi_path, encoding="utf-8-sig", errors="replace")
+            # _lines_src must stay open across the for-loop below, shared with the zip
+            # branch above (a TextIOWrapper, not a real file handle); wrapping the whole
+            # parse loop in a `with` would mean re-indenting ~150 lines for a resource
+            # that's already released on function return either way.
+            _lines_src = open(acmi_path, encoding="utf-8-sig", errors="replace")  # noqa: SIM115
 
         for raw_line in _lines_src:
             line = raw_line.rstrip("\r\n")
-            if not line or line.startswith("//") or line.startswith("FileType") or line.startswith("FileVersion"):
+            if not line or line.startswith(("//", "FileType", "FileVersion")):
                 continue
 
             if line.startswith("#"):
@@ -1241,7 +1244,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                 objects[obj_id] = {"type": "", "name": "", "color": "", "coalition": "", "parent": "", "tags": ""}
             obj = objects[obj_id]
 
-            props, flags = _parse_acmi_props(line[comma_pos + 1:])
+            props, _flags = _parse_acmi_props(line[comma_pos + 1:])
             if "Type" in props:
                 obj["type"] = props["Type"].lower()
             if "Name" in props:
@@ -1263,13 +1266,13 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
             # Ejection: new friendly pilot/parachute object appearing
             obj_tags = obj.get("tags", "")
-            if is_new and (color == "blue" or coal in _FRIENDLY_COALITIONS):
-                if "pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags:
-                    ejection_events.append({
-                        "time_s": current_time_s,
-                        "time": _seconds_to_chapter_time(current_time_s),
-                        "name": obj.get("name", "friendly pilot"),
-                    })
+            if (is_new and (color == "blue" or coal in _FRIENDLY_COALITIONS)
+                    and ("pilot" in obj_tags or "ejected" in obj_tags or "parachut" in obj_tags)):
+                ejection_events.append({
+                    "time_s": current_time_s,
+                    "time": _seconds_to_chapter_time(current_time_s),
+                    "name": obj.get("name", "friendly pilot"),
+                })
 
             # New weapon object → classify launch type using Color first, Coalition as fallback
             if is_new and "weapon" in t:
@@ -1294,13 +1297,12 @@ def parse_acmi_events(acmi_path: Path) -> dict:
                             "time": _seconds_to_chapter_time(current_time_s),
                             "name": obj.get("name", "SAM"),
                         })
-                elif "bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES):
-                    if is_friendly:
-                        bomb_releases.append({
-                            "time_s": current_time_s,
-                            "time": _seconds_to_chapter_time(current_time_s),
-                            "name": obj.get("name", "guided bomb"),
-                        })
+                elif is_friendly and ("bomb" in t or "shell" in t or any(b in name_lower for b in _GUIDED_BOMB_NAMES)):
+                    bomb_releases.append({
+                        "time_s": current_time_s,
+                        "time": _seconds_to_chapter_time(current_time_s),
+                        "name": obj.get("name", "guided bomb"),
+                    })
 
     except OSError:
         return {}
@@ -1445,7 +1447,7 @@ def extract_obs_metadata(video_path: Path) -> dict:
         proc = _sp.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_format", "-show_chapters", str(video_path)],
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=30, check=False,
         )
         if proc.returncode != 0:
             return result
@@ -1628,7 +1630,6 @@ def generate_social_captions(metadata: dict, config: dict) -> dict:
     map_name = metadata.get("map", "")
     mission_type = metadata.get("mission_type", "")
     description = metadata.get("description", "")[:300]
-    tags = metadata.get("tags", [])[:10]
     hashtags_base = " ".join(f"#{t.replace(' ', '')}" for t in ["DCSWorld", "FlightSim", aircraft.replace("/", "").replace("-", "").replace(" ", "")] if t)
 
     prompt = (
@@ -1681,7 +1682,6 @@ def run_upload_checklist(metadata: dict, config: dict) -> list[dict]:
     description = metadata.get("description", "")
     tags = metadata.get("tags", [])
     aircraft = metadata.get("aircraft", "")
-    chapters = metadata.get("chapters", [])
 
     checks = []
 
@@ -1858,7 +1858,7 @@ def save_output(metadata: dict, video_path: Path, config: dict):
     """Write metadata to timestamped .json and .txt files in the output folder."""
     OUTPUT_PATH.mkdir(exist_ok=True)
     stem = video_path.stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 — nombre de fichero en hora local de la máquina, intencional
     base = OUTPUT_PATH / f"{stem}_{timestamp}"
 
     metadata["description"] = format_description(metadata, config)
@@ -1871,7 +1871,7 @@ def save_output(metadata: dict, video_path: Path, config: dict):
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(f"{'═'*60}\n  DCS YouTube Metadata — TheCylonPilot\n")
         f.write(f"  Video: {video_path.name}\n")
-        f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n{'═'*60}\n\n")
+        f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n{'═'*60}\n\n")  # noqa: DTZ005 — hora local de la máquina, intencional
         f.write(f"TITLE\n{'─'*40}\n{metadata.get('title','')}\n\n")
         f.write(f"DESCRIPTION\n{'─'*40}\n{metadata.get('description','')}\n\n")
         f.write(f"TAGS\n{'─'*40}\n{', '.join(metadata.get('tags', []))}\n\n")
@@ -1897,7 +1897,7 @@ def update_memory(metadata: dict, video_path: Path) -> None:
     with _memory_lock:
         memory = load_memory()
         memory["videos"].append({
-            "date": datetime.now().strftime("%Y-%m-%d"),
+            "date": datetime.now().strftime("%Y-%m-%d"),  # noqa: DTZ005 — fecha local de la máquina, intencional
             "filename": video_path.name,
             "title": metadata.get("title", ""),
             "language": metadata.get("language", ""),
@@ -2019,11 +2019,11 @@ def detect_short_clips(
         result = subprocess.run(
             [
                 "ffmpeg", "-i", str(video_path),
-                "-af", "astats=metadata=1:reset=1,"
-                       "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
+                "-af", ("astats=metadata=1:reset=1,"
+                        "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-"),
                 "-f", "null", "-",
             ],
-            capture_output=True, text=True,
+            capture_output=True, text=True, check=False,
         )
         audio_peaks = _parse_audio_peaks(result.stderr)
     except (FileNotFoundError, OSError):

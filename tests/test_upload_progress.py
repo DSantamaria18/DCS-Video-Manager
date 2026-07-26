@@ -118,15 +118,6 @@ def test_upload_youtube_sets_upload_progress_in_status(tmp_path):
 
     flask_app.config["TESTING"] = True
 
-    upload_result = {
-        "video_id": "VIDPROG",
-        "url": "https://youtu.be/VIDPROG",
-        "status": "uploaded",
-        "privacy": "private",
-        "tags_skipped": False,
-        "playlists_added": [],
-    }
-
     with flask_app.test_client() as client:
         # Freeze the background thread so we can inspect status before it runs
         with patch("app.threading.Thread") as mock_thread_cls:
@@ -151,13 +142,12 @@ def test_upload_youtube_returns_job_id_not_result_directly(tmp_path):
 
     flask_app.config["TESTING"] = True
 
-    with flask_app.test_client() as client:
-        with patch("app.threading.Thread") as mock_thread_cls:
-            mock_thread_cls.return_value.start.return_value = None
-            resp = client.post("/api/upload_youtube", json={
-                "video_path": "/fake/video.mp4",
-                "metadata": {"title": "T", "description": "D", "tags": []},
-            })
+    with flask_app.test_client() as client, patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_youtube", json={
+            "video_path": "/fake/video.mp4",
+            "metadata": {"title": "T", "description": "D", "tags": []},
+        })
 
     assert resp.status_code == 200
     assert "job_id" in resp.json
@@ -246,10 +236,10 @@ def test_analytics_endpoint_returns_empty_for_unknown_video():
 
     flask_app.config["TESTING"] = True
 
-    with flask_app.test_client() as client:
-        with patch("dcs_meta.load_memory", return_value={"videos": []}), \
-             patch("youtube_uploader.fetch_video_analytics", return_value={}):
-            resp = client.get("/api/analytics/unknownid")
+    with flask_app.test_client() as client, \
+         patch("dcs_meta.load_memory", return_value={"videos": []}), \
+         patch("youtube_uploader.fetch_video_analytics", return_value={}):
+        resp = client.get("/api/analytics/unknownid")
 
     assert resp.status_code == 200
     assert resp.json == []
@@ -264,9 +254,8 @@ def test_analytics_endpoint_returns_stored_data():
     stored = [{"views": 10, "watch_minutes": 5, "likes": 1, "fetched_at": "2026-01-01T00:00:00+00:00"}]
     memory = {"videos": [{"video_id": "KNOWNVID", "analytics": stored}]}
 
-    with flask_app.test_client() as client:
-        with patch("dcs_meta.load_memory", return_value=memory):
-            resp = client.get("/api/analytics/KNOWNVID")
+    with flask_app.test_client() as client, patch("dcs_meta.load_memory", return_value=memory):
+        resp = client.get("/api/analytics/KNOWNVID")
 
     assert resp.status_code == 200
     assert resp.json == stored
@@ -281,10 +270,10 @@ def test_analytics_endpoint_fetches_on_demand_when_no_stored_data():
     memory = {"videos": [{"video_id": "NEWVID"}]}  # no 'analytics' key
     on_demand = {"views": 5, "watch_minutes": 2, "likes": 0, "fetched_at": "2026-01-01T00:00:00+00:00"}
 
-    with flask_app.test_client() as client:
-        with patch("dcs_meta.load_memory", return_value=memory), \
-             patch("youtube_uploader.fetch_video_analytics", return_value=on_demand) as mock_fetch:
-            resp = client.get("/api/analytics/NEWVID")
+    with flask_app.test_client() as client, \
+         patch("dcs_meta.load_memory", return_value=memory), \
+         patch("youtube_uploader.fetch_video_analytics", return_value=on_demand) as mock_fetch:
+        resp = client.get("/api/analytics/NEWVID")
 
     assert resp.status_code == 200
     assert resp.json == [on_demand]

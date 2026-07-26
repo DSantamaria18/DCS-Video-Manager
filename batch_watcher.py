@@ -30,7 +30,7 @@ def _make_handler(queue_callback):
 
 def start_watcher(folder: str, queue_callback) -> None:
     """Start the folder watcher in a daemon thread. Calls queue_callback(path) for each new .mkv."""
-    global _watcher_thread, _stop_event, _observer
+    global _watcher_thread, _observer
 
     try:
         from watchdog.observers import Observer

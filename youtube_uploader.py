@@ -197,12 +197,12 @@ def upload_video(
     title: str,
     description: str,
     tags: list,
-    chapters: list = None,
+    chapters: list | None = None,
     privacy: str = "private",
-    playlist_ids: list = None,
+    playlist_ids: list | None = None,
     language: str = "en",
-    thumbnail_path: str = None,
-    publish_at: str = None,
+    thumbnail_path: str | None = None,
+    publish_at: str | None = None,
     progress_callback=None,
 ) -> dict:
     """Upload a video to YouTube with metadata; optionally assign playlists and set a thumbnail.

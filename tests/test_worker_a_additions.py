@@ -347,7 +347,7 @@ def test_upload_video_publish_at_sets_private_and_publishAt(monkeypatch):
         fp = f.name
     try:
         yu.upload_video(fp, "T", "D", [], publish_at="2026-06-01T19:00:00Z")
-    except Exception:  # noqa: BLE001 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
+    except Exception:  # noqa: BLE001, S110 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
         pass
     finally:
         os.unlink(fp)
@@ -374,7 +374,7 @@ def test_upload_video_no_publish_at_uses_requested_privacy(monkeypatch):
         fp = f.name
     try:
         yu.upload_video(fp, "T", "D", [], privacy="public")
-    except Exception:  # noqa: BLE001 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
+    except Exception:  # noqa: BLE001, S110 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
         pass
     finally:
         os.unlink(fp)

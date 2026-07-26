@@ -61,7 +61,7 @@ def _open_file_dialog(initial_dir: str,
         )
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True, text=True
+            capture_output=True, text=True, check=False
         )
         return result.stdout.strip() or None
 
@@ -72,7 +72,7 @@ def _open_file_dialog(initial_dir: str,
             f'of type {{"{mac_types}"}}\n'
             'POSIX path of f\nend tell'
         )
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
         return result.stdout.strip() or None
 
     else:
@@ -83,7 +83,7 @@ def _open_file_dialog(initial_dir: str,
                  f"--title={title}",
                  f"--file-filter={linux_filter}",
                  f"--filename={initial_dir}/"],
-                capture_output=True, text=True
+                capture_output=True, text=True, check=False
             )
             return result.stdout.strip() or None
         except FileNotFoundError:
@@ -458,7 +458,7 @@ def upload_youtube():
                 dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
                 try:
                     schedule_analytics_polling(video_id, Path(video_path).name)
-                except Exception:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
+                except Exception:  # noqa: BLE001, S110 — boundary: fallo no fatal en el scheduling de analytics, no debe tumbar el upload
                     pass
 
             processing_status[job_id]["status"] = "done"
@@ -668,10 +668,9 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
             continue
 
         # Rule 2: aircraft/mission match via alias-expanded terms
-        if terms and any(term in title_lower for term in terms):
-            if pid not in seen:
-                matched.append(pid)
-                seen.add(pid)
+        if terms and any(term in title_lower for term in terms) and pid not in seen:
+            matched.append(pid)
+            seen.add(pid)
 
     return matched
 
