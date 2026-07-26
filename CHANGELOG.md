@@ -22,7 +22,7 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `DECISIONS.md` — decisiones técnicas y de proceso, y lecciones aprendidas.
 - `CHANGELOG.md` — este fichero.
 - `SPEC.md` — plantilla de especificaciones, pendiente de rellenar con David.
-- Pipeline de CI en GitHub Actions (`ruff` en modo reporte, `pytest` bloqueante con coverage).
+- Pipeline de CI en GitHub Actions (`ruff` bloqueante, `pytest` bloqueante con coverage).
 - `DCS_SIMULATE=1`: `call_gemini()` y `upload_video()` devuelven datos de ejemplo sin llamar a las APIs
   reales de Gemini ni de YouTube (FEA-04).
 
@@ -31,6 +31,13 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `README.md` documenta ahora Shorts, ACMI, debrief, narration script, captions sociales, Stats tab,
   batch watcher, publicación programada y el bot de Discord (DOC-01).
 - `FEATURES.md` sin referencias `(#NN)` a issues inexistentes (DOC-02).
+- Las 129 issues de `ruff` (imports, `Optional` implícito, `subprocess.run` sin `check`, blind-except,
+  etc.) resueltas o documentadas con `noqa` justificado; `ruff check .` ya no lleva `|| true` en el CI
+  (TEC-05).
+
+### Cambiado
+
+- `dcs_meta.py` y `web/app.py` marcados ejecutables (`chmod +x`), coherente con su shebang.
 
 ### Pendiente antes de poder cortar la primera versión
 

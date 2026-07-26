@@ -36,6 +36,30 @@ coverage reportado vía `pytest-cov` (sin `--cov-fail-under`, regla ya tomada).
 **Consecuencia.** Se abre ítem en `BACKLOG.md` para limpiar las 129 issues; cuando lleguen a cero, se
 quita el `|| true` y ruff pasa a bloqueante, cumpliendo la intención original de la pregunta 2.
 
+### 2026-07-26 — TEC-05: cierre de deuda de ruff, `except Exception` deliberado documentado con `noqa`
+
+**Contexto.** Al cerrar las 129 issues, 37 eran `BLE001` (blind-except). No todas son iguales: en
+`dcs_meta.py` los `except Exception` envuelven llamadas a `_get_video_duration()`/`call_gemini()`,
+funciones propias cuyo código se pudo leer entero para saber exactamente qué excepciones lanzan
+(`RuntimeError`, `subprocess.CalledProcessError`, `json.JSONDecodeError`, `KeyError`, `ValueError` /
+`OSError`) — ahí se hizo narrowing real. En `web/app.py` (frontera HTTP: cada endpoint debe devolver
+un 500 en vez de tumbar el proceso Flask) y en `youtube_uploader.py` (superficie de
+`googleapiclient`/`google-auth-oauthlib`, no verificable sin credenciales reales contra la API), el
+`except Exception` amplio es la frontera de error correcta por diseño, no deuda.
+
+**Decisión.** Regla del proyecto (CLAUDE.md): "no adivines APIs... si no lo has verificado, dilo
+explícitamente". Adivinar los tipos de excepción exactos de `googleapiclient` sin poder probarlos
+contra la API real habría sido peor que dejar el `except Exception` — narrowing mal hecho puede dejar
+un fallo real sin capturar. Se documentó cada caso con `# noqa: BLE001` y un comentario del porqué, en
+vez de narrowing especulativo. Mismo criterio para los 4 `datetime.now()` sin tzinfo (`DTZ005`):
+son timestamps de nombre de fichero/log en hora local de la máquina, intencional — no se persisten ni
+se comparan entre zonas horarias, así que forzar UTC habría sido un cambio de comportamiento visible
+para David sin que nadie lo pidiera.
+
+**Consecuencia.** `ruff check .` = 0 issues reales, sin narrowing forzado en superficie externa no
+verificable. Si algún día se añaden tests contra la API real de YouTube, revisar si esos `noqa` pueden
+convertirse en narrowing real.
+
 ### 2026-07-26 — Linter `ruff` y coverage `pytest-cov`, sin umbral bloqueante
 
 **Contexto.** Preguntas 2 y 3 de `SPEC.md`. `requirements-dev.txt` solo tenía `pytest`; no había
