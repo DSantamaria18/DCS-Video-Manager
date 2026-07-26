@@ -32,7 +32,7 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 | INF-03 | Sin linter ni medición de cobertura | P1 | S | `requirements-dev.txt` solo contiene `pytest`. QA no puede definir quality gates de linting ni de coverage sobre herramientas que no existen. Depende de que David fije el umbral (ver `SPEC.md`, pregunta 3). |
 | INF-04 | Excluir `.claude/worktrees/` de la configuración de lint y test | P1 | S | Requisito de proceso de `CLAUDE.md`: debe estar excluido desde el primer momento, antes de que existan worktrees. Se implementa junto a INF-01 e INF-03 (`norecursedirs` en la config de pytest, `exclude` en la del linter). |
 | INF-05 | El sondeo de analytics no sobrevive al reinicio | P2 | M | `schedule_analytics_polling()` usa cuatro `threading.Timer` daemon a 1 h, 6 h, 12 h y 24 h. Si la app se cierra antes, los sondeos pendientes se pierden sin dejar rastro. Propuesta: persistir los sondeos pendientes en `history.json` y reprogramarlos al arrancar. |
-| INF-06 | Sin gestión de versiones ni tags de release | P3 | S | No hay versión declarada en ningún sitio. `CHANGELOG.md` arranca con un `0.1.0` de referencia que no corresponde a ningún tag. Depende de la pregunta 6 de `SPEC.md`. |
+| INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. Bloqueado hasta que INF-01 (CI) y SEC-01 estén resueltos — son los requisitos ya listados en `CHANGELOG.md` para cortar la primera versión. |
 
 ---
 

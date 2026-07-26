@@ -23,6 +23,18 @@ Rationale de decisiones técnicas de código: `DECISIONS_TECHNICAL.md`.
 
 ## Decisiones de proceso
 
+### 2026-07-26 — Versionado con tags de git a partir de la próxima entrega
+
+**Contexto.** Pregunta 6 de `SPEC.md`. `CHANGELOG.md` ya sigue SemVer y arranca en `[No publicado]`,
+pero ninguna versión tiene tag de git.
+
+**Decisión.** Cada release se etiqueta con `vMAYOR.MENOR.PARCHE` en git, además de su entrada en
+`CHANGELOG.md`.
+
+**Consecuencia.** La primera etiqueta espera a que INF-01 (CI) y SEC-01 (`discord_bot_token` en
+`config.json`) estén resueltos — son los bloqueantes ya listados en `CHANGELOG.md` para cortar la
+primera versión. No se crea tag hasta entonces.
+
 ### 2026-07-26 — Adoptar el modelo de equipo de agentes y crear `CLAUDE.md`
 
 **Contexto.** El desarrollo pasa a hacerse con un equipo de agentes (Tech Lead, 2 Developers, Developer

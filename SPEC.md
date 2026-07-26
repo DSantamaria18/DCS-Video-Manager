@@ -105,5 +105,7 @@ Pendientes de respuesta. El Tech Lead las traslada; ningún otro agente pregunta
    y YouTube que se ejecute solo bajo petición, o todo debe ir mockeado siempre?
 6. **Versionado.** ¿Empezamos a etiquetar releases con tags de git a partir de la próxima entrega, o el
    `CHANGELOG.md` basta?
+   **Respuesta (2026-07-26):** tags de git, a partir de la próxima entrega. Ver `DECISIONS.md`. La
+   primera etiqueta espera a que INF-01 (CI) y SEC-01 estén resueltos (ver `CHANGELOG.md`).
 7. **`README.md` desactualizado.** No documenta Shorts, ACMI, debrief, narración, captions, Stats, watcher
    de lotes ni el bot de Discord. ¿Lo actualizamos como tarea propia o se va arreglando por partes?

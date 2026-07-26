@@ -1,7 +1,8 @@
 # CHANGELOG — DCS Video Manager
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
-Versionado semántico: `MAYOR.MENOR.PARCHE`.
+Versionado semántico: `MAYOR.MENOR.PARCHE`. Cada release se etiqueta en git como `vMAYOR.MENOR.PARCHE`
+(ver `DECISIONS.md`). La primera etiqueta espera a que INF-01 (CI) y SEC-01 estén resueltos.
 
 Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Seguridad`.
 
