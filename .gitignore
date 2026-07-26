@@ -12,6 +12,7 @@ output/
 
 # ── Runtime data ───────────────────────────────────────────
 memory/history.json
+memory/analysis_cache.json
 
 # ── Temp frames ───────────────────────────────────────────
 /tmp/dcs_frame_*.jpg

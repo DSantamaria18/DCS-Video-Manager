@@ -72,6 +72,34 @@ def test_analyze_returns_job_id(client, tmp_path, monkeypatch):
     assert len(resp.json["job_id"]) == 8
 
 
+def test_analyze_cache_hit_skips_gemini_call(client, tmp_path, monkeypatch):
+    """FEA-02: a cache hit must skip frame extraction and the Gemini call entirely."""
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+    def run_now(target=None, daemon=None):
+        target()
+        return type("_SyncThread", (), {"start": lambda self: None})()
+
+    with patch("dcs_meta.get_cached_metadata", return_value={"title": "Cached"}), \
+         patch("dcs_meta.generate_metadata") as mock_generate, \
+         patch("dcs_meta.extract_frames") as mock_extract, \
+         patch("dcs_meta.set_cached_metadata") as mock_set_cache, \
+         patch("dcs_meta.save_output", return_value=(tmp_path / "t.txt", tmp_path / "t.json")), \
+         patch("dcs_meta.update_memory"), \
+         patch("app.threading.Thread", side_effect=run_now):
+        resp = client.post("/api/analyze", json={"video_path": str(video)})
+
+    job_id = resp.json["job_id"]
+    status = client.get(f"/api/status/{job_id}")
+    assert status.json["status"] == "done"
+    assert status.json["result"]["metadata"]["title"] == "Cached"
+    mock_generate.assert_not_called()
+    mock_extract.assert_not_called()
+    mock_set_cache.assert_not_called()
+
+
 # ── GET /api/status/<job_id> ──────────────────────────────────────────────────
 
 def test_status_unknown_job_returns_404(client):

@@ -277,36 +277,43 @@ def analyze():
 
     def run_analysis():
         try:
-            processing_status[job_id]["message"] = "Extracting video frames..."
-            processing_status[job_id]["progress"] = 20
-
             cfg = dcs_meta.load_config()
             mem = dcs_meta.load_memory()
 
-            frames = dcs_meta.extract_frames(path, cfg["frames_to_extract"])
-            if not frames:
-                processing_status[job_id]["status"] = "error"
-                processing_status[job_id]["error"] = "Could not extract frames. Is ffmpeg installed?"
-                return
+            metadata = dcs_meta.get_cached_metadata(path)
+            if metadata:
+                processing_status[job_id]["message"] = "Using cached analysis..."
+                processing_status[job_id]["progress"] = 80
+            else:
+                processing_status[job_id]["message"] = "Extracting video frames..."
+                processing_status[job_id]["progress"] = 20
 
-            processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Gemini..."
-            processing_status[job_id]["progress"] = 50
+                frames = dcs_meta.extract_frames(path, cfg["frames_to_extract"])
+                if not frames:
+                    processing_status[job_id]["status"] = "error"
+                    processing_status[job_id]["error"] = "Could not extract frames. Is ffmpeg installed?"
+                    return
 
-            gemini_error = None
-            try:
-                metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
-                                                       acmi_path=acmi_path)
-            except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
-                gemini_error = str(e)
-                metadata = None
+                processing_status[job_id]["message"] = f"Extracted {len(frames)} frames. Calling Gemini..."
+                processing_status[job_id]["progress"] = 50
 
-            if not metadata:
-                metadata = dcs_meta.build_fallback_metadata(path, context, cfg)
-                processing_status[job_id]["fallback_warning"] = (
-                    "Analysis failed — using fallback metadata. Edit before upload."
-                )
-                if gemini_error:
-                    processing_status[job_id]["gemini_error"] = gemini_error
+                gemini_error = None
+                try:
+                    metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
+                                                           acmi_path=acmi_path)
+                except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
+                    gemini_error = str(e)
+                    metadata = None
+
+                if metadata:
+                    dcs_meta.set_cached_metadata(path, metadata)
+                else:
+                    metadata = dcs_meta.build_fallback_metadata(path, context, cfg)
+                    processing_status[job_id]["fallback_warning"] = (
+                        "Analysis failed — using fallback metadata. Edit before upload."
+                    )
+                    if gemini_error:
+                        processing_status[job_id]["gemini_error"] = gemini_error
 
             processing_status[job_id]["message"] = "Saving output files..."
             processing_status[job_id]["progress"] = 80
