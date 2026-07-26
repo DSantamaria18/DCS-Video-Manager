@@ -16,6 +16,9 @@ memory/history.json
 # ── Temp frames ───────────────────────────────────────────
 /tmp/dcs_frame_*.jpg
 
+# ── Worktrees de agentes ────────────────────────────────────
+.claude/worktrees/
+
 # ── Python ────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
