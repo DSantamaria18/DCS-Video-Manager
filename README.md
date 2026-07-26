@@ -55,6 +55,7 @@ Analyses video frames with **Google Gemini Vision**, automatically identifies th
 | Python | 3.10+ | [python.org](https://www.python.org/downloads/) |
 | ffmpeg | any | `winget install ffmpeg` / `brew install ffmpeg` |
 | Pillow | — | `pip install -r requirements.txt` |
+| watchdog | 6.0+ | `pip install -r requirements-batch.txt` (opcional, solo para el batch folder watcher) |
 | Gemini API key | — | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) (free, 1500 req/day) |
 | YouTube OAuth2 | — | Google Cloud Console (see Setup) |
 

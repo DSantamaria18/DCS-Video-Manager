@@ -1,7 +1,7 @@
 """
 Batch folder watcher for DCS Video Manager.
 Monitors the recordings folder for new .mkv files and queues them for analysis.
-Requires: watchdog (pip install watchdog)
+Requires: watchdog (pip install -r requirements-batch.txt)
 """
 
 import threading
@@ -17,7 +17,7 @@ def _make_handler(queue_callback):
     try:
         from watchdog.events import FileSystemEventHandler
     except ImportError:
-        raise RuntimeError("watchdog not installed — run: pip install watchdog")
+        raise RuntimeError("watchdog not installed — run: pip install -r requirements-batch.txt")
 
     class _Handler(FileSystemEventHandler):
         def on_created(self, event):
@@ -35,7 +35,7 @@ def start_watcher(folder: str, queue_callback) -> None:
     try:
         from watchdog.observers import Observer
     except ImportError:
-        raise RuntimeError("watchdog not installed — run: pip install watchdog")
+        raise RuntimeError("watchdog not installed — run: pip install -r requirements-batch.txt")
 
     folder_path = Path(folder)
     if not folder_path.exists():
