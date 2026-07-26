@@ -1600,3 +1600,21 @@ def test_generate_short_metadata_no_event_type_falls_back_to_cockpit():
     clip = {k: v for k, v in _SAMPLE_CLIP.items() if k not in ("event_type", "event_name")}
     result = dcs_meta.generate_short_metadata(clip, _BASE_META_FOR_SHORTS, {})
     assert "Cockpit Footage" in result["title"]
+
+
+# ── call_gemini — DCS_SIMULATE mode (FEA-04) ───────────────────────────────────
+
+def test_call_gemini_simulate_mode_skips_http(monkeypatch):
+    """DCS_SIMULATE=1 must return canned JSON without opening a network connection."""
+    def _fail_if_called(*a, **kw):
+        raise AssertionError("urlopen must not be called in simulate mode")
+
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    monkeypatch.setattr(dcs_meta.urllib.request, "urlopen", _fail_if_called)
+
+    raw = dcs_meta.call_gemini([], "prompt", "gemini-2.5-flash")
+    metadata = json.loads(raw)
+
+    assert metadata["title"]
+    assert metadata["description"]
+    assert isinstance(metadata["tags"], list)

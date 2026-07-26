@@ -140,3 +140,33 @@ def test_upload_video_no_thumbnail_path_skips_set(tmp_path):
     assert result["video_id"] == "VID_NO_THUMB"
     assert "thumbnail_set" not in result
     svc.thumbnails.return_value.set.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# upload_video — DCS_SIMULATE mode (FEA-04)
+# ---------------------------------------------------------------------------
+
+def test_upload_video_simulate_mode_skips_service(tmp_path, monkeypatch):
+    """DCS_SIMULATE=1 must return a canned result without touching _build_service."""
+    from youtube_uploader import upload_video
+
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"fake_video")
+
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+
+    def _fail_if_called():
+        raise AssertionError("_build_service must not be called in simulate mode")
+
+    with patch("youtube_uploader._build_service", side_effect=_fail_if_called):
+        result = upload_video(
+            video_path=str(video),
+            title="Test",
+            description="Desc",
+            tags=["dcs", "hornet"],
+        )
+
+    assert result["status"] == "simulated"
+    assert result["video_id"].startswith("SIMULATED")
+    assert result["url"].endswith(result["video_id"])
+    assert result["playlists_added"] == []

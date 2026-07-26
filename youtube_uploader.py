@@ -209,12 +209,27 @@ def upload_video(
 
     Pass publish_at as an ISO 8601 datetime string (e.g. '2026-06-01T19:00:00Z') to schedule
     future publication. progress_callback, if provided, is called with an int 0-100 after each chunk.
-    """
-    sanitized_tags = _sanitize_tags(tags)
-    lang = language if language in ("es", "en") else "en"
 
+    DCS_SIMULATE=1 skips OAuth and the API call, returning a canned result (FEA-04): lets
+    agents/QA validate the full UI flow without real YouTube credentials.
+    """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    if os.environ.get("DCS_SIMULATE") == "1":
+        video_id = "SIMULATED-0000"
+        return {
+            "video_id": video_id,
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "status": "simulated",
+            "privacy": "private" if publish_at else privacy,
+            "publish_at": publish_at,
+            "tags_skipped": False,
+            "playlists_added": [],
+        }
+
+    sanitized_tags = _sanitize_tags(tags)
+    lang = language if language in ("es", "en") else "en"
 
     youtube = _build_service()
 

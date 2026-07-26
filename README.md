@@ -101,6 +101,15 @@ Add this line to your `~/.zshrc` or `~/.bash_profile` to persist across sessions
 
 > ⚠️ `config/client_secret.json` and `config/youtube_token.json` are in `.gitignore` and are never committed to the repository.
 
+### 3. Simulation mode (development, no quota/credentials spent)
+
+```bash
+export DCS_SIMULATE=1
+```
+
+With this flag set, `call_gemini()` and `upload_video()` return canned data instead of calling
+the real APIs — useful for validating the full UI flow without Gemini quota or YouTube OAuth.
+
 ---
 
 ## Usage

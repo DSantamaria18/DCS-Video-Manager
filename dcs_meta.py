@@ -676,7 +676,25 @@ CHAPTERS:
 # ── Gemini API call ───────────────────────────────────────────────────────────
 
 def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
-    """Call Gemini Vision API using only stdlib (no SDK needed)."""
+    """Call Gemini Vision API using only stdlib (no SDK needed).
+
+    DCS_SIMULATE=1 skips the HTTP call and returns canned metadata (FEA-04):
+    lets agents/QA validate the full UI flow without spending Gemini quota.
+    """
+    if os.environ.get("DCS_SIMULATE") == "1":
+        return json.dumps({
+            "title": "[SIMULATED] DCS World Sample Flight",
+            "description": "Simulated description — DCS_SIMULATE mode, no Gemini call made.",
+            "tags": ["dcs", "dcs world", "simulated"],
+            "chapters": [],
+            "language": "en",
+            "aircraft": "",
+            "map": "",
+            "mission_type": "",
+            "campaign": "",
+            "analysis_notes": "Simulated metadata — DCS_SIMULATE mode.",
+        })
+
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise EnvironmentError("GEMINI_API_KEY not set.")

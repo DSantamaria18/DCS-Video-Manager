@@ -22,11 +22,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `DECISIONS.md` — decisiones técnicas y de proceso, y lecciones aprendidas.
 - `CHANGELOG.md` — este fichero.
 - `SPEC.md` — plantilla de especificaciones, pendiente de rellenar con David.
+- Pipeline de CI en GitHub Actions (`ruff` en modo reporte, `pytest` bloqueante con coverage).
+- `DCS_SIMULATE=1`: `call_gemini()` y `upload_video()` devuelven datos de ejemplo sin llamar a las APIs
+  reales de Gemini ni de YouTube (FEA-04).
 
 ### Pendiente antes de poder cortar la primera versión
 
-- Pipeline de CI en `.github/workflows/` (hoy no existe).
-- Linter y medición de cobertura declarados en `requirements-dev.txt`.
 - Resolución de SEC-01 (`discord_bot_token` en fichero rastreado por git).
 
 ---
