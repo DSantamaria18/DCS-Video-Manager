@@ -26,6 +26,8 @@ Analyses video frames with **Google Gemini Vision**, automatically identifies th
 - YouTube-style overlay: bottom gradient, Impact yellow title with stroke, bottom info bar with `aircraft · map` and channel handle
 - 2×2 grid in the UI to select the thumbnail before uploading; download guaranteed < 2 MB
 
+- **TacView ACMI event extraction** — parses `.acmi` mission recordings for kills, SAM/BVR/IR launches, guided bomb releases, friendly losses, and ejections; injected into the Gemini prompt for accurate mission narrative
+
 ### YouTube upload
 
 - Full OAuth2 authentication (Desktop app — no redirect URI configuration needed)
@@ -34,17 +36,37 @@ Analyses video frames with **Google Gemini Vision**, automatically identifies th
 - Assign to one or more playlists before uploading
 - **Automatic playlist pre-selection** based on detected aircraft, mission type, and campaign
 - Tag-less fallback if the app is not Google-verified (403 error)
+- **Scheduled publishing** — upload as private now, auto-publish at a chosen future date/time via `status.publishAt`
+- **Discord webhook notification** — posts an embed (title, URL, description excerpt) to a configured webhook after a successful upload
+
+### YouTube Shorts
+
+- **Window-based clip detection** — splits the source video into configurable windows (1–30 min) and picks the highest-priority moment per window from ACMI events (kill → ejection → guided bomb → SAM → BVR) or the loudest audio peak
+- 9:16 vertical crop per clip
+- Per-clip metadata (title, description, tags) generated from the triggering event, with an inline editor before download
 
 ### Web UI
 
 - Local Flask server at `http://localhost:5000`, opens automatically on startup
 - **Analyze tab**: main workflow (browse → context → analysis → edit → upload)
 - **History tab**: last 20 analysed videos with module, map, and title
+- **Stats tab**: channel dashboard — total uploads, uploads by module, uploads by month, top mission types
 - **Setup tab**: channel configuration (name, description, squadron, frames, Gemini model, URLs) and customisable description templates — all editable from the UI without touching files
 - Async analysis with progress bar
 - All fields editable before upload (title, description, tags, chapters)
 - Description preview: EDIT / PREVIEW toggle with URLs as links, #hashtags highlighted, and clickable timestamps
 - Tag pill editor: add with Enter or comma, remove with × or Backspace
+- **Mission debrief report** — a second Gemini vision call estimates tactical stats (result, kills, SAM evasions, max Mach/altitude, fuel) and writes a Discord-friendly ASCII debrief block
+- **Narration script generation** — 200–300 word first-person voiceover script from a dedicated Gemini call
+- **Social media captions** — X/Twitter, Instagram, LinkedIn, and TikTok captions generated per video, each with its own hashtag/format rules
+- **Batch folder watcher** — `batch_watcher.py` monitors `recordings_folder` for new `.mkv` files and queues them for review, no manual browsing needed
+- **Scheduled publish picker** in the upload flow, wired to the YouTube scheduled-publishing API above
+
+### Discord bot
+
+- Independent bot (`discord_bot.py`, `discord.py`) for the Escuadrón 111 server
+- `!debrief` and `!stats` commands, plus reaction logging
+- Runs separately from the web UI; shares `config/config.json` for channel/webhook settings
 
 ---
 
@@ -179,7 +201,10 @@ All settings are editable from the **Setup** tab in the UI. They can also be mod
 DCS-Video-Manager/
 ├── dcs_meta.py              # Analysis engine (Gemini Vision + ffmpeg + thumbnail)
 ├── youtube_uploader.py      # YouTube upload (OAuth2 Desktop app)
+├── batch_watcher.py         # Watches recordings_folder for new .mkv files (optional, requires watchdog)
+├── discord_bot.py           # Standalone Discord bot for Escuadrón 111 (!debrief, !stats)
 ├── requirements.txt
+├── requirements-batch.txt   # Optional: watchdog, for batch_watcher.py
 ├── config/
 │   ├── config.json          # Channel configuration
 │   ├── client_secret.json   # ⚠️ Never commit (.gitignore)

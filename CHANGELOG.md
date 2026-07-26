@@ -26,6 +26,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `DCS_SIMULATE=1`: `call_gemini()` y `upload_video()` devuelven datos de ejemplo sin llamar a las APIs
   reales de Gemini ni de YouTube (FEA-04).
 
+### Corregido
+
+- `README.md` documenta ahora Shorts, ACMI, debrief, narration script, captions sociales, Stats tab,
+  batch watcher, publicación programada y el bot de Discord (DOC-01).
+- `FEATURES.md` sin referencias `(#NN)` a issues inexistentes (DOC-02).
+
 ### Pendiente antes de poder cortar la primera versión
 
 - Resolución de SEC-01 (`discord_bot_token` en fichero rastreado por git).

@@ -52,8 +52,8 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
-| DOC-01 | `README.md` desactualizado | P1 | S | No menciona YouTube Shorts, TacView ACMI, el debrief de misión, los guiones de narración, las captions sociales, la pestaña Stats, el watcher de lotes, la publicación programada ni el bot de Discord. Tampoco documenta `discord_bot.py` pese a que `discord.py` es dependencia de producción. Un lector del README se forma una idea equivocada de lo que hace la app. |
-| DOC-02 | `FEATURES.md` documenta features por número de issue sin trazabilidad | P3 | S | Las entradas citan `(#30, #43)`, `(#49)`, etc., pero no hay issues en el repositorio a los que apunten. Propuesta: decidir si se abren issues reales o si se sustituyen las referencias por identificadores del backlog. |
+| DOC-01 | ~~`README.md` desactualizado~~ **Hecho (2026-07-26)** | P1 | S | Añadidas secciones YouTube Shorts y Discord bot, más ítems de Features (ACMI, debrief, narration script, social captions, Stats tab, batch watcher, scheduled publish) y entradas de `batch_watcher.py`/`discord_bot.py` en la estructura del proyecto. |
+| DOC-02 | ~~`FEATURES.md` documenta features por número de issue sin trazabilidad~~ **Hecho (2026-07-26)** | P3 | S | David decidió quitar las referencias `(#NN)`: son features ya cerradas de un proyecto personal en solitario, sin backlog abierto que las trace ni justificación para abrir issues retroactivos. |
 
 **Hecho (2026-07-26):** split de `CLAUDE.md` y `DECISIONS.md` para bajar el coste de tokens fijo por
 sesión/tarea (~52% menos combinado). Roles/DoD/flujo de PR → `.claude/team-workflow.md` (solo se lee al
