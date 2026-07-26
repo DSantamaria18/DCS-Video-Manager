@@ -24,6 +24,15 @@ CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
 MEMORY_PATH = Path(__file__).parent / "memory" / "history.json"
 OUTPUT_PATH = Path(__file__).parent / "output"
 
+# Exceptions _get_video_duration() can raise (see its docstring): ffprobe missing
+# (wrapped as RuntimeError), non-zero exit, malformed JSON, or a missing/non-numeric
+# duration field.
+_DURATION_ERRORS = (RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError)
+
+# Exceptions call_gemini() can raise (see its docstring): no API key, HTTP/network
+# failure, or a malformed API response — all surfaced as OSError/RuntimeError/JSONDecodeError.
+_GEMINI_ERRORS = (OSError, RuntimeError, json.JSONDecodeError)
+
 DEFAULT_CONFIG = {
     "channel_name": "TheCylonPilot",
     "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache.",
@@ -240,7 +249,7 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
 
     try:
         duration = _get_video_duration(video_path)
-    except Exception as e:
+    except _DURATION_ERRORS as e:
         print(f"  ⚠ Could not read video duration: {e}")
         print("  → Make sure ffmpeg/ffprobe is installed (https://ffmpeg.org)")
         return []
@@ -263,7 +272,7 @@ def extract_frames(video_path: Path, n_frames: int = 8) -> list[str]:
             with open(tmp_path, "rb") as f:
                 frames.append(base64.standard_b64encode(f.read()).decode("utf-8"))
             tmp_path.unlink(missing_ok=True)
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             print(f"  ⚠ Frame {i} failed: {e}")
 
     print(f"  ✓ Extracted {len(frames)} frames")
@@ -759,7 +768,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         minutes = int(duration_seconds // 60)
         category = _video_length_category(duration_seconds)
         print(f"  Duration: {minutes} min → {category} video format")
-    except Exception:
+    except _DURATION_ERRORS:
         duration_seconds = None
         print("  Duration: unknown — using medium format")
 
@@ -803,7 +812,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
 
     try:
         raw = call_gemini(frames, prompt, model)
-    except Exception as e:
+    except _GEMINI_ERRORS as e:
         print(f"  ✗ API error: {e}")
         return {}
 
@@ -874,7 +883,7 @@ def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -
 
     try:
         duration_s = _get_video_duration(video_path)
-    except Exception:
+    except _DURATION_ERRORS:
         duration_s = None
 
     result = {
@@ -1092,7 +1101,7 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
 
     try:
         duration = _get_video_duration(video_path)
-    except Exception as e:
+    except _DURATION_ERRORS as e:
         raise RuntimeError(f"ffprobe failed: {e}")
 
     n_sample = n_candidates + 2
@@ -1113,7 +1122,7 @@ def generate_thumbnail_on_demand(metadata: dict, video_path: Path, config: dict,
             tmp_path.unlink(missing_ok=True)
             img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
             scored.append((_score_frame(img), img_bytes))
-        except Exception:
+        except (subprocess.CalledProcessError, OSError):
             continue
 
     if not scored:
@@ -1354,7 +1363,7 @@ def generate_narration_script(metadata: dict, video_path: Path, config: dict) ->
     model = config.get("model", DEFAULT_CONFIG["model"])
     try:
         return call_gemini(frames, prompt, model).strip()
-    except Exception:
+    except _GEMINI_ERRORS:
         return (
             f"Today we're flying the {aircraft} over {map_name}. "
             f"This is a {mission_type} mission. "
@@ -1441,7 +1450,7 @@ def extract_obs_metadata(video_path: Path) -> dict:
         if proc.returncode != 0:
             return result
         data = json.loads(proc.stdout)
-    except Exception:
+    except (OSError, _sp.TimeoutExpired, json.JSONDecodeError):
         return result
 
     fmt_tags = data.get("format", {}).get("tags", {})
@@ -1488,7 +1497,7 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
     duration_str = "--"
     try:
         duration_str = _format_debrief_duration(_get_video_duration(video_path))
-    except Exception:
+    except _DURATION_ERRORS:
         pass
 
     frames = extract_frames(video_path, min(5, config.get("frames_to_extract", 8)))
@@ -1530,7 +1539,7 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
             lines = raw.split("\n")
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         data = json.loads(raw)
-    except Exception:
+    except _GEMINI_ERRORS:
         data = {}
 
     result_raw = data.get("result", "")
@@ -1651,7 +1660,7 @@ def generate_social_captions(metadata: dict, config: dict) -> dict:
             "linkedin": result.get("linkedin", ""),
             "tiktok": result.get("tiktok", ""),
         }
-    except Exception:
+    except _GEMINI_ERRORS:
         fallback = f"{title} {hashtags_base}"
         return {
             "twitter": fallback[:280],
@@ -2000,7 +2009,7 @@ def detect_short_clips(
 
     try:
         video_duration = _get_video_duration(video_path)
-    except Exception:
+    except _DURATION_ERRORS:
         video_duration = 0.0
 
     acmi_candidates = _collect_candidate_timestamps(acmi_events)

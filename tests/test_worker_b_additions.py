@@ -188,7 +188,7 @@ def test_upload_tags_skipped_message_is_specific(monkeypatch):
     try:
         result = yu.upload_video(fp, "T", "D", ["tag1"])
         assert result.get("tags_skipped") is True
-    except Exception:
+    except Exception:  # noqa: BLE001 — solo interesa el cuerpo capturado antes de _do_insert; lo posterior no está mockeado a propósito
         pass
     finally:
         os.unlink(fp)

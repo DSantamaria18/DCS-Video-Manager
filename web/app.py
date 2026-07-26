@@ -296,7 +296,7 @@ def analyze():
             try:
                 metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
                                                        acmi_path=acmi_path)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
                 gemini_error = str(e)
                 metadata = None
 
@@ -325,7 +325,7 @@ def analyze():
                 "fallback_warning": processing_status[job_id].get("fallback_warning"),
             }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
             processing_status[job_id]["status"] = "error"
             processing_status[job_id]["error"] = str(e)
 
@@ -352,7 +352,7 @@ def generate_thumbnail():
     cfg = dcs_meta.load_config()
     try:
         thumb_paths = dcs_meta.generate_thumbnail_on_demand(metadata, path, cfg)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"thumbnails": [f"/output/{p.name}" for p in thumb_paths]})
@@ -458,7 +458,7 @@ def upload_youtube():
                 dcs_meta.update_memory_video_id(Path(video_path).name, video_id)
                 try:
                     schedule_analytics_polling(video_id, Path(video_path).name)
-                except Exception:
+                except Exception:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
                     pass
 
             processing_status[job_id]["status"] = "done"
@@ -468,7 +468,7 @@ def upload_youtube():
         except ImportError:
             processing_status[job_id]["status"] = "error"
             processing_status[job_id]["error"] = "youtube_uploader module not found"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
             import traceback
             full_error = traceback.format_exc()
             print(f"\n=== UPLOAD ERROR ===\n{full_error}\n===================")
@@ -494,7 +494,7 @@ def get_analytics(video_id):
         from youtube_uploader import fetch_video_analytics
         result = fetch_video_analytics(video_id)
         return jsonify([result] if result else [])
-    except Exception:
+    except Exception:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify([])
 
 
@@ -505,7 +505,7 @@ def youtube_auth_url():
         from youtube_uploader import get_auth_url
         url = get_auth_url()
         return jsonify({"url": url})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -516,7 +516,7 @@ def youtube_wait_auth():
         from youtube_uploader import wait_for_auth
         result = wait_for_auth()
         return jsonify(result)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -568,7 +568,7 @@ def seo_rewrite():
             config=cfg,
         )
         return jsonify({"description": new_desc})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -591,7 +591,7 @@ def debrief():
     try:
         report = dcs_meta.generate_debrief(metadata, path, cfg, acmi_events=acmi_events)
         return jsonify({"report": report})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -738,7 +738,7 @@ def generate_shorts():
             processing_status[job_id]["message"] = f"Done! {len(clips_with_meta)} clip(s) generated."
             processing_status[job_id]["result"] = {"clips": clips_with_meta}
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
             processing_status[job_id]["status"] = "error"
             processing_status[job_id]["error"] = str(e)
 
@@ -773,7 +773,7 @@ def get_playlists():
         from youtube_uploader import get_playlists
         playlists = get_playlists()
         return jsonify(playlists)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e), "playlists": []}), 200
 
 
@@ -809,7 +809,7 @@ def batch_start():
     try:
         batch_watcher.start_watcher(folder, _enqueue)
         return jsonify({"ok": True, "folder": folder})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -891,7 +891,7 @@ def narration():
     try:
         script = dcs_meta.generate_narration_script(metadata, path, cfg)
         return jsonify({"script": script})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -926,7 +926,7 @@ def obs_metadata():
     try:
         obs_data = dcs_meta.extract_obs_metadata(path)
         return jsonify(obs_data)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -943,7 +943,7 @@ def social_captions():
     try:
         captions = dcs_meta.generate_social_captions(metadata, cfg)
         return jsonify(captions)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"error": str(e)}), 500
 
 
@@ -997,7 +997,7 @@ def competitors():
                 "video_id": item.get("id", {}).get("videoId", ""),
             })
         return jsonify({"results": results, "query": query})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
         return jsonify({"results": [], "error": str(e), "query": query})
 
 

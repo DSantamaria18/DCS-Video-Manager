@@ -50,7 +50,7 @@ def get_auth_url() -> str:
             with open(TOKEN_PATH, "w") as f:
                 f.write(creds.to_json())
             _auth_state["result"] = {"ok": True}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — superficie de googleapiclient no verificable sin credenciales reales; fallo no fatal por diseño
             _auth_state["result"] = {"error": str(e)}
         finally:
             _auth_state["done"].set()
@@ -291,7 +291,7 @@ def upload_video(
             ).execute()
             result["playlists_added"].append(pid)
             print(f"  ✓ Added to playlist: {pid}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — superficie de googleapiclient no verificable sin credenciales reales; fallo no fatal por diseño
             print(f"  ⚠ Could not add to playlist {pid}: {e}")
             result.setdefault("playlist_warnings", []).append(str(e))
 
@@ -301,7 +301,7 @@ def upload_video(
             _upload_thumbnail(youtube, video_id, thumbnail_path)
             result["thumbnail_set"] = True
             print(f"  ✓ Thumbnail set: {thumbnail_path}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — superficie de googleapiclient no verificable sin credenciales reales; fallo no fatal por diseño
             result["thumbnail_set"] = False
             result["thumbnail_warning"] = str(e)
             print(f"  ⚠ Could not set thumbnail: {e}")
@@ -343,7 +343,7 @@ def fetch_video_analytics(video_id: str) -> dict:
             "likes": int(row[3]) if row else 0,
             "fetched_at": datetime.now(timezone.utc).isoformat()
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — superficie de googleapiclient no verificable sin credenciales reales; fallo no fatal por diseño
         print(f"  ⚠ Analytics fetch failed for {video_id}: {e}")
         return {}
 
