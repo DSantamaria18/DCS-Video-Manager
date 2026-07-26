@@ -106,6 +106,10 @@ Pendientes de respuesta. El Tech Lead las traslada; ningún otro agente pregunta
 4. **Refactor de `dcs_meta.py`.** Son ~2.200 líneas mezclando dominio, I/O, subprocesos y HTTP. Partirlo
    mejora el cumplimiento de la regla 4 (SOLID) pero es una PR grande y arriesgada. ¿Se aborda ahora, se
    hace de forma incremental, o se congela?
+   **Respuesta (2026-07-26):** incremental, una PR por dominio (TEC-01a–e en `BACKLOG.md`), en orden de
+   menor a mayor acoplamiento: `acmi/` → `thumbnail/` → `media/` → `gemini/` → `seo/`. `dcs_meta.py`
+   reexporta cada símbolo movido, así ninguna PR toca los 47 call sites en `web/app.py`,
+   `discord_bot.py`, `batch_watcher.py` y `youtube_uploader.py`.
 5. **Tests que consumen cuota real.** ¿Autorizas una suite marcada de tests de integración contra Gemini
    y YouTube que se ejecute solo bajo petición, o todo debe ir mockeado siempre?
 6. **Versionado.** ¿Empezamos a etiquetar releases con tags de git a partir de la próxima entrega, o el
