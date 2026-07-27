@@ -41,6 +41,9 @@ de metadatos y la subida de vídeos de DCS World a YouTube.
 Reglas de comportamiento base, aplicables a todos los agentes y a todas las respuestas:
 
 - **Lee los ficheros existentes antes de escribir.** No los vuelvas a leer si no han cambiado.
+  Especial cuidado con `dcs_meta.py` (el más grande del repo, en refactor activo por TEC-01):
+  verificado con `ccusage` que se releyó 10 veces en una sola sesión sin ningún `Edit` de por
+  medio. Si ya está en contexto y no lo has tocado tú ni el usuario desde entonces, no lo releas.
 - **Exhaustivo al razonar, conciso al responder.** El razonamiento largo va en el trabajo, no en el output.
 - **Salta ficheros de más de 100 KB** salvo que sean imprescindibles para la tarea.
 - **Sin aperturas aduladoras ni cierres de relleno.** Nada de "excelente pregunta" ni resúmenes
