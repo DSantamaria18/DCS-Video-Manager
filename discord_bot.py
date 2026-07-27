@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
+# Discord secrets (bot token, channel id) live in a separate gitignored file (SEC-01).
+SECRETS_PATH = Path(__file__).parent / "config" / "secrets.json"
 MEMORY_PATH = Path(__file__).parent / "memory" / "history.json"
 REACTIONS_PATH = Path(__file__).parent / "memory" / "discord_reactions.json"
 
@@ -19,12 +21,18 @@ _reactions_lock = threading.Lock()
 
 
 def load_config() -> dict:
-    """Load config.json and return it as a dict. Returns empty dict on failure."""
+    """Load config.json merged with secrets.json. Returns empty dict on failure."""
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {}
+        cfg = {}
+    try:
+        with open(SECRETS_PATH, encoding="utf-8") as f:
+            cfg.update(json.load(f))
+    except (OSError, json.JSONDecodeError):
+        pass
+    return cfg
 
 
 def load_history() -> dict:

@@ -66,7 +66,7 @@ Analyses video frames with **Google Gemini Vision**, automatically identifies th
 
 - Independent bot (`discord_bot.py`, `discord.py`) for the Escuadrón 111 server
 - `!debrief` and `!stats` commands, plus reaction logging
-- Runs separately from the web UI; shares `config/config.json` for channel/webhook settings
+- Runs separately from the web UI; shares `config/config.json` for channel settings and `config/secrets.json` (gitignored) for the bot token/channel ID
 
 ---
 
@@ -207,6 +207,7 @@ DCS-Video-Manager/
 ├── requirements-batch.txt   # Optional: watchdog, for batch_watcher.py
 ├── config/
 │   ├── config.json          # Channel configuration
+│   ├── secrets.json         # ⚠️ Never commit (.gitignore) — Discord webhook/bot token/channel ID
 │   ├── client_secret.json   # ⚠️ Never commit (.gitignore)
 │   └── youtube_token.json   # ⚠️ Never commit (.gitignore)
 ├── memory/

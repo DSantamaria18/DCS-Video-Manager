@@ -23,6 +23,25 @@ Rationale de decisiones técnicas de código: `DECISIONS_TECHNICAL.md`.
 
 ## Decisiones de proceso
 
+### 2026-07-28 — SEC-01: fichero `secrets.json` separado, no variables de entorno
+
+**Contexto.** `discord_webhook_url`, `discord_bot_token` y `discord_channel_id` vivían en
+`config/config.json`, rastreado por git y sin entrada en `.gitignore`. A diferencia de
+`GEMINI_API_KEY` (solo se lee de entorno, sin campo en la UI), estos tres campos sí son editables
+desde la pestaña Setup vía `POST /api/config` (`web/templates/index.html`).
+
+**Decisión.** Se descarta el patrón de `GEMINI_API_KEY` (variable de entorno pura) porque exigiría
+reiniciar el proceso para cambiar el token y rompería la UX de Setup ya existente. En su lugar,
+los tres campos se mueven a `config/secrets.json`, nuevo fichero gitignoreado. `dcs_meta.load_config()`
+fusiona `config.json` + `secrets.json` de forma transparente (mismo dict de siempre para el resto del
+código); `save_config()` en `web/app.py` separa qué claves van a cada fichero al escribir.
+`discord_bot.py`, que no importa `dcs_meta`, replica el mismo merge con su propia constante
+`SECRETS_PATH` para no perder su carácter de script standalone.
+
+**Consecuencia.** `config/config.json` tracked ya no puede filtrar un secreto aunque David rellene
+los campos desde la UI. Bloqueante de INF-06 (primer tag de versión) resuelto. Lección para el
+futuro: al añadir un nuevo secreto editable desde la UI, va a `secrets.json`, no a `config.json`.
+
 ### 2026-07-26 — CI real en GitHub Actions, ruff no bloqueante hasta limpiar deuda
 
 **Contexto.** INF-01. `ruff check .` detectó 129 issues preexistentes en el código (ver decisión de

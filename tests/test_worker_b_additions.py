@@ -25,8 +25,9 @@ def client():
 # ── #33 Discord webhook DEFAULT_CONFIG ───────────────────────────────────────
 
 def test_default_config_has_discord_webhook_url():
-    assert "discord_webhook_url" in dcs_meta.DEFAULT_CONFIG
-    assert dcs_meta.DEFAULT_CONFIG["discord_webhook_url"] == ""
+    """discord_webhook_url moved to DEFAULT_SECRETS (SEC-01) — it's a secret, not general config."""
+    assert "discord_webhook_url" not in dcs_meta.DEFAULT_CONFIG
+    assert dcs_meta.DEFAULT_SECRETS["discord_webhook_url"] == ""
 
 
 def test_config_allowed_keys_includes_discord_webhook():
@@ -132,10 +133,12 @@ def test_discord_webhook_url_saveable_via_config_endpoint(client, monkeypatch, t
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({}))
     monkeypatch.setattr(dcs_meta, "CONFIG_PATH", cfg_file)
-    monkeypatch.setattr(dcs_meta, "load_config", lambda: {**dcs_meta.DEFAULT_CONFIG})
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", tmp_path / "secrets.json")
+    monkeypatch.setattr(dcs_meta, "load_config", lambda: {**dcs_meta.DEFAULT_CONFIG, **dcs_meta.DEFAULT_SECRETS})
 
     resp = client.post("/api/config", json={"discord_webhook_url": "https://discord.com/api/webhooks/test"})
     assert resp.status_code == 200
+    assert resp.json["discord_webhook_url"] == "https://discord.com/api/webhooks/test"
 
 
 # ── #24 history endpoint returns video_id ────────────────────────────────────

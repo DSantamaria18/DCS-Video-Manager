@@ -55,7 +55,7 @@ web/app.py ──► dcs_meta.py ◄── youtube_uploader.py
      ├──► youtube_uploader.py
      └──► batch_watcher.py
 
-discord_bot.py  (independiente, solo lee memory/history.json y config/config.json)
+discord_bot.py  (independiente, solo lee memory/history.json, config/config.json y config/secrets.json)
 ```
 
 `youtube_uploader.schedule_analytics_polling()` accede a `dcs_meta._memory_lock`, un símbolo privado
@@ -136,7 +136,8 @@ protegido por `dcs_meta._memory_lock`.
 
 | Fichero | Contenido | En git |
 |---|---|---|
-| `config/config.json` | Nombre de canal, descripción, escuadrón, enlaces, nº de frames, modelo Gemini, `recordings_folder`, `discord_webhook_url`, `discord_bot_token`, `discord_channel_id`. | **Sí (rastreado)** |
+| `config/config.json` | Nombre de canal, descripción, escuadrón, enlaces, nº de frames, modelo Gemini, `recordings_folder`. | **Sí (rastreado)** |
+| `config/secrets.json` | `discord_webhook_url`, `discord_bot_token`, `discord_channel_id` (SEC-01: separados de `config.json` porque son editables desde la UI y no deben acabar en un commit). | No (`.gitignore`) |
 | `config/client_secret.json` | Credenciales OAuth2 de Google. | No (`.gitignore`) |
 | `config/youtube_token.json` | Token OAuth2 persistido. | No (`.gitignore`) |
 | `config/last_folder.txt` | Última carpeta usada en el selector de ficheros. | No (`.gitignore`) |
@@ -147,8 +148,8 @@ protegido por `dcs_meta._memory_lock`.
 **Estado en memoria:** `web/app.py::processing_status`, un diccionario global `job_id → {status,
 progress, message, result, error}`, acotado a 50 entradas por `_evict_old_jobs()`. Se pierde al reiniciar.
 
-`GEMINI_API_KEY` se lee **exclusivamente del entorno**, nunca de `config.json`. Esta es la única credencial
-que sigue ese patrón.
+`GEMINI_API_KEY` se lee **exclusivamente del entorno**, nunca de `config.json` ni de `secrets.json`.
+No tiene campo en la UI, a diferencia de los secretos de Discord (ver arriba).
 
 ---
 
@@ -221,16 +222,13 @@ Verificado en el código; cada punto tiene su entrada correspondiente en `BACKLO
    regla 4 (SOLID) y dificulta el testing por comportamiento. Extracción por dominios en curso
    (TEC-01a–e en `BACKLOG.md`); ACMI (`acmi.py`, TEC-01a) y miniaturas (`thumbnail.py`, TEC-01b) ya
    están fuera.
-2. **`config/config.json` está rastreado en git y admite `discord_bot_token`.** Hoy está vacío, pero
-   la pestaña Setup lo escribe: en cuanto David introduzca el token, un `git commit` lo publica en un
-   repositorio público.
-3. **Sin protección CSRF ni autenticación** en los endpoints `POST`. El servidor es local, pero cualquier
+2. **Sin protección CSRF ni autenticación** en los endpoints `POST`. El servidor es local, pero cualquier
    página abierta en el navegador puede hacer peticiones a `localhost:5000`, y varios endpoints leen y
    escriben ficheros arbitrarios del disco a partir de rutas del payload.
-4. **`_open_file_dialog()` interpola cadenas dentro de un script PowerShell y de un AppleScript.** Los
+3. **`_open_file_dialog()` interpola cadenas dentro de un script PowerShell y de un AppleScript.** Los
    valores vienen de `config/last_folder.txt`, no de red, pero el patrón es frágil.
-5. **`watchdog` no está en `requirements.txt`** pese a ser necesario para `batch_watcher.py`.
-6. **El polling de analytics no sobrevive al reinicio** del proceso.
+4. **`watchdog` no está en `requirements.txt`** pese a ser necesario para `batch_watcher.py`.
+5. **El polling de analytics no sobrevive al reinicio** del proceso.
 7. **`README.md` está desactualizado**: no menciona Shorts, ACMI/TacView, debrief, guiones de narración,
    captions sociales, dashboard de Stats, watcher de lotes ni el bot de Discord.
 8. **Acoplamiento a símbolo privado**: `youtube_uploader` usa `dcs_meta._memory_lock`.
