@@ -213,9 +213,17 @@ def save_config():
         if key in data:
             existing[key] = data[key]
 
+    # Discord secrets go to secrets.json, never to config.json (SEC-01).
+    secret_updates = {k: existing[k] for k in dcs_meta.SECRET_KEYS if k in data}
+    if secret_updates:
+        secrets = dcs_meta.load_secrets()
+        secrets.update(secret_updates)
+        dcs_meta.save_secrets(secrets)
+
+    config_to_save = {k: v for k, v in existing.items() if k not in dcs_meta.SECRET_KEYS}
     dcs_meta.CONFIG_PATH.parent.mkdir(exist_ok=True)
     with open(dcs_meta.CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(existing, f, indent=2, ensure_ascii=False)
+        json.dump(config_to_save, f, indent=2, ensure_ascii=False)
 
     return jsonify(existing)
 

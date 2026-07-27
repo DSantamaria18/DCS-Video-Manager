@@ -12,8 +12,5 @@
     "escuadron111": "https://www.escuadron111.eu/"
   },
   "frames_to_extract": 8,
-  "model": "gemini-2.5-flash",
-  "discord_webhook_url": "",
-  "discord_bot_token": "",
-  "discord_channel_id": ""
+  "model": "gemini-2.5-flash"
 }

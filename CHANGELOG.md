@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Versionado semántico: `MAYOR.MENOR.PARCHE`. Cada release se etiqueta en git como `vMAYOR.MENOR.PARCHE`
-(ver `DECISIONS.md`). La primera etiqueta espera a que INF-01 (CI) y SEC-01 estén resueltos.
+(ver `DECISIONS.md`). INF-01 (CI) y SEC-01 ya resueltos; queda crear la primera etiqueta (INF-06).
 
 Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Seguridad`.
 
@@ -37,6 +37,13 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - `thumbnail.py`: generación de miniaturas (selección de frames, gradación cinematográfica, overlay,
   guardado JPEG) extraída de `dcs_meta.py`, reexportando solo `generate_thumbnail_on_demand` (TEC-01b).
 
+### Seguridad
+
+- Los secretos de Discord (`discord_webhook_url`, `discord_bot_token`, `discord_channel_id`) se
+  separan de `config/config.json` (rastreado por git) a `config/secrets.json`, gitignoreado. La
+  pestaña Setup sigue editándolos igual; `dcs_meta.load_config()` fusiona ambos ficheros de forma
+  transparente para el resto del código (SEC-01).
+
 ### Corregido
 
 - `README.md` documenta ahora Shorts, ACMI, debrief, narration script, captions sociales, Stats tab,
@@ -58,7 +65,8 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Pendiente antes de poder cortar la primera versión
 
-- Resolución de SEC-01 (`discord_bot_token` en fichero rastreado por git).
+Ninguno: SEC-01 (`discord_bot_token` en fichero rastreado por git), el último bloqueante listado
+aquí, queda resuelto arriba. Queda pendiente crear el primer tag (INF-06).
 
 ---
 

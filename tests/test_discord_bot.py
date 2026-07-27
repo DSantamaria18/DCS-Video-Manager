@@ -46,6 +46,7 @@ def test_load_config_returns_dict_on_valid_file(tmp_path, monkeypatch):
     cfg_path.write_text('{"discord_bot_token": "tok", "discord_channel_id": "123"}',
                         encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
     cfg = discord_bot.load_config()
     assert cfg["discord_bot_token"] == "tok"
     assert cfg["discord_channel_id"] == "123"
@@ -53,6 +54,7 @@ def test_load_config_returns_dict_on_valid_file(tmp_path, monkeypatch):
 
 def test_load_config_returns_empty_dict_when_file_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", tmp_path / "nonexistent.json")
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
     assert discord_bot.load_config() == {}
 
 
@@ -60,7 +62,32 @@ def test_load_config_returns_empty_dict_on_invalid_json(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text("not valid json", encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
     assert discord_bot.load_config() == {}
+
+
+def test_load_config_merges_secrets_file(tmp_path, monkeypatch):
+    """Discord secrets living in secrets.json must show up in load_config()'s result (SEC-01)."""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"channel_name": "Test"}', encoding="utf-8")
+    secrets_path = tmp_path / "secrets.json"
+    secrets_path.write_text(
+        '{"discord_bot_token": "tok", "discord_channel_id": "123"}', encoding="utf-8",
+    )
+    monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", secrets_path)
+    cfg = discord_bot.load_config()
+    assert cfg["discord_bot_token"] == "tok"
+    assert cfg["discord_channel_id"] == "123"
+    assert cfg["channel_name"] == "Test"
+
+
+def test_load_config_missing_secrets_file_still_returns_config(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"channel_name": "Test"}', encoding="utf-8")
+    monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
+    assert discord_bot.load_config() == {"channel_name": "Test"}
 
 
 # ── load_history ──────────────────────────────────────────────────────────────
@@ -195,6 +222,7 @@ def test_main_exits_on_empty_token(tmp_path, monkeypatch):
     cfg_path.write_text('{"discord_bot_token": "", "discord_channel_id": "123"}',
                         encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
 
     with pytest.raises(SystemExit) as exc_info:
         discord_bot.main()
@@ -206,6 +234,7 @@ def test_main_exits_on_empty_channel_id(tmp_path, monkeypatch):
     cfg_path.write_text('{"discord_bot_token": "sometoken", "discord_channel_id": ""}',
                         encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
 
     with pytest.raises(SystemExit) as exc_info:
         discord_bot.main()
@@ -217,6 +246,7 @@ def test_main_exits_when_discord_not_installed(tmp_path, monkeypatch):
     cfg_path.write_text('{"discord_bot_token": "tok", "discord_channel_id": "123"}',
                         encoding="utf-8")
     monkeypatch.setattr(discord_bot, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(discord_bot, "SECRETS_PATH", tmp_path / "nonexistent_secrets.json")
 
     # Setting sys.modules entry to None forces ImportError on any subsequent `import discord`
     saved = sys.modules.get("discord")

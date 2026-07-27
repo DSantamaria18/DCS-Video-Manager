@@ -16,7 +16,6 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
-| SEC-01 | `discord_bot_token` se guarda en un fichero rastreado por git | P0 | S | `config/config.json` **no** está en `.gitignore` y contiene las claves `discord_bot_token`, `discord_channel_id` y `discord_webhook_url`. La pestaña Setup escribe ahí (`_CONFIG_ALLOWED_KEYS` en `web/app.py`). Hoy los valores están vacíos, así que no hay filtración, pero en cuanto David introduzca el token el siguiente commit lo publica en un repositorio público. Es incoherente con el tratamiento de `GEMINI_API_KEY`, que solo se lee del entorno. Propuesta: mover los secretos a variables de entorno o a un `config/secrets.json` ignorado, y dejar en `config.json` solo configuración no sensible. |
 | SEC-02 | Endpoints `POST` sin protección CSRF ni autenticación | P1 | M | Ningún endpoint de `web/app.py` valida origen ni token. El servidor escucha en `localhost:5000` mientras David navega con el mismo navegador: cualquier página abierta puede enviarle peticiones. Varios endpoints leen y escriben rutas arbitrarias del disco tomadas del payload (`video_path`, `acmi_path`) y `POST /api/config` reescribe la configuración. Propuesta: token CSRF por sesión o comprobación de cabecera `Origin`, más validación de que las rutas caen bajo directorios permitidos. |
 | SEC-03 | Interpolación de cadenas en scripts de PowerShell y AppleScript | P2 | S | `_open_file_dialog()` construye el script inyectando `initial_dir` y `title` directamente en la cadena. El valor viene de `config/last_folder.txt`, no de la red, así que hoy el riesgo es bajo, pero el patrón se rompe en cuanto una ruta contenga comillas. Propuesta: pasar los valores como argumentos en lugar de interpolarlos. |
 | SEC-04 | Tests de seguridad inexistentes | P2 | M | QA tiene asignada la implementación y mantenimiento de tests de seguridad y hoy no hay ninguno. Como mínimo: recorrido de rutas en los endpoints que aceptan paths, validación de entrada en `POST /api/config`, y comprobación de que ningún secreto termina en `output/` ni en los logs. |
@@ -28,7 +27,7 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
 | INF-05 | El sondeo de analytics no sobrevive al reinicio | P2 | M | `schedule_analytics_polling()` usa cuatro `threading.Timer` daemon a 1 h, 6 h, 12 h y 24 h. Si la app se cierra antes, los sondeos pendientes se pierden sin dejar rastro. Propuesta: persistir los sondeos pendientes en `history.json` y reprogramarlos al arrancar. |
-| INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. CI (INF-01) ya resuelto; bloqueado solo por SEC-01 — único requisito que queda listado en `CHANGELOG.md` para cortar la primera versión. |
+| INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. CI (INF-01) y SEC-01 ya resueltos; sin bloqueantes pendientes en `CHANGELOG.md` para cortar la primera versión. |
 
 ---
 

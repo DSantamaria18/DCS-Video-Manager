@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import app as app_module
@@ -340,6 +341,55 @@ def test_post_config_all_valid_gemini_models_accepted(client, tmp_path, monkeypa
         with patch("dcs_meta.load_config", return_value=dict(VALID_CONFIG_PAYLOAD)):
             resp = client.post("/api/config", json=payload)
         assert resp.status_code == 200, f"Expected 200 for model {model}"
+
+
+# ── SEC-01: Discord secrets stored outside config.json ───────────────────────
+
+def test_post_config_discord_secrets_written_to_secrets_file_not_config(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", tmp_path / "secrets.json")
+    resp = client.post("/api/config", json={
+        "discord_bot_token": "tok123",
+        "discord_channel_id": "999",
+    })
+    assert resp.status_code == 200
+    assert resp.json["discord_bot_token"] == "tok123"
+    assert resp.json["discord_channel_id"] == "999"
+
+    config_on_disk = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert "discord_bot_token" not in config_on_disk
+    assert "discord_channel_id" not in config_on_disk
+
+    secrets_on_disk = json.loads((tmp_path / "secrets.json").read_text(encoding="utf-8"))
+    assert secrets_on_disk["discord_bot_token"] == "tok123"
+    assert secrets_on_disk["discord_channel_id"] == "999"
+
+
+def test_post_config_secrets_persist_across_unrelated_updates(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", tmp_path / "secrets.json")
+    client.post("/api/config", json={"discord_bot_token": "tok123"})
+
+    resp = client.post("/api/config", json={"channel_name": "NewName"})
+
+    assert resp.status_code == 200
+    assert resp.json["channel_name"] == "NewName"
+    assert resp.json["discord_bot_token"] == "tok123"
+
+
+def test_get_config_includes_discord_secrets_from_secrets_file(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    secrets_path = tmp_path / "secrets.json"
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", secrets_path)
+    secrets_path.write_text(
+        '{"discord_bot_token": "existing-tok", "discord_webhook_url": "", "discord_channel_id": ""}',
+        encoding="utf-8",
+    )
+
+    resp = client.get("/api/config")
+
+    assert resp.status_code == 200
+    assert resp.json["discord_bot_token"] == "existing-tok"
 
 
 # ── POST /api/suggest_playlists ──────────────────────────────────────────────

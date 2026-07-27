@@ -21,6 +21,10 @@ from pathlib import Path
 
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
+# Discord secrets live in a separate, gitignored file (SEC-01) — config.json is
+# tracked by git, and a bot token or webhook URL must never end up in a commit.
+SECRETS_PATH = Path(__file__).parent / "config" / "secrets.json"
+SECRET_KEYS = {"discord_webhook_url", "discord_bot_token", "discord_channel_id"}
 MEMORY_PATH = Path(__file__).parent / "memory" / "history.json"
 ANALYSIS_CACHE_PATH = Path(__file__).parent / "memory" / "analysis_cache.json"
 OUTPUT_PATH = Path(__file__).parent / "output"
@@ -50,8 +54,14 @@ DEFAULT_CONFIG = {
     "frames_to_extract": 8,
     "model": "gemini-2.5-flash",
     "description_templates": {},
-    "recordings_folder": "",
-    "discord_webhook_url": ""
+    "recordings_folder": ""
+}
+
+# Discord secrets (SEC-01) — see SECRETS_PATH above.
+DEFAULT_SECRETS = {
+    "discord_webhook_url": "",
+    "discord_bot_token": "",
+    "discord_channel_id": ""
 }
 
 SQUADRON_KEYWORDS = ["escuadron", "escuadrón", "e111", "111", "squad", "multiplayer", "multi"]
@@ -107,15 +117,40 @@ _memory_lock = threading.Lock()
 
 # ── Config & memory ──────────────────────────────────────────────────────────
 
+def load_secrets():
+    """Load secrets.json, creating it with defaults if absent. Never tracked by git (SEC-01)."""
+    SECRETS_PATH.parent.mkdir(exist_ok=True)
+    if SECRETS_PATH.exists():
+        with open(SECRETS_PATH, encoding="utf-8") as f:
+            return {**DEFAULT_SECRETS, **json.load(f)}
+    with open(SECRETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(DEFAULT_SECRETS, f, indent=2, ensure_ascii=False)
+    return DEFAULT_SECRETS
+
+
+def save_secrets(secrets):
+    """Persist secrets.json. Never tracked by git (SEC-01)."""
+    SECRETS_PATH.parent.mkdir(exist_ok=True)
+    with open(SECRETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(secrets, f, indent=2, ensure_ascii=False)
+
+
 def load_config():
-    """Load config.json, creating it with defaults if absent."""
+    """Load config.json, creating it with defaults if absent.
+
+    Discord secrets are merged in from secrets.json (SEC-01) so callers keep
+    seeing one flat config dict; only load_config()/save_config() know the
+    storage is split.
+    """
     CONFIG_PATH.parent.mkdir(exist_ok=True)
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, encoding="utf-8") as f:
-            return {**DEFAULT_CONFIG, **json.load(f)}
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
-    return DEFAULT_CONFIG
+            cfg = {**DEFAULT_CONFIG, **json.load(f)}
+    else:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
+        cfg = dict(DEFAULT_CONFIG)
+    return {**cfg, **load_secrets()}
 
 
 def load_memory():

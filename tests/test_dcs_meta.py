@@ -1220,6 +1220,61 @@ def test_load_config_reads_utf8_characters(tmp_path, monkeypatch):
     assert cfg["channel_name"] == "EscuadrÓn 111"
 
 
+# ── SEC-01: Discord secrets stored outside config.json ───────────────────────
+
+def test_default_config_excludes_discord_secrets():
+    """DEFAULT_CONFIG must not carry Discord secrets — they live in secrets.json (SEC-01)."""
+    assert "discord_bot_token" not in dcs_meta.DEFAULT_CONFIG
+    assert "discord_webhook_url" not in dcs_meta.DEFAULT_CONFIG
+    assert "discord_channel_id" not in dcs_meta.DEFAULT_CONFIG
+
+
+def test_default_secrets_has_discord_keys_empty():
+    assert dcs_meta.DEFAULT_SECRETS == {
+        "discord_webhook_url": "",
+        "discord_bot_token": "",
+        "discord_channel_id": "",
+    }
+
+
+def test_load_config_creates_secrets_file_with_defaults(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config" / "config.json")
+    secrets_path = tmp_path / "config" / "secrets.json"
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", secrets_path)
+    cfg = dcs_meta.load_config()
+    assert secrets_path.exists()
+    assert cfg["discord_bot_token"] == ""
+
+
+def test_load_config_merges_existing_secrets_file(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config" / "config.json"
+    cfg_path.parent.mkdir()
+    cfg_path.write_text('{"channel_name": "Test"}', encoding="utf-8")
+    secrets_path = tmp_path / "config" / "secrets.json"
+    secrets_path.write_text(
+        '{"discord_bot_token": "tok123", "discord_webhook_url": "", "discord_channel_id": "999"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", secrets_path)
+    cfg = dcs_meta.load_config()
+    assert cfg["discord_bot_token"] == "tok123"
+    assert cfg["discord_channel_id"] == "999"
+    assert cfg["channel_name"] == "Test"
+
+
+def test_load_config_never_writes_secrets_into_config_file(tmp_path, monkeypatch):
+    """config.json on disk must stay free of Discord secrets after load_config() runs (SEC-01)."""
+    cfg_path = tmp_path / "config" / "config.json"
+    secrets_path = tmp_path / "config" / "secrets.json"
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(dcs_meta, "SECRETS_PATH", secrets_path)
+    dcs_meta.load_config()
+    saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert "discord_bot_token" not in saved
+    assert "discord_webhook_url" not in saved
+
+
 def test_save_and_reload_memory_preserves_utf8(tmp_path, monkeypatch):
     """save_memory/load_memory must round-trip non-ASCII strings correctly (Bug #4)."""
     mem_path = tmp_path / "memory" / "history.json"

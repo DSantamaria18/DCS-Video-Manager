@@ -2,6 +2,7 @@
 config/client_secret.json
 config/youtube_token.json
 config/last_folder.txt
+config/secrets.json
 
 # ── API keys ───────────────────────────────────────────────
 .env
