@@ -2083,7 +2083,7 @@ function renderShortsGrid(clips) {
 
   grid.style.display = clips.length ? '' : 'none';
   grid.__clips = clips;
-  if (clips.length) loadShortsPlaylists();
+  if (clips.length) { loadShortsPlaylists(); _enforceShortsSelectionLimit(); }
 }
 
 function copyShortMeta(idx) {
@@ -2125,6 +2125,16 @@ function saveShortMeta(idx) {
 
   toggleShortEdit(idx);
   showToast('Metadata saved');
+}
+
+function _enforceShortsSelectionLimit() {
+  const boxes = [...document.querySelectorAll('#shortsCards input[type=checkbox]')];
+  const update = () => {
+    const checkedCount = boxes.filter(b => b.checked).length;
+    boxes.forEach(b => { b.disabled = !b.checked && checkedCount >= 15; });
+  };
+  boxes.forEach(b => b.addEventListener('change', update));
+  update();
 }
 
 function _shortClipOrder(clip) {
