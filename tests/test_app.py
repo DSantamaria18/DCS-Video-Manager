@@ -742,3 +742,48 @@ def test_generate_shorts_empty_acmi_events_accepted(client, tmp_path):
         })
     assert resp.status_code == 200
     assert "job_id" in resp.json
+
+
+# ── POST /api/upload_shorts_batch ───────────────────────────────────────────────
+
+def test_upload_shorts_batch_invalid_payload_returns_400(client):
+    resp = client.post("/api/upload_shorts_batch", json={"clips": []})
+    assert resp.status_code == 400
+    assert "error" in resp.json
+
+
+def test_upload_shorts_batch_valid_payload_returns_job_id(client, tmp_path):
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T",
+                       "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 3,
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
+
+
+def test_upload_shorts_batch_job_starts_with_pending_clips(client, tmp_path):
+    clip1 = tmp_path / "a_short_1.mp4"
+    clip1.write_bytes(b"fake")
+    clip2 = tmp_path / "a_short_2.mp4"
+    clip2.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [
+                {"clip_path": str(clip1), "order": 1, "title": "T1", "description": "D", "tags": []},
+                {"clip_path": str(clip2), "order": 2, "title": "T2", "description": "D", "tags": []},
+            ],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 3,
+        })
+    job_id = resp.json["job_id"]
+    status = client.get(f"/api/status/{job_id}")
+    assert status.json["status"] == "uploading_batch"
+    assert status.json["clips"]["1"]["status"] == "pending"
+    assert status.json["clips"]["2"]["status"] == "pending"

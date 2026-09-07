@@ -804,6 +804,52 @@ def serve_shorts_file(filename):
     return send_from_directory(str(shorts_dir), filename)
 
 
+@app.route("/api/upload_shorts_batch", methods=["POST"])
+def upload_shorts_batch():
+    """POST /api/upload_shorts_batch — upload up to 15 Shorts sequentially with staggered publish_at.
+
+    Request body: {"clips": [{"clip_path": str, "order": int, "title": str,
+    "description": str, "tags": list}], "first_publish_at": str (ISO 8601, Z-suffixed),
+    "interval_days": int, "playlist_ids": list (optional, extra playlists — the SHORTS
+    playlist is always added automatically)}.
+    Starts a background job; poll /api/status/<job_id> — the response includes a "clips"
+    dict keyed by order with each clip's upload status (pending/uploading/done/error).
+    """
+    data = request.get_json()
+    error = _validate_shorts_batch(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    clips = data["clips"]
+    first_publish_at = data["first_publish_at"]
+    interval_days = data["interval_days"]
+    playlist_ids = data.get("playlist_ids") or []
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {
+        "status": "uploading_batch",
+        "message": "Starting batch upload...",
+        "result": None,
+        "error": None,
+        "clips": {clip["order"]: {"status": "pending"} for clip in clips},
+    }
+
+    thread = threading.Thread(
+        target=_run_shorts_batch,
+        args=(job_id, clips, first_publish_at, interval_days, playlist_ids),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id})
+
+
+def _run_shorts_batch(job_id, clips, first_publish_at, interval_days, playlist_ids):
+    """Placeholder — implemented in full in Task 4. Keeps Task 3's tests isolated
+    (they patch threading.Thread, so this body never actually runs in those tests)."""
+
+
 @app.route("/api/suggest_playlists", methods=["POST"])
 def suggest_playlists():
     """Given metadata and a playlist list, return IDs of playlists that match."""
