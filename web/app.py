@@ -850,14 +850,17 @@ def _run_shorts_batch(job_id, clips, first_publish_at, interval_days, playlist_i
     failure does not abort the rest of the batch."""
     from youtube_uploader import get_playlists, upload_video
 
-    try:
-        playlists = get_playlists()
-    except Exception as e:  # noqa: BLE001 — boundary: fallo de auth/listado no debe tumbar el hilo
-        processing_status[job_id]["status"] = "error"
-        processing_status[job_id]["error"] = str(e)
-        for clip in clips:
-            processing_status[job_id]["clips"][clip["order"]] = {"status": "error", "error": str(e)}
-        return
+    if os.environ.get("DCS_SIMULATE") == "1":
+        playlists = []  # get_playlists() is a real API call, not gated by DCS_SIMULATE itself (FEA-04)
+    else:
+        try:
+            playlists = get_playlists()
+        except Exception as e:  # noqa: BLE001 — boundary: fallo de auth/listado no debe tumbar el hilo
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+            for clip in clips:
+                processing_status[job_id]["clips"][clip["order"]] = {"status": "error", "error": str(e)}
+            return
 
     shorts_playlist_ids = [pl["id"] for pl in playlists if "short" in pl.get("title", "").lower()]
     all_playlist_ids = list(dict.fromkeys([*playlist_ids, *shorts_playlist_ids]))

@@ -915,3 +915,31 @@ def test_run_shorts_batch_auth_failure_marks_all_clips_error(client, tmp_path):
     status = client.get(f"/api/status/{job_id}").json
     assert status["status"] == "error"
     assert status["clips"]["1"]["status"] == "error"
+
+
+def test_run_shorts_batch_dcs_simulate_skips_get_playlists(client, tmp_path, monkeypatch):
+    """DCS_SIMULATE=1 must let the batch run without real OAuth (RF-11): get_playlists()
+    is a real API call not gated by DCS_SIMULATE inside upload_video(), so the batch
+    orchestration must skip calling it entirely in simulate mode."""
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+
+    with patch("youtube_uploader.get_playlists", side_effect=PermissionError("Not authenticated")) as mock_gp:
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 1,
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "done":
+                break
+            time.sleep(0.05)
+
+    status = client.get(f"/api/status/{job_id}").json
+    assert status["status"] == "done"
+    assert status["clips"]["1"]["status"] == "done"
+    mock_gp.assert_not_called()

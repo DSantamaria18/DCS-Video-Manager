@@ -1987,6 +1987,58 @@ async function generateShorts() {
   }
 }
 
+let _shortsBatchInterval = null;
+
+function pollShortsBatchJob(jobId, totalClips) {
+  if (_shortsBatchInterval) clearInterval(_shortsBatchInterval);
+
+  const orderToIdx = {};
+  document.querySelectorAll('#shortsCards input[type=checkbox][data-order]').forEach(cb => {
+    orderToIdx[cb.dataset.order] = cb.dataset.idx;
+  });
+
+  const badgeText = (c) => {
+    if (c.status === 'done') return `✓ uploaded${c.url ? ' — ' + c.url : ''}`;
+    if (c.status === 'error') return `✗ ${c.error || 'failed'}`;
+    if (c.status === 'uploading') return '⟳ uploading...';
+    return 'pending';
+  };
+  const badgeColor = (c) => c.status === 'done' ? 'var(--green)'
+    : c.status === 'error' ? 'var(--red)' : 'var(--text3)';
+
+  _shortsBatchInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/status/' + jobId);
+      const data = await res.json();
+      const clips = data.clips || {};
+
+      Object.entries(clips).forEach(([order, c]) => {
+        const idx = orderToIdx[order];
+        if (idx === undefined) return;
+        const el = document.getElementById('short_status_' + idx);
+        if (el) { el.textContent = badgeText(c); el.style.color = badgeColor(c); }
+      });
+
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(_shortsBatchInterval);
+        _shortsBatchInterval = null;
+        const btn = document.getElementById('shortsUploadBtn');
+        const msg = document.getElementById('shortsUploadMsg');
+        btn.disabled = false;
+        btn.textContent = 'PROGRAM BATCH';
+        if (data.status === 'error') {
+          msg.textContent = data.error || 'Batch failed';
+          showToast(data.error || 'Batch upload failed', 'error');
+        } else {
+          const r = data.result || {};
+          msg.textContent = `${r.uploaded || 0}/${totalClips} uploaded, ${r.failed || 0} failed`;
+          showToast(`${r.uploaded || 0}/${totalClips} Shorts programmed. ${r.failed || 0} failed.`);
+        }
+      }
+    } catch (e) {}
+  }, 2000);
+}
+
 async function pollShortsJob() {
   if (!_shortsJobId) return;
   try {
@@ -2033,7 +2085,7 @@ function renderShortsGrid(clips) {
 
     card.innerHTML = `
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
-        <input type="checkbox" id="${checkId}" data-idx="${idx}"
+        <input type="checkbox" id="${checkId}" data-idx="${idx}" data-order="${_shortClipOrder(clip)}"
           style="margin-top:3px;accent-color:var(--amber);">
         <div style="flex:1;min-width:0;">
           <div style="font-family:var(--mono);font-size:10px;color:var(--amber);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -2050,6 +2102,7 @@ function renderShortsGrid(clips) {
           </div>
         </div>
       </label>
+      <div id="short_status_${idx}" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px;"></div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
         <button class="copy-btn" onclick="copyShortMeta(${idx})" style="font-size:10px;">COPY META</button>
         <a href="${escHtml(clip.clip_url || '#')}" download
