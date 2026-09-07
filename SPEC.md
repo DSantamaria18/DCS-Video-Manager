@@ -270,6 +270,88 @@ Ninguna nueva. Reutiliza `ffmpeg` (subprocess) y `Pillow` (ya instalados).
 
 ---
 
+## Feature: Estimación de coste antes de analizar
+
+**Estado:** Aprobada 2026-09-07
+**Entrada de BACKLOG.md:** FEA-03
+
+### Problema
+La UI no indica cuántas llamadas a Gemini va a disparar una acción, ni cuántos frames/imágenes
+manda cada una. David decide sin esa información, especialmente relevante con
+`gemini-2.5-pro` (más caro por imagen que el `gemini-2.5-flash` por defecto).
+
+### Objetivo
+Que cada botón que llama a Gemini muestre, antes de pulsarlo, cuántos frames va a mandar y con
+qué modelo, sin necesidad de ir a la pestaña Setup a comprobarlo.
+
+### Fuera de alcance
+- Contador de cuota diaria acumulada (llamadas ya hechas hoy / límite). Solo se muestra el coste
+  de la próxima llamada, no un histórico. Ver Riesgos y decisiones abiertas.
+- Detectar si el vídeo ya está cacheado (`get_cached_metadata`) para avisar de que ANALYZE VIDEO
+  costaría 0 llamadas esa vez concreta — el badge asume siempre el caso "sin caché".
+- Cualquier cambio de comportamiento en las llamadas a Gemini existentes (número de frames,
+  modelo, prompts). Solo se muestra información ya determinada por la config actual.
+
+### Requisitos funcionales
+- RF-1: Se identifican los 4 botones que llaman a Gemini y su coste en frames, todos
+  deterministas a partir de `cfg.frames_to_extract` (no dependen del contenido del vídeo):
+  - ANALYZE VIDEO (`startAnalysis`) → `cfg.frames_to_extract` frames.
+  - GENERATE DEBRIEF (`generateDebrief`) → `min(5, cfg.frames_to_extract)` frames.
+  - GENERATE CAPTIONS (`generateSocialCaptions`) → 0 frames (solo texto).
+  - FIX WITH AI / SEO (`rewriteWithAI`) → 0 frames (solo texto).
+- RF-2: Cada uno de los 4 botones muestra junto a sí un badge de texto con el formato
+  `"{N} frame(s) · {modelo}"` cuando N > 0, o `"Text only · {modelo}"` cuando N == 0.
+- RF-3: El frontend mantiene un config cacheado (`_appConfig`), obtenido con un único
+  `fetch('/api/config')` al cargar la página (`DOMContentLoaded`), reutilizado por los 4 badges
+  en vez de repetir la llamada por cada uno.
+- RF-4: Los badges se recalculan y repintan tras guardar cambios en la pestaña Setup
+  (`saveConfig()` con éxito), para reflejar un `frames_to_extract` o `model` nuevos sin recargar
+  la página.
+- RF-5: GENERATE THUMBNAIL y GENERATE SHORTS no llevan badge — no llaman a Gemini (son locales,
+  ffmpeg/Pillow).
+
+### Requisitos no funcionales
+- Cero llamadas nuevas a Gemini ni a ningún endpoint nuevo: el único fetch añadido es la carga
+  inicial de `/api/config`, que ya existe como endpoint y ya se llama hoy desde `loadConfigForm()`
+  (se cachea para no duplicar la petición).
+
+### Contratos afectados
+Ninguno. No se toca `web/app.py` ni `dcs_meta.py`; el cambio es exclusivamente frontend
+(`web/templates/index.html`).
+
+### Impacto en ficheros
+- `web/templates/index.html`: variable global `_appConfig`, función `loadAppConfigBadges()`,
+  4 elementos `<span>` de badge junto a los botones existentes, llamada a
+  `loadAppConfigBadges()` en `DOMContentLoaded` y al final de `saveConfig()`.
+
+### Dependencias externas
+Ninguna.
+
+### Quality gates
+- Sin tests automatizados de JS en este repo (no hay framework, ver `CLAUDE.md`); verificación
+  manual en navegador con `DCS_SIMULATE=1`: cambiar `frames_to_extract`/`model` en Setup, guardar,
+  y comprobar que los 4 badges se actualizan sin recargar la página.
+
+### Riesgos y decisiones abiertas
+- El badge de ANALYZE VIDEO no distingue el caso cacheado (0 llamadas reales); queda anotado como
+  posible mejora futura si en la práctica resulta confuso, pero no bloquea esta iteración (fuera
+  de alcance explícito).
+- Si en el futuro se añade un quinto botón que llame a Gemini, hay que añadir su badge a mano —
+  no hay un registro central de "acciones que llaman a Gemini" que lo generalice. Aceptable dado
+  el tamaño actual de la UI (YAGNI); revisar si la lista crece.
+
+### Criterios de aceptación
+- Con `DCS_SIMULATE=1`, cargar la página y ver los 4 badges con el frame count y modelo
+  correctos según el config por defecto.
+- Cambiar `frames_to_extract` a un valor distinto en Setup, guardar, y ver los badges de ANALYZE
+  VIDEO y GENERATE DEBRIEF actualizados sin recargar la página (respetando el tope de 5 en
+  DEBRIEF).
+- Cambiar el modelo en Setup, guardar, y ver los 4 badges con el nuevo nombre de modelo.
+- GENERATE CAPTIONS y FIX WITH AI muestran "Text only · {modelo}" siempre, sin depender de
+  `frames_to_extract`.
+
+---
+
 ## Contexto permanente del producto
 
 Esto no se renegocia por feature; es el marco en el que encaja todo lo demás. Verificado contra el código
