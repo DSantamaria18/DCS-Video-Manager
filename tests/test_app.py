@@ -542,6 +542,64 @@ def test_compute_publish_at_order_3_adds_interval_times_two():
     assert result == "2026-06-07T19:00:00Z"
 
 
+# ── _validate_shorts_batch ──────────────────────────────────────────────────────
+
+def test_validate_shorts_batch_empty_clips_returns_error():
+    from app import _validate_shorts_batch
+    error = _validate_shorts_batch({"clips": [], "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+    assert "clips" in error.lower()
+
+
+def test_validate_shorts_batch_more_than_15_clips_returns_error():
+    from app import _validate_shorts_batch
+    clips = [{"clip_path": "/x.mp4", "order": i} for i in range(16)]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+    assert "15" in error
+
+
+def test_validate_shorts_batch_nonexistent_clip_path_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clips = [{"clip_path": str(tmp_path / "missing.mp4"), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+
+
+def test_validate_shorts_batch_missing_first_publish_at_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "interval_days": 1})
+    assert error is not None
+    assert "first_publish_at" in error
+
+
+def test_validate_shorts_batch_invalid_interval_days_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 0})
+    assert error is not None
+    assert "interval_days" in error
+
+
+def test_validate_shorts_batch_valid_payload_returns_none(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 3})
+    assert error is None
+
+
 # ── GET /api/description_templates ───────────────────────────────────────────
 
 def test_get_description_templates_returns_all_six_keys(client):

@@ -698,6 +698,33 @@ def _compute_publish_at(first_publish_at: str, interval_days: int, order: int) -
     return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _validate_shorts_batch(data: dict) -> str | None:
+    """Return an error message if the shorts-batch payload is invalid, else None."""
+    clips = data.get("clips") or []
+    if not clips:
+        return "Missing clips"
+    if len(clips) > 15:
+        return "Too many clips: max 15 per batch"
+    for clip in clips:
+        clip_path = clip.get("clip_path", "")
+        if not clip_path or not Path(clip_path).exists():
+            return f"Clip not found: {clip_path}"
+
+    first_publish_at = data.get("first_publish_at", "")
+    if not first_publish_at:
+        return "Missing first_publish_at"
+    try:
+        _compute_publish_at(first_publish_at, 0, 1)
+    except ValueError:
+        return "Invalid first_publish_at"
+
+    interval_days = data.get("interval_days")
+    if not isinstance(interval_days, int) or interval_days < 1:
+        return "interval_days must be an integer >= 1"
+
+    return None
+
+
 @app.route("/api/generate_shorts", methods=["POST"])
 def generate_shorts():
     """POST /api/generate_shorts — detect action clips and crop to 9:16 for YouTube Shorts.
