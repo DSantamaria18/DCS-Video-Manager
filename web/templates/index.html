@@ -1033,9 +1033,25 @@
             <div id="shortsMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:4px 0"></div>
             <div id="shortsGrid" style="display:none;margin-top:10px">
               <div id="shortsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;"></div>
-              <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
-                <button class="action-btn" onclick="uploadSelectedShorts()" style="background:var(--blue2);border-color:var(--blue);">UPLOAD SELECTED</button>
-                <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">Select clips then upload manually in YouTube Studio</span>
+              <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+                  <label style="font-family:var(--mono);font-size:10px;color:var(--text3);">
+                    FIRST PUBLISH<br>
+                    <input type="datetime-local" id="shortsFirstPublishAt"
+                      style="background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;margin-top:3px;">
+                  </label>
+                  <label style="font-family:var(--mono);font-size:10px;color:var(--text3);">
+                    INTERVAL (DAYS)<br>
+                    <input type="number" id="shortsIntervalDays" value="3" min="1"
+                      style="width:60px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;margin-top:3px;text-align:center;">
+                  </label>
+                </div>
+                <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px;">EXTRA PLAYLISTS (SHORTS playlist added automatically)</div>
+                <div id="shortsPlaylistList" style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:2px;margin-bottom:10px;"></div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button class="action-btn" id="shortsUploadBtn" onclick="uploadSelectedShorts()" style="background:var(--blue2);border-color:var(--blue);">PROGRAM BATCH</button>
+                  <span id="shortsUploadMsg" style="font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
+                </div>
               </div>
             </div>
           </div>
@@ -1971,6 +1987,58 @@ async function generateShorts() {
   }
 }
 
+let _shortsBatchInterval = null;
+
+function pollShortsBatchJob(jobId, totalClips) {
+  if (_shortsBatchInterval) clearInterval(_shortsBatchInterval);
+
+  const orderToIdx = {};
+  document.querySelectorAll('#shortsCards input[type=checkbox][data-order]').forEach(cb => {
+    orderToIdx[cb.dataset.order] = cb.dataset.idx;
+  });
+
+  const badgeText = (c) => {
+    if (c.status === 'done') return `✓ uploaded${c.url ? ' — ' + c.url : ''}`;
+    if (c.status === 'error') return `✗ ${c.error || 'failed'}`;
+    if (c.status === 'uploading') return '⟳ uploading...';
+    return 'pending';
+  };
+  const badgeColor = (c) => c.status === 'done' ? 'var(--green)'
+    : c.status === 'error' ? 'var(--red)' : 'var(--text3)';
+
+  _shortsBatchInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/status/' + jobId);
+      const data = await res.json();
+      const clips = data.clips || {};
+
+      Object.entries(clips).forEach(([order, c]) => {
+        const idx = orderToIdx[order];
+        if (idx === undefined) return;
+        const el = document.getElementById('short_status_' + idx);
+        if (el) { el.textContent = badgeText(c); el.style.color = badgeColor(c); }
+      });
+
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(_shortsBatchInterval);
+        _shortsBatchInterval = null;
+        const btn = document.getElementById('shortsUploadBtn');
+        const msg = document.getElementById('shortsUploadMsg');
+        btn.disabled = false;
+        btn.textContent = 'PROGRAM BATCH';
+        if (data.status === 'error') {
+          msg.textContent = data.error || 'Batch failed';
+          showToast(data.error || 'Batch upload failed', 'error');
+        } else {
+          const r = data.result || {};
+          msg.textContent = `${r.uploaded || 0}/${totalClips} uploaded, ${r.failed || 0} failed`;
+          showToast(`${r.uploaded || 0}/${totalClips} Shorts programmed. ${r.failed || 0} failed.`);
+        }
+      }
+    } catch (e) {}
+  }, 2000);
+}
+
 async function pollShortsJob() {
   if (!_shortsJobId) return;
   try {
@@ -2017,7 +2085,7 @@ function renderShortsGrid(clips) {
 
     card.innerHTML = `
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
-        <input type="checkbox" id="${checkId}" data-idx="${idx}"
+        <input type="checkbox" id="${checkId}" data-idx="${idx}" data-order="${_shortClipOrder(clip)}"
           style="margin-top:3px;accent-color:var(--amber);">
         <div style="flex:1;min-width:0;">
           <div style="font-family:var(--mono);font-size:10px;color:var(--amber);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -2034,6 +2102,7 @@ function renderShortsGrid(clips) {
           </div>
         </div>
       </label>
+      <div id="short_status_${idx}" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px;"></div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
         <button class="copy-btn" onclick="copyShortMeta(${idx})" style="font-size:10px;">COPY META</button>
         <a href="${escHtml(clip.clip_url || '#')}" download
@@ -2067,6 +2136,7 @@ function renderShortsGrid(clips) {
 
   grid.style.display = clips.length ? '' : 'none';
   grid.__clips = clips;
+  if (clips.length) { loadShortsPlaylists(); _enforceShortsSelectionLimit(); }
 }
 
 function copyShortMeta(idx) {
@@ -2110,8 +2180,79 @@ function saveShortMeta(idx) {
   showToast('Metadata saved');
 }
 
-function uploadSelectedShorts() {
-  showToast('Select clips and upload manually to YouTube Studio');
+function _enforceShortsSelectionLimit() {
+  const boxes = [...document.querySelectorAll('#shortsCards input[type=checkbox]')];
+  const update = () => {
+    const checkedCount = boxes.filter(b => b.checked).length;
+    boxes.forEach(b => { b.disabled = !b.checked && checkedCount >= 15; });
+  };
+  boxes.forEach(b => b.addEventListener('change', update));
+  update();
+}
+
+function _shortClipOrder(clip) {
+  const m = /_short_(\d+)\.[^.]+$/.exec(clip.clip_path || '');
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+async function uploadSelectedShorts() {
+  const clips = (document.getElementById('shortsGrid').__clips) || [];
+  const selected = [...document.querySelectorAll('#shortsCards input[type=checkbox]:checked')]
+    .map(cb => clips[parseInt(cb.dataset.idx, 10)])
+    .filter(Boolean);
+
+  if (!selected.length) { showToast('Select at least one clip', 'error'); return; }
+  if (selected.length > 15) { showToast('Max 15 clips per batch', 'error'); return; }
+
+  const firstPublishRaw = document.getElementById('shortsFirstPublishAt').value;
+  if (!firstPublishRaw) { showToast('Set the first publish date', 'error'); return; }
+  const firstPublishAt = new Date(firstPublishRaw).toISOString();
+  const intervalDays = parseInt(document.getElementById('shortsIntervalDays').value, 10) || 1;
+  const extraPlaylistIds = [...document.querySelectorAll('#shortsPlaylistList input[type=checkbox]:checked')]
+    .map(cb => cb.value);
+
+  const payloadClips = selected.map(clip => {
+    const order = _shortClipOrder(clip);
+    const meta = clip.metadata || {};
+    return {
+      clip_path: clip.clip_path,
+      order,
+      title: `${meta.title || ''} #${order}`.trim(),
+      description: meta.description || '',
+      tags: meta.tags || [],
+    };
+  });
+
+  const btn = document.getElementById('shortsUploadBtn');
+  const msg = document.getElementById('shortsUploadMsg');
+  btn.disabled = true;
+  btn.textContent = 'Programming...';
+  msg.textContent = `Uploading ${payloadClips.length} clip(s)...`;
+
+  try {
+    const res = await fetch('/api/upload_shorts_batch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        clips: payloadClips,
+        first_publish_at: firstPublishAt,
+        interval_days: intervalDays,
+        playlist_ids: extraPlaylistIds,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Batch upload failed', 'error');
+      btn.disabled = false;
+      btn.textContent = 'PROGRAM BATCH';
+      return;
+    }
+    pollShortsBatchJob(data.job_id, payloadClips.length);
+  } catch (e) {
+    showToast('Batch upload failed', 'error');
+    btn.disabled = false;
+    btn.textContent = 'PROGRAM BATCH';
+  }
 }
 
 function showToast(msg, type) {
@@ -2623,6 +2764,25 @@ function closeHistoryDetail() {
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
+async function loadShortsPlaylists() {
+  try {
+    const res = await fetch('/api/playlists');
+    const data = await res.json();
+    const list = document.getElementById('shortsPlaylistList');
+    if (!list || data.error) return;
+
+    const playlists = (Array.isArray(data) ? data : (data.playlists || []))
+      .filter(p => !(p.title || '').toLowerCase().includes('short'));
+    list.innerHTML = '';
+    playlists.forEach(p => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);';
+      row.innerHTML = `<input type="checkbox" value="${p.id}" style="accent-color:var(--green);width:12px;height:12px;cursor:pointer;"><span>${escHtml(p.title)}</span>`;
+      list.appendChild(row);
+    });
+  } catch(e) {}
+}
+
 async function loadPlaylists() {
   try {
     const res = await fetch('/api/playlists');

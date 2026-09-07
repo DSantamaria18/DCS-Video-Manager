@@ -690,6 +690,41 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
     return matched
 
 
+def _compute_publish_at(first_publish_at: str, interval_days: int, order: int) -> str:
+    """Return the ISO 8601 (Z-suffixed) publish_at for a clip at position `order` (1-based)."""
+    from datetime import datetime, timedelta
+    base = datetime.fromisoformat(first_publish_at.replace("Z", "+00:00"))
+    scheduled = base + timedelta(days=interval_days * (order - 1))
+    return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _validate_shorts_batch(data: dict) -> str | None:
+    """Return an error message if the shorts-batch payload is invalid, else None."""
+    clips = data.get("clips") or []
+    if not clips:
+        return "Missing clips"
+    if len(clips) > 15:
+        return "Too many clips: max 15 per batch"
+    for clip in clips:
+        clip_path = clip.get("clip_path", "")
+        if not clip_path or not Path(clip_path).exists():
+            return f"Clip not found: {clip_path}"
+
+    first_publish_at = data.get("first_publish_at", "")
+    if not first_publish_at:
+        return "Missing first_publish_at"
+    try:
+        _compute_publish_at(first_publish_at, 0, 1)
+    except ValueError:
+        return "Invalid first_publish_at"
+
+    interval_days = data.get("interval_days")
+    if not isinstance(interval_days, int) or interval_days < 1:
+        return "interval_days must be an integer >= 1"
+
+    return None
+
+
 @app.route("/api/generate_shorts", methods=["POST"])
 def generate_shorts():
     """POST /api/generate_shorts — detect action clips and crop to 9:16 for YouTube Shorts.
@@ -767,6 +802,100 @@ def serve_shorts_file(filename):
     """GET /output/shorts/<filename> — serve a generated Shorts clip from the output/shorts folder."""
     shorts_dir = OUTPUT_DIR / "shorts"
     return send_from_directory(str(shorts_dir), filename)
+
+
+@app.route("/api/upload_shorts_batch", methods=["POST"])
+def upload_shorts_batch():
+    """POST /api/upload_shorts_batch — upload up to 15 Shorts sequentially with staggered publish_at.
+
+    Request body: {"clips": [{"clip_path": str, "order": int, "title": str,
+    "description": str, "tags": list}], "first_publish_at": str (ISO 8601, Z-suffixed),
+    "interval_days": int, "playlist_ids": list (optional, extra playlists — the SHORTS
+    playlist is always added automatically)}.
+    Starts a background job; poll /api/status/<job_id> — the response includes a "clips"
+    dict keyed by order with each clip's upload status (pending/uploading/done/error).
+    """
+    data = request.get_json()
+    error = _validate_shorts_batch(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    clips = data["clips"]
+    first_publish_at = data["first_publish_at"]
+    interval_days = data["interval_days"]
+    playlist_ids = data.get("playlist_ids") or []
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {
+        "status": "uploading_batch",
+        "message": "Starting batch upload...",
+        "result": None,
+        "error": None,
+        "clips": {clip["order"]: {"status": "pending"} for clip in clips},
+    }
+
+    thread = threading.Thread(
+        target=_run_shorts_batch,
+        args=(job_id, clips, first_publish_at, interval_days, playlist_ids),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id})
+
+
+def _run_shorts_batch(job_id, clips, first_publish_at, interval_days, playlist_ids):
+    """Upload each clip sequentially via youtube_uploader.upload_video(); a single clip's
+    failure does not abort the rest of the batch."""
+    from youtube_uploader import get_playlists, upload_video
+
+    if os.environ.get("DCS_SIMULATE") == "1":
+        playlists = []  # get_playlists() is a real API call, not gated by DCS_SIMULATE itself (FEA-04)
+    else:
+        try:
+            playlists = get_playlists()
+        except Exception as e:  # noqa: BLE001 — boundary: fallo de auth/listado no debe tumbar el hilo
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+            for clip in clips:
+                processing_status[job_id]["clips"][clip["order"]] = {"status": "error", "error": str(e)}
+            return
+
+    shorts_playlist_ids = [pl["id"] for pl in playlists if "short" in pl.get("title", "").lower()]
+    all_playlist_ids = list(dict.fromkeys([*playlist_ids, *shorts_playlist_ids]))
+
+    ordered_clips = sorted(clips, key=lambda c: c["order"])
+    done_count = 0
+    error_count = 0
+
+    for clip in ordered_clips:
+        order = clip["order"]
+        processing_status[job_id]["clips"][order] = {"status": "uploading"}
+        try:
+            publish_at = _compute_publish_at(first_publish_at, interval_days, order)
+            result = upload_video(
+                video_path=clip["clip_path"],
+                title=clip.get("title", ""),
+                description=clip.get("description", ""),
+                tags=clip.get("tags", []),
+                privacy="private",
+                playlist_ids=all_playlist_ids,
+                publish_at=publish_at,
+            )
+            processing_status[job_id]["clips"][order] = {
+                "status": "done",
+                "video_id": result.get("video_id"),
+                "url": result.get("url"),
+            }
+            done_count += 1
+        except Exception as e:  # noqa: BLE001 — boundary: fallo de un clip no debe abortar el resto del lote
+            processing_status[job_id]["clips"][order] = {"status": "error", "error": str(e)}
+            error_count += 1
+
+    processing_status[job_id]["status"] = "done"
+    processing_status[job_id]["message"] = f"Done! {done_count} uploaded, {error_count} failed."
+    processing_status[job_id]["result"] = {"uploaded": done_count, "failed": error_count}
 
 
 @app.route("/api/suggest_playlists", methods=["POST"])

@@ -528,6 +528,78 @@ def test_suggest_playlist_ids_largos_rule():
     assert "LG" not in result_short
 
 
+# ── _compute_publish_at ────────────────────────────────────────────────────────
+
+def test_compute_publish_at_order_1_returns_first_date():
+    from app import _compute_publish_at
+    result = _compute_publish_at("2026-06-01T19:00:00Z", 3, 1)
+    assert result == "2026-06-01T19:00:00Z"
+
+
+def test_compute_publish_at_order_3_adds_interval_times_two():
+    from app import _compute_publish_at
+    result = _compute_publish_at("2026-06-01T19:00:00Z", 3, 3)
+    assert result == "2026-06-07T19:00:00Z"
+
+
+# ── _validate_shorts_batch ──────────────────────────────────────────────────────
+
+def test_validate_shorts_batch_empty_clips_returns_error():
+    from app import _validate_shorts_batch
+    error = _validate_shorts_batch({"clips": [], "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+    assert "clips" in error.lower()
+
+
+def test_validate_shorts_batch_more_than_15_clips_returns_error():
+    from app import _validate_shorts_batch
+    clips = [{"clip_path": "/x.mp4", "order": i} for i in range(16)]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+    assert "15" in error
+
+
+def test_validate_shorts_batch_nonexistent_clip_path_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clips = [{"clip_path": str(tmp_path / "missing.mp4"), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 1})
+    assert error is not None
+
+
+def test_validate_shorts_batch_missing_first_publish_at_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "interval_days": 1})
+    assert error is not None
+    assert "first_publish_at" in error
+
+
+def test_validate_shorts_batch_invalid_interval_days_returns_error(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 0})
+    assert error is not None
+    assert "interval_days" in error
+
+
+def test_validate_shorts_batch_valid_payload_returns_none(tmp_path):
+    from app import _validate_shorts_batch
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    clips = [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}]
+    error = _validate_shorts_batch({"clips": clips, "first_publish_at": "2026-06-01T19:00:00Z",
+                                     "interval_days": 3})
+    assert error is None
+
+
 # ── GET /api/description_templates ───────────────────────────────────────────
 
 def test_get_description_templates_returns_all_six_keys(client):
@@ -670,3 +742,204 @@ def test_generate_shorts_empty_acmi_events_accepted(client, tmp_path):
         })
     assert resp.status_code == 200
     assert "job_id" in resp.json
+
+
+# ── POST /api/upload_shorts_batch ───────────────────────────────────────────────
+
+def test_upload_shorts_batch_invalid_payload_returns_400(client):
+    resp = client.post("/api/upload_shorts_batch", json={"clips": []})
+    assert resp.status_code == 400
+    assert "error" in resp.json
+
+
+def test_upload_shorts_batch_valid_payload_returns_job_id(client, tmp_path):
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T",
+                       "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 3,
+        })
+    assert resp.status_code == 200
+    assert "job_id" in resp.json
+
+
+def test_upload_shorts_batch_job_starts_with_pending_clips(client, tmp_path):
+    clip1 = tmp_path / "a_short_1.mp4"
+    clip1.write_bytes(b"fake")
+    clip2 = tmp_path / "a_short_2.mp4"
+    clip2.write_bytes(b"fake")
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [
+                {"clip_path": str(clip1), "order": 1, "title": "T1", "description": "D", "tags": []},
+                {"clip_path": str(clip2), "order": 2, "title": "T2", "description": "D", "tags": []},
+            ],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 3,
+        })
+    job_id = resp.json["job_id"]
+    status = client.get(f"/api/status/{job_id}")
+    assert status.json["status"] == "uploading_batch"
+    assert status.json["clips"]["1"]["status"] == "pending"
+    assert status.json["clips"]["2"]["status"] == "pending"
+
+
+# ── _run_shorts_batch (vía el endpoint, con Thread real y upload_video mockeado) ──
+
+def test_run_shorts_batch_uploads_all_clips_in_order(client, tmp_path):
+    clip1 = tmp_path / "a_short_1.mp4"
+    clip1.write_bytes(b"fake")
+    clip2 = tmp_path / "a_short_2.mp4"
+    clip2.write_bytes(b"fake")
+
+    upload_result = {"video_id": "X", "url": "https://youtu.be/X", "status": "uploaded",
+                      "privacy": "private", "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.get_playlists", return_value=[]), \
+         patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [
+                {"clip_path": str(clip1), "order": 1, "title": "T1", "description": "D", "tags": []},
+                {"clip_path": str(clip2), "order": 2, "title": "T2", "description": "D", "tags": []},
+            ],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 3,
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "done":
+                break
+            time.sleep(0.05)
+
+    status = client.get(f"/api/status/{job_id}").json
+    assert status["status"] == "done"
+    assert status["clips"]["1"]["status"] == "done"
+    assert status["clips"]["2"]["status"] == "done"
+    assert status["result"] == {"uploaded": 2, "failed": 0}
+    assert mock_uv.call_count == 2
+    assert mock_uv.call_args_list[0].kwargs["publish_at"] == "2026-06-01T19:00:00Z"
+    assert mock_uv.call_args_list[1].kwargs["publish_at"] == "2026-06-04T19:00:00Z"
+
+
+def test_run_shorts_batch_continues_after_one_clip_fails(client, tmp_path):
+    clip1 = tmp_path / "a_short_1.mp4"
+    clip1.write_bytes(b"fake")
+    clip2 = tmp_path / "a_short_2.mp4"
+    clip2.write_bytes(b"fake")
+
+    upload_result = {"video_id": "X", "url": "https://youtu.be/X", "status": "uploaded",
+                      "privacy": "private", "tags_skipped": False, "playlists_added": []}
+
+    with patch("youtube_uploader.get_playlists", return_value=[]), \
+         patch("youtube_uploader.upload_video",
+               side_effect=[Exception("quota exceeded"), upload_result]):
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [
+                {"clip_path": str(clip1), "order": 1, "title": "T1", "description": "D", "tags": []},
+                {"clip_path": str(clip2), "order": 2, "title": "T2", "description": "D", "tags": []},
+            ],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 1,
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "done":
+                break
+            time.sleep(0.05)
+
+    status = client.get(f"/api/status/{job_id}").json
+    assert status["clips"]["1"]["status"] == "error"
+    assert "quota exceeded" in status["clips"]["1"]["error"]
+    assert status["clips"]["2"]["status"] == "done"
+    assert status["result"] == {"uploaded": 1, "failed": 1}
+
+
+def test_run_shorts_batch_always_includes_shorts_playlist(client, tmp_path):
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+
+    upload_result = {"video_id": "X", "url": "https://youtu.be/X", "status": "uploaded",
+                      "privacy": "private", "tags_skipped": False, "playlists_added": []}
+    playlists = [{"id": "SH", "title": "SHORTS"}, {"id": "DW", "title": "DCS World"}]
+
+    with patch("youtube_uploader.get_playlists", return_value=playlists), \
+         patch("youtube_uploader.upload_video", return_value=upload_result) as mock_uv:
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 1,
+            "playlist_ids": ["PL_extra"],
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "done":
+                break
+            time.sleep(0.05)
+
+    mock_uv.assert_called_once()
+    called_playlists = mock_uv.call_args.kwargs["playlist_ids"]
+    assert "SH" in called_playlists
+    assert "PL_extra" in called_playlists
+    assert "DW" not in called_playlists
+
+
+def test_run_shorts_batch_auth_failure_marks_all_clips_error(client, tmp_path):
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+
+    with patch("youtube_uploader.get_playlists", side_effect=PermissionError("Not authenticated")):
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 1,
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "error":
+                break
+            time.sleep(0.05)
+
+    status = client.get(f"/api/status/{job_id}").json
+    assert status["status"] == "error"
+    assert status["clips"]["1"]["status"] == "error"
+
+
+def test_run_shorts_batch_dcs_simulate_skips_get_playlists(client, tmp_path, monkeypatch):
+    """DCS_SIMULATE=1 must let the batch run without real OAuth (RF-11): get_playlists()
+    is a real API call not gated by DCS_SIMULATE inside upload_video(), so the batch
+    orchestration must skip calling it entirely in simulate mode."""
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    clip = tmp_path / "a_short_1.mp4"
+    clip.write_bytes(b"fake")
+
+    with patch("youtube_uploader.get_playlists", side_effect=PermissionError("Not authenticated")) as mock_gp:
+        resp = client.post("/api/upload_shorts_batch", json={
+            "clips": [{"clip_path": str(clip), "order": 1, "title": "T", "description": "D", "tags": []}],
+            "first_publish_at": "2026-06-01T19:00:00Z",
+            "interval_days": 1,
+        })
+        job_id = resp.json["job_id"]
+
+        import time
+        for _ in range(50):
+            if client.get(f"/api/status/{job_id}").json["status"] == "done":
+                break
+            time.sleep(0.05)
+
+    status = client.get(f"/api/status/{job_id}").json
+    assert status["status"] == "done"
+    assert status["clips"]["1"]["status"] == "done"
+    mock_gp.assert_not_called()

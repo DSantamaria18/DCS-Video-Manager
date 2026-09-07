@@ -36,6 +36,10 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   incremental del monolito, reexportado desde `dcs_meta` para no romper call sites existentes (TEC-01a).
 - `thumbnail.py`: generación de miniaturas (selección de frames, gradación cinematográfica, overlay,
   guardado JPEG) extraída de `dcs_meta.py`, reexportando solo `generate_thumbnail_on_demand` (TEC-01b).
+- `POST /api/upload_shorts_batch`: sube hasta 15 YouTube Shorts en un solo lote, con publicación
+  escalonada (`publish_at` + intervalo en días), continue-on-error por clip, playlist SHORTS añadida
+  automáticamente y título con sufijo `#N`. El botón "UPLOAD SELECTED" de la UI de Shorts pasa de stub
+  a "PROGRAM BATCH", con panel de programación y estado por card vía polling (FEA-06).
 
 ### Seguridad
 

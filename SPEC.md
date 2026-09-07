@@ -71,7 +71,7 @@ Lista comprobable. Es lo que QA valida antes de que el Tech Lead haga el review.
 
 ## Feature: Subida por lotes de YouTube Shorts
 
-**Estado:** Aprobada 2026-09-07
+**Estado:** Implementada 2026-09-07
 **Entrada de BACKLOG.md:** FEA-06
 
 ### Problema
