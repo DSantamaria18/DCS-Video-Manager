@@ -272,7 +272,7 @@ Ninguna nueva. Reutiliza `ffmpeg` (subprocess) y `Pillow` (ya instalados).
 
 ## Feature: Estimación de coste antes de analizar
 
-**Estado:** Aprobada 2026-09-07
+**Estado:** Implementada 2026-09-07
 **Entrada de BACKLOG.md:** FEA-03
 
 ### Problema

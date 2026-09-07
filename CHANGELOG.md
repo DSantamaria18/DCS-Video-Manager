@@ -40,6 +40,9 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   escalonada (`publish_at` + intervalo en días), continue-on-error por clip, playlist SHORTS añadida
   automáticamente y título con sufijo `#N`. El botón "UPLOAD SELECTED" de la UI de Shorts pasa de stub
   a "PROGRAM BATCH", con panel de programación y estado por card vía polling (FEA-06).
+- Badges de frames/modelo junto a los 4 botones que llaman a Gemini (ANALYZE VIDEO, GENERATE
+  DEBRIEF, GENERATE CAPTIONS, FIX WITH AI), calculados en el cliente a partir de la config ya
+  cargada, sin llamadas adicionales al backend (FEA-03).
 
 ### Corregido
 
