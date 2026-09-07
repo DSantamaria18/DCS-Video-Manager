@@ -183,7 +183,7 @@ Ninguna nueva. Reutiliza YouTube Data API v3 (ya integrada) y OAuth2 ya configur
 
 ## Feature: Recorte 9:16 de Shorts centrado en la acción
 
-**Estado:** Aprobada 2026-09-07
+**Estado:** Implementada 2026-09-07
 **Entrada de BACKLOG.md:** BUG-01
 
 ### Problema

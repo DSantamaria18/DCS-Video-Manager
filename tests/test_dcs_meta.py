@@ -1402,11 +1402,104 @@ def test_generate_short_metadata_title_very_long_aircraft_truncated():
     assert len(result["title"]) <= 100
 
 
+# ── _score_band_activity ────────────────────────────────────────────────────────
+
+def _make_edge_image(edges_on="right", w=640, h=360):
+    """Solid image with a checkerboard strip (strong edges) on one half only."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (w, h), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    start_x = w // 2 if edges_on == "right" else 0
+    end_x = w if edges_on == "right" else w // 2
+    for x in range(start_x, end_x, 10):
+        draw.rectangle([x, 0, x + 5, h], fill=(255, 255, 255))
+    return img
+
+
+def test_score_band_activity_finds_edges_on_right_side():
+    img = _make_edge_image(edges_on="right")
+    scores = dcs_meta._score_band_activity(img, n_bands=8)
+    assert len(scores) == 8
+    winning_band = max(range(8), key=lambda b: scores[b])
+    assert winning_band >= 4  # right half of the frame
+
+
+def test_score_band_activity_finds_edges_on_left_side():
+    img = _make_edge_image(edges_on="left")
+    scores = dcs_meta._score_band_activity(img, n_bands=8)
+    winning_band = max(range(8), key=lambda b: scores[b])
+    assert winning_band < 4  # left half of the frame
+
+
+# ── _detect_action_center_frac ──────────────────────────────────────────────────
+
+def test_detect_action_center_frac_duration_zero_returns_half(tmp_path):
+    video = tmp_path / "v.mp4"
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=0.0)
+    assert result == 0.5
+
+
+def test_detect_action_center_frac_all_samples_fail_returns_half(tmp_path, monkeypatch):
+    video = tmp_path / "v.mp4"
+
+    def failing_run(*a, **kw):
+        raise OSError("ffmpeg not found")
+
+    monkeypatch.setattr("subprocess.run", failing_run)
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=30.0)
+    assert result == 0.5
+
+
+def test_detect_action_center_frac_uses_winning_band(tmp_path, monkeypatch):
+    video = tmp_path / "v.mp4"
+
+    class FakeImage:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    monkeypatch.setattr("PIL.Image.open", lambda path: FakeImage())
+    # Band index 6 (of 8) always wins, regardless of the sampled image.
+    monkeypatch.setattr(dcs_meta, "_score_band_activity",
+                         lambda img, n_bands=8: [0.0] * 6 + [10.0] + [0.0])
+
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=30.0,
+                                                   n_samples=3, n_bands=8)
+    assert result == (6 + 0.5) / 8
+
+
 # ── detect_short_clips ────────────────────────────────────────────────────────
 
 def _make_fake_process(returncode=0):
     """Return a mock subprocess.CompletedProcess."""
     return type("Proc", (), {"returncode": returncode, "stdout": "", "stderr": ""})()
+
+
+def test_detect_short_clips_uses_action_center_frac_in_crop_filter(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr(dcs_meta, "_detect_action_center_frac", lambda *a, **kw: 0.75)
+
+    captured_cmds = []
+
+    def fake_run(cmd, *a, **kw):
+        captured_cmds.append(cmd)
+        return _make_fake_process()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    acmi = {"kills": [{"time_s": 60.0}], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+
+    dcs_meta.detect_short_clips(video, acmi, {})
+
+    crop_cmds = [c for c in captured_cmds if "crop" in str(c)]
+    assert crop_cmds, "No ffmpeg crop command was issued"
+    vf_arg = crop_cmds[0][crop_cmds[0].index("-vf") + 1]
+    assert "0.7500" in vf_arg
 
 
 def test_detect_short_clips_returns_list_with_acmi_kill(tmp_path, monkeypatch):
