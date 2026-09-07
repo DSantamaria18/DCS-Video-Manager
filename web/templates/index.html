@@ -2973,6 +2973,7 @@ async function saveConfig() {
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = '✓ Saved';
       setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      loadAppConfigBadges();
     }
   } catch(e) {
     statusEl.style.color = 'var(--red)';
