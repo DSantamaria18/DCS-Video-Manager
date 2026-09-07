@@ -821,6 +821,7 @@
     <button class="btn btn-primary" id="analyzeBtn" onclick="startAnalysis()">
       ⬡ &nbsp;ANALYZE VIDEO
     </button>
+    <div id="analyzeCostBadge" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px;"></div>
 
     <div style="border-top: 1px solid var(--border); padding-top: 20px;">
       <div class="section-label">Upload to YouTube</div>
@@ -961,6 +962,7 @@
             <div style="display:flex;gap:6px;align-items:center;">
               <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="seoScore"></span>
               <button class="copy-btn" id="seoRewriteBtn" onclick="rewriteWithAI()" style="display:none">FIX WITH AI</button>
+              <span id="seoCostBadge" style="font-family:var(--mono);font-size:9px;color:var(--text3);"></span>
               <button class="copy-btn" onclick="runSeoCheck()">RECHECK</button>
             </div>
           </div>
@@ -1011,6 +1013,7 @@
           <div class="meta-block-body">
             <div style="display:flex;align-items:center;gap:12px;padding:4px 0">
               <button class="action-btn" id="debriefGenBtn" onclick="generateDebrief()">GENERATE DEBRIEF</button>
+              <span id="debriefCostBadge" style="font-family:var(--mono);font-size:9px;color:var(--text3);"></span>
               <button class="action-btn" id="shortsGenBtn" onclick="generateShorts()" style="background:var(--amber2);border-color:var(--amber);">GENERATE SHORTS</button>
               <label style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--text3);">
                 WINDOW (MIN)
@@ -1077,6 +1080,7 @@
           <div class="meta-block-header">
             <span class="meta-block-title">Social Media</span>
             <button class="action-btn" id="socialGenBtn" onclick="generateSocialCaptions()">GENERATE CAPTIONS</button>
+            <span id="socialCostBadge" style="font-family:var(--mono);font-size:9px;color:var(--text3);"></span>
           </div>
           <div class="meta-block-body" id="socialBody">
             <div id="socialGenMsg" style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:4px 0"></div>
@@ -1458,6 +1462,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadHistory();
   loadPlaylists();
   loadConfigForm();
+  loadAppConfigBadges();
   loadDescriptionTemplates();
   document.getElementById('descEdit').addEventListener('input', scheduleSeoCheck);
 });
@@ -2873,6 +2878,34 @@ async function autoSelectPlaylists(metadata) {
 }
 
 // ── Config editor ────────────────────────────────────────────────────────────
+let _appConfig = null;
+
+function _geminiCostText(nFrames) {
+  const model = (_appConfig && _appConfig.model) || 'gemini-2.5-flash';
+  return nFrames > 0 ? `${nFrames} frame${nFrames === 1 ? '' : 's'} · ${model}` : `Text only · ${model}`;
+}
+
+async function loadAppConfigBadges() {
+  try {
+    const resp = await fetch('/api/config');
+    if (!resp.ok) return;
+    _appConfig = await resp.json();
+
+    const framesToExtract = _appConfig.frames_to_extract ?? 8;
+    const analyzeBadge = document.getElementById('analyzeCostBadge');
+    const debriefBadge = document.getElementById('debriefCostBadge');
+    const socialBadge = document.getElementById('socialCostBadge');
+    const seoBadge = document.getElementById('seoCostBadge');
+
+    if (analyzeBadge) analyzeBadge.textContent = _geminiCostText(framesToExtract);
+    if (debriefBadge) debriefBadge.textContent = _geminiCostText(Math.min(5, framesToExtract));
+    if (socialBadge) socialBadge.textContent = _geminiCostText(0);
+    if (seoBadge) seoBadge.textContent = _geminiCostText(0);
+  } catch(e) {
+    console.error('Could not load config for cost badges:', e);
+  }
+}
+
 async function loadConfigForm() {
   try {
     const resp = await fetch('/api/config');
