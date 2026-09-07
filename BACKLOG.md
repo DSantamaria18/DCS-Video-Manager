@@ -65,6 +65,7 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 | FEA-01 | Reintento con backoff en las llamadas a Gemini | P2 | S | Hoy un fallo transitorio (rate limit, timeout) cae directamente al camino de `build_fallback_metadata()`, degradando la calidad del resultado por un error recuperable. Un reintento con espera exponencial ante `429` y `5xx` aprovecharía mejor la cuota diaria. |
 | FEA-03 | Estimación de coste antes de analizar | P3 | S | La UI no indica cuántas llamadas a Gemini va a disparar una acción. Mostrar el número de frames y una estimación ayuda a decidir antes de gastar cuota, especialmente con `gemini-2.5-pro`. |
 | FEA-05 | Validación de rutas contra directorios permitidos | P2 | S | Complemento de SEC-02: restringir `video_path` y `acmi_path` a `recordings_folder` y a la última carpeta usada, en lugar de aceptar cualquier ruta del sistema. |
+| FEA-07 | Subida de Shorts a TikTok | P3 | M | Requiere la TikTok Content Posting API: registrar una app en TikTok for Developers, un módulo `tiktok_uploader.py` análogo a `youtube_uploader.py` con su propio flujo OAuth2 y token gitignoreado (mismo patrón que SEC-01), y pasar la auditoría de TikTok para el scope `video.publish`. Mientras la app no esté auditada, la subida cae a borrador en el inbox de TikTok, no a publicación directa — el ahorro real de trabajo depende de esa aprobación, que no es inmediata. |
 
 ---
 
