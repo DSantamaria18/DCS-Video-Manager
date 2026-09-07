@@ -41,6 +41,13 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   automáticamente y título con sufijo `#N`. El botón "UPLOAD SELECTED" de la UI de Shorts pasa de stub
   a "PROGRAM BATCH", con panel de programación y estado por card vía polling (FEA-06).
 
+### Corregido
+
+- El recorte 9:16 de Shorts (`detect_short_clips()`) ya no recorta siempre el centro geométrico
+  fijo del frame; se desplaza hacia la zona con más detalle/actividad visual (heurística de
+  bordes con Pillow, sin coste de API), con fallback al recorte centrado si el análisis falla
+  (BUG-01).
+
 ### Seguridad
 
 - Los secretos de Discord (`discord_webhook_url`, `discord_bot_token`, `discord_channel_id`) se
