@@ -1431,6 +1431,46 @@ def test_score_band_activity_finds_edges_on_left_side():
     assert winning_band < 4  # left half of the frame
 
 
+# ── _detect_action_center_frac ──────────────────────────────────────────────────
+
+def test_detect_action_center_frac_duration_zero_returns_half(tmp_path):
+    video = tmp_path / "v.mp4"
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=0.0)
+    assert result == 0.5
+
+
+def test_detect_action_center_frac_all_samples_fail_returns_half(tmp_path, monkeypatch):
+    video = tmp_path / "v.mp4"
+
+    def failing_run(*a, **kw):
+        raise OSError("ffmpeg not found")
+
+    monkeypatch.setattr("subprocess.run", failing_run)
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=30.0)
+    assert result == 0.5
+
+
+def test_detect_action_center_frac_uses_winning_band(tmp_path, monkeypatch):
+    video = tmp_path / "v.mp4"
+
+    class FakeImage:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _make_fake_process())
+    monkeypatch.setattr("PIL.Image.open", lambda path: FakeImage())
+    # Band index 6 (of 8) always wins, regardless of the sampled image.
+    monkeypatch.setattr(dcs_meta, "_score_band_activity",
+                         lambda img, n_bands=8: [0.0] * 6 + [10.0] + [0.0])
+
+    result = dcs_meta._detect_action_center_frac(video, start=0.0, duration=30.0,
+                                                   n_samples=3, n_bands=8)
+    assert result == (6 + 0.5) / 8
+
+
 # ── detect_short_clips ────────────────────────────────────────────────────────
 
 def _make_fake_process(returncode=0):

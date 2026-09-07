@@ -1669,6 +1669,50 @@ def _score_band_activity(img, n_bands: int = 8) -> list[float]:
     return scores
 
 
+def _detect_action_center_frac(video_path: Path, start: float, duration: float,
+                                 n_samples: int = 5, n_bands: int = 8) -> float:
+    """Sample n_samples frames within [start, start+duration] and return the horizontal
+    center (0.0-1.0 fraction of frame width) of the band with the most aggregated edge
+    detail. Falls back to 0.5 (frame center) if duration <= 0 or every sample fails —
+    this must never raise, since a failed analysis should never block Shorts generation."""
+    if duration <= 0:
+        return 0.5
+
+    from PIL import Image
+
+    tmp_dir = Path(os.environ.get("TEMP", "/tmp"))
+    totals = [0.0] * n_bands
+    sampled = 0
+    interval = duration / (n_samples + 1)
+
+    for i in range(1, n_samples + 1):
+        timestamp = start + interval * i
+        tmp_path = tmp_dir / f"dcs_crop_sample_{os.getpid()}_{i}.jpg"
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(timestamp),
+                "-i", str(video_path),
+                "-vframes", "1", "-q:v", "5",
+                "-vf", "scale=640:-1",
+                str(tmp_path)
+            ], capture_output=True, check=True)
+            with Image.open(tmp_path) as img:
+                band_scores = _score_band_activity(img, n_bands)
+            for b in range(n_bands):
+                totals[b] += band_scores[b]
+            sampled += 1
+        except (subprocess.CalledProcessError, OSError):
+            pass
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    if sampled == 0:
+        return 0.5
+
+    best_band = max(range(n_bands), key=lambda b: totals[b])
+    return (best_band + 0.5) / n_bands
+
+
 def detect_short_clips(
     video_path: Path, acmi_events: dict, config: dict, window_minutes: int = 5
 ) -> list[dict]:
