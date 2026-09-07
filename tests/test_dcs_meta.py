@@ -1402,6 +1402,35 @@ def test_generate_short_metadata_title_very_long_aircraft_truncated():
     assert len(result["title"]) <= 100
 
 
+# ── _score_band_activity ────────────────────────────────────────────────────────
+
+def _make_edge_image(edges_on="right", w=640, h=360):
+    """Solid image with a checkerboard strip (strong edges) on one half only."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (w, h), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    start_x = w // 2 if edges_on == "right" else 0
+    end_x = w if edges_on == "right" else w // 2
+    for x in range(start_x, end_x, 10):
+        draw.rectangle([x, 0, x + 5, h], fill=(255, 255, 255))
+    return img
+
+
+def test_score_band_activity_finds_edges_on_right_side():
+    img = _make_edge_image(edges_on="right")
+    scores = dcs_meta._score_band_activity(img, n_bands=8)
+    assert len(scores) == 8
+    winning_band = max(range(8), key=lambda b: scores[b])
+    assert winning_band >= 4  # right half of the frame
+
+
+def test_score_band_activity_finds_edges_on_left_side():
+    img = _make_edge_image(edges_on="left")
+    scores = dcs_meta._score_band_activity(img, n_bands=8)
+    winning_band = max(range(8), key=lambda b: scores[b])
+    assert winning_band < 4  # left half of the frame
+
+
 # ── detect_short_clips ────────────────────────────────────────────────────────
 
 def _make_fake_process(returncode=0):

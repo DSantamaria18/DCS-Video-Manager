@@ -1649,6 +1649,26 @@ def _deduplicate_candidates(
     return kept
 
 
+def _score_band_activity(img, n_bands: int = 8) -> list[float]:
+    """Split img into n_bands vertical strips and return an edge-detail score per band,
+    left to right. Same edge-detection technique as thumbnail._score_frame, implemented
+    independently here to avoid coupling dcs_meta.py to the thumbnail module."""
+    from PIL import ImageFilter, ImageStat
+
+    gray = img.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    w, h = edges.size
+    band_w = w / n_bands
+
+    scores = []
+    for i in range(n_bands):
+        left = int(i * band_w)
+        right = int((i + 1) * band_w) if i < n_bands - 1 else w
+        band = edges.crop((left, 0, right, h))
+        scores.append(ImageStat.Stat(band).mean[0])
+    return scores
+
+
 def detect_short_clips(
     video_path: Path, acmi_events: dict, config: dict, window_minutes: int = 5
 ) -> list[dict]:
