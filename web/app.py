@@ -690,6 +690,14 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
     return matched
 
 
+def _compute_publish_at(first_publish_at: str, interval_days: int, order: int) -> str:
+    """Return the ISO 8601 (Z-suffixed) publish_at for a clip at position `order` (1-based)."""
+    from datetime import datetime, timedelta
+    base = datetime.fromisoformat(first_publish_at.replace("Z", "+00:00"))
+    scheduled = base + timedelta(days=interval_days * (order - 1))
+    return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @app.route("/api/generate_shorts", methods=["POST"])
 def generate_shorts():
     """POST /api/generate_shorts — detect action clips and crop to 9:16 for YouTube Shorts.

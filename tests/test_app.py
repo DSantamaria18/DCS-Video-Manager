@@ -528,6 +528,20 @@ def test_suggest_playlist_ids_largos_rule():
     assert "LG" not in result_short
 
 
+# ── _compute_publish_at ────────────────────────────────────────────────────────
+
+def test_compute_publish_at_order_1_returns_first_date():
+    from app import _compute_publish_at
+    result = _compute_publish_at("2026-06-01T19:00:00Z", 3, 1)
+    assert result == "2026-06-01T19:00:00Z"
+
+
+def test_compute_publish_at_order_3_adds_interval_times_two():
+    from app import _compute_publish_at
+    result = _compute_publish_at("2026-06-01T19:00:00Z", 3, 3)
+    assert result == "2026-06-07T19:00:00Z"
+
+
 # ── GET /api/description_templates ───────────────────────────────────────────
 
 def test_get_description_templates_returns_all_six_keys(client):
