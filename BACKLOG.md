@@ -73,6 +73,4 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 
 | # | Título | Prioridad | Dif. | Descripción |
 | --- | --- | --- | --- | --- |
-
-Sin bugs confirmados. Los defectos potenciales detectados por lectura de código están en las secciones de
-Seguridad y Deuda técnica; ninguno se ha reproducido en ejecución todavía.
+| BUG-01 | Recorte 9:16 de Shorts descentrado de la acción | P2 | M | `detect_short_clips()` (`dcs_meta.py:1722`) recorta siempre la franja horizontal central del frame (`crop=ih*9/16:ih:(iw-ih*9/16)/2:0`), sin mirar dónde está la acción real. En DCS la cámara externa o el HUD suelen dejar el avión/objetivo descentrado, así que el recorte fijo lo corta. Confirmado por David viendo los Shorts generados. Ver `SPEC.md` para la solución propuesta (heurística de detalle/bordes con Pillow, sin coste de API). |

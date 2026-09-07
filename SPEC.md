@@ -181,6 +181,95 @@ Ninguna nueva. Reutiliza YouTube Data API v3 (ya integrada) y OAuth2 ya configur
 
 ---
 
+## Feature: Recorte 9:16 de Shorts centrado en la acción
+
+**Estado:** Aprobada 2026-09-07
+**Entrada de BACKLOG.md:** BUG-01
+
+### Problema
+`detect_short_clips()` (`dcs_meta.py:1722`) recorta siempre la franja horizontal central del
+frame (`crop=ih*9/16:ih:(iw-ih*9/16)/2:0`). En DCS la cámara externa o el HUD suelen dejar el
+avión/objetivo descentrado, así que el recorte fijo corta la parte relevante de la toma.
+
+### Objetivo
+Que el recorte 9:16 de cada Short se desplace horizontalmente hacia la zona del frame con más
+detalle/actividad visual, en vez de recortar siempre el centro geométrico.
+
+### Fuera de alcance
+- Recorte dinámico que siga la acción moviéndose dentro del propio clip (paneo). Un único offset
+  fijo por clip, calculado sobre varios frames de muestra.
+- Cualquier llamada a Gemini u otra API externa para detectar el sujeto: la heurística es local
+  (ffmpeg + Pillow), sin coste de cuota.
+- Cambiar la resolución de salida (sigue siendo 1080x1920) o el criterio de selección de la
+  ventana/timestamp del clip (eso ya lo resuelve `_collect_candidate_timestamps` y no se toca).
+
+### Requisitos funcionales
+- RF-1: `_score_band_activity(img, n_bands=8) -> list[float]` divide una imagen PIL en
+  `n_bands` franjas verticales iguales y devuelve la puntuación de detalle/bordes de cada una
+  (escala de grises + `ImageFilter.FIND_EDGES` + `ImageStat.Stat(...).mean[0]`, misma técnica
+  que `thumbnail._score_frame`, implementada de forma independiente en `dcs_meta.py` para no
+  acoplar los dos módulos).
+- RF-2: `_detect_action_center_frac(video_path, start, duration, n_samples=5, n_bands=8) -> float`
+  extrae `n_samples` frames equiespaciados dentro de `[start, start+duration]` (mismo patrón
+  `ffmpeg -ss/-vframes 1` que `extract_frames()`), sirve cada uno a `_score_band_activity`,
+  suma las puntuaciones por franja a través de las muestras, y devuelve `(banda_ganadora + 0.5) / n_bands`
+  como fracción horizontal (0.0-1.0) del ancho del frame.
+- RF-3: `_detect_action_center_frac` devuelve `0.5` (centro, comportamiento actual) si
+  `duration <= 0` o si **todas** las extracciones de frames fallan (ffmpeg no instalado, error de
+  proceso, fichero corrupto). No debe lanzar excepción hacia el llamador.
+- RF-4: `detect_short_clips()` llama a `_detect_action_center_frac()` para cada clip antes de
+  invocar ffmpeg, y construye el filtro `crop` con ese offset en vez del fijo `(iw-cropw)/2`:
+  `crop=ih*9/16:ih:min(max(iw*{center_frac}-ih*9/32\,0)\,iw-ih*9/16):0,scale=1080:1920`.
+- RF-5: El resto del pipeline de `detect_short_clips()` (selección de ventana, timestamp,
+  duración, nombre de fichero) no cambia.
+
+### Requisitos no funcionales
+- Coste de API: cero — solo `ffmpeg` local (ya es una dependencia del sistema) y `Pillow` (ya en
+  `requirements.txt`). Sin llamadas nuevas a Gemini.
+- Rendimiento: 5 extracciones de frame adicionales por clip (imágenes pequeñas, `scale=640:-1`),
+  overhead menor comparado con la propia extracción del clip de hasta 60s.
+- Debe degradar con gracia: un fallo en el análisis de offset nunca debe impedir que el Short se
+  genere (cae a recorte centrado, RF-3).
+
+### Contratos afectados
+Ninguno externo. Cambia la implementación interna de `detect_short_clips()` en `dcs_meta.py`; la
+forma del resultado (`clip_path`, `hook`, `score`, etc.) no cambia, así que no afecta a
+`/api/generate_shorts` ni al frontend.
+
+### Impacto en ficheros
+- `dcs_meta.py`: nuevas funciones `_score_band_activity` y `_detect_action_center_frac`, y el
+  filtro `crop` de `detect_short_clips()` pasa a usar el offset calculado.
+- Sin cambios en `thumbnail.py`, `web/app.py` ni `web/templates/index.html`.
+
+### Dependencias externas
+Ninguna nueva. Reutiliza `ffmpeg` (subprocess) y `Pillow` (ya instalados).
+
+### Quality gates
+- Cobertura de tests para ambas funciones nuevas (sin umbral bloqueante, igual que el resto del
+  repo).
+- `ruff` sin errores nuevos.
+
+### Riesgos y decisiones abiertas
+- La heurística de bordes puede fallar en escenas con poco contraste (cielo despejado, noche sin
+  HUD visible) y devolver una banda poco significativa; el impacto es acotado porque en el peor
+  caso el resultado es un recorte descentrado pero nunca peor que el comportamiento actual (que ya
+  es un recorte fijo sin criterio).
+- No se añade detección de "sujeto" real (avión, HUD): es una aproximación por concentración de
+  detalle visual, no por reconocimiento de objetos. Si en la práctica no da buenos resultados, la
+  alternativa con Gemini Vision queda anotada como camino futuro (con coste de cuota).
+
+### Criterios de aceptación
+- `_score_band_activity` sobre una imagen sintética con detalle concentrado en una franja
+  identifica esa franja como la de mayor puntuación.
+- `_detect_action_center_frac` devuelve `0.5` cuando `duration <= 0`.
+- `_detect_action_center_frac` devuelve `0.5` cuando todas las llamadas a ffmpeg fallan (mockeadas).
+- `_detect_action_center_frac` devuelve el centro de la banda ganadora cuando las muestras tienen
+  éxito (mockeando `subprocess.run` y `PIL.Image.open` con puntuaciones controladas).
+- `detect_short_clips()` pasa el `center_frac` calculado (mockeando `_detect_action_center_frac`)
+  al argumento `-vf` de la llamada a ffmpeg.
+
+---
+
 ## Contexto permanente del producto
 
 Esto no se renegocia por feature; es el marco en el que encaja todo lo demás. Verificado contra el código
