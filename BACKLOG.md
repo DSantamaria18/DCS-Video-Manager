@@ -65,6 +65,7 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 | FEA-01 | Reintento con backoff en las llamadas a Gemini | P2 | S | Hoy un fallo transitorio (rate limit, timeout) cae directamente al camino de `build_fallback_metadata()`, degradando la calidad del resultado por un error recuperable. Un reintento con espera exponencial ante `429` y `5xx` aprovecharía mejor la cuota diaria. |
 | FEA-03 | Estimación de coste antes de analizar | P3 | S | La UI no indica cuántas llamadas a Gemini va a disparar una acción. Mostrar el número de frames y una estimación ayuda a decidir antes de gastar cuota, especialmente con `gemini-2.5-pro`. |
 | FEA-05 | Validación de rutas contra directorios permitidos | P2 | S | Complemento de SEC-02: restringir `video_path` y `acmi_path` a `recordings_folder` y a la última carpeta usada, en lugar de aceptar cualquier ruta del sistema. |
+| FEA-06 | Subida automática de YouTube Shorts | P2 | M | El botón "UPLOAD SELECTED" de la sección Shorts (`web/templates/index.html`, `uploadSelectedShorts()`) no llama a ningún endpoint: solo muestra un aviso de subir manualmente en YouTube Studio. `youtube_uploader.py` solo expone `upload_video()` para el vídeo largo; no hay función ni endpoint que suba los clips generados en `output/shorts/`. Reutilizar `upload_video()` por cada clip seleccionado (con su metadata de `generate_short_metadata()`) cerraría el flujo end-to-end. Requiere confirmación explícita de David por cada subida (regla 12). |
 
 ---
 
