@@ -846,8 +846,53 @@ def upload_shorts_batch():
 
 
 def _run_shorts_batch(job_id, clips, first_publish_at, interval_days, playlist_ids):
-    """Placeholder — implemented in full in Task 4. Keeps Task 3's tests isolated
-    (they patch threading.Thread, so this body never actually runs in those tests)."""
+    """Upload each clip sequentially via youtube_uploader.upload_video(); a single clip's
+    failure does not abort the rest of the batch."""
+    from youtube_uploader import get_playlists, upload_video
+
+    try:
+        playlists = get_playlists()
+    except Exception as e:  # noqa: BLE001 — boundary: fallo de auth/listado no debe tumbar el hilo
+        processing_status[job_id]["status"] = "error"
+        processing_status[job_id]["error"] = str(e)
+        for clip in clips:
+            processing_status[job_id]["clips"][clip["order"]] = {"status": "error", "error": str(e)}
+        return
+
+    shorts_playlist_ids = [pl["id"] for pl in playlists if "short" in pl.get("title", "").lower()]
+    all_playlist_ids = list(dict.fromkeys([*playlist_ids, *shorts_playlist_ids]))
+
+    ordered_clips = sorted(clips, key=lambda c: c["order"])
+    done_count = 0
+    error_count = 0
+
+    for clip in ordered_clips:
+        order = clip["order"]
+        processing_status[job_id]["clips"][order] = {"status": "uploading"}
+        try:
+            publish_at = _compute_publish_at(first_publish_at, interval_days, order)
+            result = upload_video(
+                video_path=clip["clip_path"],
+                title=clip.get("title", ""),
+                description=clip.get("description", ""),
+                tags=clip.get("tags", []),
+                privacy="private",
+                playlist_ids=all_playlist_ids,
+                publish_at=publish_at,
+            )
+            processing_status[job_id]["clips"][order] = {
+                "status": "done",
+                "video_id": result.get("video_id"),
+                "url": result.get("url"),
+            }
+            done_count += 1
+        except Exception as e:  # noqa: BLE001 — boundary: fallo de un clip no debe abortar el resto del lote
+            processing_status[job_id]["clips"][order] = {"status": "error", "error": str(e)}
+            error_count += 1
+
+    processing_status[job_id]["status"] = "done"
+    processing_status[job_id]["message"] = f"Done! {done_count} uploaded, {error_count} failed."
+    processing_status[job_id]["result"] = {"uploaded": done_count, "failed": error_count}
 
 
 @app.route("/api/suggest_playlists", methods=["POST"])
