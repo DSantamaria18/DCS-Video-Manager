@@ -1478,6 +1478,30 @@ def _make_fake_process(returncode=0):
     return type("Proc", (), {"returncode": returncode, "stdout": "", "stderr": ""})()
 
 
+def test_detect_short_clips_uses_action_center_frac_in_crop_filter(tmp_path, monkeypatch):
+    video = tmp_path / "mission.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr(dcs_meta, "_detect_action_center_frac", lambda *a, **kw: 0.75)
+
+    captured_cmds = []
+
+    def fake_run(cmd, *a, **kw):
+        captured_cmds.append(cmd)
+        return _make_fake_process()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    acmi = {"kills": [{"time_s": 60.0}], "sam_launches": [], "bvr_launches": [],
+            "ejection_events": [], "guided_bomb_drops": []}
+
+    dcs_meta.detect_short_clips(video, acmi, {})
+
+    crop_cmds = [c for c in captured_cmds if "crop" in str(c)]
+    assert crop_cmds, "No ffmpeg crop command was issued"
+    vf_arg = crop_cmds[0][crop_cmds[0].index("-vf") + 1]
+    assert "0.7500" in vf_arg
+
+
 def test_detect_short_clips_returns_list_with_acmi_kill(tmp_path, monkeypatch):
     video = tmp_path / "mission.mp4"
     video.write_bytes(b"fake")

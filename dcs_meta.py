@@ -1776,6 +1776,12 @@ def detect_short_clips(
             continue
 
         output_path = shorts_dir / f"{video_path.stem}_short_{i + 1}.mp4"
+        center_frac = _detect_action_center_frac(video_path, start, duration)
+        crop_filter = (
+            f"crop=ih*9/16:ih:"
+            f"min(max(iw*{center_frac:.4f}-ih*9/32\\,0)\\,iw-ih*9/16):0,"
+            "scale=1080:1920"
+        )
         try:
             subprocess.run(
                 [
@@ -1783,7 +1789,7 @@ def detect_short_clips(
                     "-ss", str(start),
                     "-i", str(video_path),
                     "-t", str(duration),
-                    "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920",
+                    "-vf", crop_filter,
                     "-c:v", "libx264",
                     "-preset", "fast",
                     "-crf", "23",
