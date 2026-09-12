@@ -66,13 +66,13 @@ def _open_file_dialog(initial_dir: str,
         return result.stdout.strip() or None
 
     elif sys.platform == "darwin":
-        script = (
-            'tell application "Finder"\n'
-            f'set f to choose file with prompt "{title}" '
-            f'of type {{"{mac_types}"}}\n'
-            'POSIX path of f\nend tell'
-        )
+        type_list = ", ".join(f'"{ext.strip()}"' for ext in mac_types.split(","))
+        script = f'POSIX path of (choose file with prompt "{title}" of type {{{type_list}}})'
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            if "-128" in result.stderr:  # user cancelled
+                return None
+            raise RuntimeError(f"No se pudo abrir el selector de ficheros: {result.stderr.strip()}")
         return result.stdout.strip() or None
 
     else:

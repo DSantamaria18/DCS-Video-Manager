@@ -943,3 +943,60 @@ def test_run_shorts_batch_dcs_simulate_skips_get_playlists(client, tmp_path, mon
     assert status["status"] == "done"
     assert status["clips"]["1"]["status"] == "done"
     mock_gp.assert_not_called()
+
+
+# ── _open_file_dialog (macOS) ──────────────────────────────────────────────────
+
+def _mock_run(returncode, stdout="", stderr=""):
+    result = type("Result", (), {"returncode": returncode, "stdout": stdout, "stderr": stderr})()
+    return result
+
+
+def test_open_file_dialog_mac_does_not_target_finder(monkeypatch):
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["script"] = cmd[-1]
+        return _mock_run(0, stdout="/Users/x/video.mp4\n")
+
+    monkeypatch.setattr(app_module.subprocess, "run", fake_run)
+
+    result = app_module._open_file_dialog("/Users/x")
+
+    assert result == "/Users/x/video.mp4"
+    assert "Finder" not in captured["script"]
+    assert "choose file" in captured["script"]
+
+
+def test_open_file_dialog_mac_cancelled_returns_none(monkeypatch):
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        app_module.subprocess, "run",
+        lambda *a, **k: _mock_run(1, stderr="execution error: User canceled. (-128)")
+    )
+
+    assert app_module._open_file_dialog("/Users/x") is None
+
+
+def test_open_file_dialog_mac_real_error_raises_with_message(monkeypatch):
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        app_module.subprocess, "run",
+        lambda *a, **k: _mock_run(1, stderr="execution error: Not authorized. (-1743)")
+    )
+
+    with pytest.raises(RuntimeError, match="Not authorized"):
+        app_module._open_file_dialog("/Users/x")
+
+
+def test_browse_endpoint_surfaces_mac_error_to_client(client, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "_open_file_dialog",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("No se pudo abrir el selector de ficheros: boom"))
+    )
+
+    resp = client.get("/api/browse")
+
+    assert resp.status_code == 400
+    assert "boom" in resp.json["error"]
