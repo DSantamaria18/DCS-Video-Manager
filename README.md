@@ -136,6 +136,20 @@ the real APIs — useful for validating the full UI flow without Gemini quota or
 
 ## Usage
 
+### Quick start (launcher scripts)
+
+**Windows:** double-click `START_WINDOWS.bat`.
+
+**Mac:**
+
+```bash
+./START_MAC.sh
+```
+
+Both scripts check for Python, install dependencies, and start the web server at
+[http://localhost:5000](http://localhost:5000). `START_MAC.sh` creates a local `.venv` on first
+run (required on macOS, which blocks system-wide `pip install`) and reuses it on subsequent runs.
+
 ### Web UI (recommended)
 
 ```bash
