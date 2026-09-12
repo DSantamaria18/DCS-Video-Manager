@@ -55,6 +55,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   de la variable de entorno `PORT` (por defecto 5000) y `START_MAC.sh` la fija a 5050. `pip
   install` también fallaba con `externally-managed-environment` (PEP 668, Homebrew); el script
   crea y reutiliza un `.venv` local antes de instalar dependencias (BUG-02).
+- El selector de ficheros nativo en Mac (`BROWSE`) no abría el diálogo: `_open_file_dialog()`
+  envolvía `choose file` en `tell application "Finder"`, lo que exige permiso de Automation sobre
+  Finder que macOS no concede por defecto; sin él, `osascript` fallaba en silencio y el endpoint
+  devolvía `cancelled: true` sin avisar. Ahora llama a `choose file` directamente (no requiere ese
+  permiso) y un error real de `osascript` (no una cancelación del usuario) se propaga como 400 a
+  la UI en vez de tragarse (BUG-04).
 
 ### Seguridad
 
