@@ -12,9 +12,16 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# Create venv if it doesn't exist
+if [ ! -d ".venv" ]; then
+    echo " Creando entorno virtual..."
+    python3 -m venv .venv
+fi
+source .venv/bin/activate
+
 # Install dependencies if needed
 echo " Checking dependencies..."
-pip3 install -r requirements.txt -q
+pip install -r requirements.txt -q
 
 # Check API key
 if [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -27,4 +34,4 @@ fi
 echo " Starting web server..."
 echo " Opening http://localhost:5000"
 echo ""
-python3 web/app.py
+python web/app.py
