@@ -31,7 +31,10 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
     echo ""
 fi
 
+# macOS binds AirPlay Receiver to port 5000 by default (Monterey+), use 5050 instead
+export PORT="${PORT:-5050}"
+
 echo " Starting web server..."
-echo " Opening http://localhost:5000"
+echo " Opening http://localhost:$PORT"
 echo ""
 python web/app.py

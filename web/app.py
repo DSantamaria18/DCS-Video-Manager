@@ -1182,16 +1182,19 @@ def get_stats():
 
 
 if __name__ == "__main__":
+    # PORT override needed on macOS: AirPlay Receiver binds port 5000 by default (Monterey+)
+    port = int(os.environ.get("PORT", 5000))
+
     # Open browser after a short delay
     def open_browser():
         import time
         time.sleep(1.2)
-        webbrowser.open("http://localhost:5000")
+        webbrowser.open(f"http://localhost:{port}")
 
     threading.Thread(target=open_browser, daemon=True).start()
 
     print("\n" + "═" * 50)
     print("  DCS YouTube Automation — TheCylonPilot")
-    print("  http://localhost:5000")
+    print(f"  http://localhost:{port}")
     print("═" * 50 + "\n")
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=port)
