@@ -72,6 +72,4 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 
 | # | Título | Prioridad | Dif. | Descripción |
 | --- | --- | --- | --- | --- |
-
-Sin bugs confirmados. Los defectos potenciales detectados por lectura de código están en las secciones de
-Seguridad y Deuda técnica; ninguno se ha reproducido en ejecución todavía.
+| BUG-03 | Los scripts de arranque comprueban `ANTHROPIC_API_KEY` en vez de `GEMINI_API_KEY` | P3 | S | `START_WINDOWS.bat` y `START_MAC.sh` avisan de una variable de entorno que este proyecto no usa (usa Gemini, no Claude); si `GEMINI_API_KEY` falta, el usuario no recibe ningún aviso. Cambiar la comprobación a `GEMINI_API_KEY` en ambos scripts. |

@@ -50,6 +50,11 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   fijo del frame; se desplaza hacia la zona con más detalle/actividad visual (heurística de
   bordes con Pillow, sin coste de API), con fallback al recorte centrado si el análisis falla
   (BUG-01).
+- `START_MAC.sh` no arrancaba la UI en Mac: macOS's AirPlay Receiver ocupa el puerto 5000 por
+  defecto (Monterey+) y devolvía un 403 en vez de servir Flask. `web/app.py` lee ahora el puerto
+  de la variable de entorno `PORT` (por defecto 5000) y `START_MAC.sh` la fija a 5050. `pip
+  install` también fallaba con `externally-managed-environment` (PEP 668, Homebrew); el script
+  crea y reutiliza un `.venv` local antes de instalar dependencias (BUG-02).
 
 ### Seguridad
 

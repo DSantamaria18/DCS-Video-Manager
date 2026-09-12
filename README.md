@@ -146,9 +146,14 @@ the real APIs — useful for validating the full UI flow without Gemini quota or
 ./START_MAC.sh
 ```
 
-Both scripts check for Python, install dependencies, and start the web server at
-[http://localhost:5000](http://localhost:5000). `START_MAC.sh` creates a local `.venv` on first
-run (required on macOS, which blocks system-wide `pip install`) and reuses it on subsequent runs.
+`START_WINDOWS.bat` checks for Python, installs dependencies, and starts the web server at
+[http://localhost:5000](http://localhost:5000).
+
+`START_MAC.sh` does the same, plus: creates a local `.venv` on first run (required on macOS,
+which blocks system-wide `pip install`) and reuses it on subsequent runs, and starts the server on
+port **5050** instead of 5000, since macOS's AirPlay Receiver binds port 5000 by default
+(Monterey+) and would otherwise return an HTTP 403 instead of serving the app. The port is
+configurable via the `PORT` environment variable on both the script and `web/app.py`.
 
 ### Web UI (recommended)
 
@@ -344,7 +349,7 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 - **Editable config from UI** — the Setup tab exposes a CHANNEL CONFIGURATION form that reads and writes `config.json` (and `secrets.json` for Discord fields) without touching files manually. Editable fields: channel name, channel description, squadron, frames to extract (1–20), Gemini model (dropdown), Discord webhook URL, and all seven link URLs. `POST /api/config` validates `frames_to_extract` (1–20 integer) and `model` (allowlist), then merges the payload with the existing config before writing.
 - **No cloud dependencies** — everything runs locally; only `GEMINI_API_KEY` and YouTube OAuth2 credentials are required.
 - **Minimal dependencies** — Flask, google-api-python-client, google-auth-oauthlib, Pillow, ffmpeg (system), watchdog (optional for batch watcher, `pip install -r requirements-batch.txt`).
-- **Launcher scripts** — `START_WINDOWS.bat` and `START_MAC.sh` check for Python, install dependencies, and start the web server in one step. `START_MAC.sh` additionally creates and reuses a local `.venv`, required on macOS since Homebrew's Python blocks system-wide `pip install` (PEP 668).
+- **Launcher scripts** — `START_WINDOWS.bat` and `START_MAC.sh` check for Python, install dependencies, and start the web server in one step. `START_MAC.sh` additionally creates and reuses a local `.venv` (Homebrew's Python blocks system-wide `pip install`, PEP 668) and defaults to port 5050 instead of 5000, since macOS's AirPlay Receiver service occupies port 5000 by default and would return an HTTP 403 otherwise. `web/app.py` reads the port from the `PORT` env var (default 5000).
 - **Test suite** — 260 pytest tests covering pure functions in `dcs_meta.py`, Flask endpoints, and new features.
 
 ---
