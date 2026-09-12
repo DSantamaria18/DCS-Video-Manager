@@ -344,6 +344,7 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 - **Editable config from UI** — the Setup tab exposes a CHANNEL CONFIGURATION form that reads and writes `config.json` (and `secrets.json` for Discord fields) without touching files manually. Editable fields: channel name, channel description, squadron, frames to extract (1–20), Gemini model (dropdown), Discord webhook URL, and all seven link URLs. `POST /api/config` validates `frames_to_extract` (1–20 integer) and `model` (allowlist), then merges the payload with the existing config before writing.
 - **No cloud dependencies** — everything runs locally; only `GEMINI_API_KEY` and YouTube OAuth2 credentials are required.
 - **Minimal dependencies** — Flask, google-api-python-client, google-auth-oauthlib, Pillow, ffmpeg (system), watchdog (optional for batch watcher, `pip install -r requirements-batch.txt`).
+- **Launcher scripts** — `START_WINDOWS.bat` and `START_MAC.sh` check for Python, install dependencies, and start the web server in one step. `START_MAC.sh` additionally creates and reuses a local `.venv`, required on macOS since Homebrew's Python blocks system-wide `pip install` (PEP 668).
 - **Test suite** — 260 pytest tests covering pure functions in `dcs_meta.py`, Flask endpoints, and new features.
 
 ---
