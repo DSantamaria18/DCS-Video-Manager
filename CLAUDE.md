@@ -156,10 +156,14 @@ globales en `~/.claude/CLAUDE.md`, sección "Preferencias de uso de herramientas
 2. **Salidas grandes de comandos** (logs, diffs largos, tests verbosos): usar
    `ctx_batch_execute`/`ctx_execute` en vez de `Bash` directo cuando la intención
    es procesar/filtrar/resumir esa salida. `Bash` normal sigue siendo correcto
-   para observar una salida corta y fija, o para mutar estado.
+   para observar una salida corta y fija, o para mutar estado. El criterio no es
+   "¿es literalmente un diff/log?" sino "¿voy a procesar/ubicarme o solo mirar un
+   dato concreto?" — `grep -n`/`sed -n` exploratorios sobre un fichero grande
+   cuentan como "procesar" (corrección del usuario, 2026-09-20).
 3. **Leer ficheros grandes solo para analizarlos** (no para editarlos): usar
    `ctx_execute_file` en vez de `Read`. `Read` sigue siendo correcto cuando el
-   fichero se va a modificar después con `Edit`.
+   fichero se va a modificar después con `Edit` — si es solo para ubicarse,
+   `ctx_execute_file` primero.
 4. **Cortar sesión en los puntos de corte naturales** (PR mergeada, subtarea
    cerrada, cambio de tema): proponer `/compact` o sesión nueva en vez de seguir
    en una sesión maratón.
