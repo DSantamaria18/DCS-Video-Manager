@@ -143,3 +143,35 @@ Comunicación en español. Reglas de formato (aplican a toda respuesta, no solo 
 12. **Toda acción de escritura real sobre servicios externos** (subir un vídeo a YouTube, publicar en
     Discord, modificar playlists) exige confirmación explícita de David para cada disparo, aunque el
     diseño del flujo ya esté aprobado.
+
+---
+
+## Eficiencia de contexto (herramientas)
+
+Reglas de eficiencia de contexto a seguir en este proyecto (espejo de las reglas
+globales en `~/.claude/CLAUDE.md`, sección "Preferencias de uso de herramientas"):
+
+1. **Esperar procesos en background o CI**: usar `Monitor` (o `run_in_background`
+   + notificación) en vez de un loop manual con `sleep`+`echo`.
+2. **Salidas grandes de comandos** (logs, diffs largos, tests verbosos): usar
+   `ctx_batch_execute`/`ctx_execute` en vez de `Bash` directo cuando la intención
+   es procesar/filtrar/resumir esa salida. `Bash` normal sigue siendo correcto
+   para observar una salida corta y fija, o para mutar estado.
+3. **Leer ficheros grandes solo para analizarlos** (no para editarlos): usar
+   `ctx_execute_file` en vez de `Read`. `Read` sigue siendo correcto cuando el
+   fichero se va a modificar después con `Edit`.
+4. **Cortar sesión en los puntos de corte naturales** (PR mergeada, subtarea
+   cerrada, cambio de tema): proponer `/compact` o sesión nueva en vez de seguir
+   en una sesión maratón.
+5. **Debugging de una anomalía inesperada**: delegar la investigación a un fork
+   (`Agent` con `subagent_type: "fork"`) en vez de encadenar varios
+   `Bash`/`Read`/`git log`/`diff` sueltos en el hilo principal.
+6. **N llamadas repetitivas al mismo comando/script**: usar `ctx_batch_execute`
+   con un comando por fichero en vez de N llamadas `Bash` sueltas.
+7. **No mostrar diffs/logs en bruto como output de texto** (git diff, git show,
+   git log -p, cat de ficheros grandes, stack traces completos): tras un commit,
+   push o cambio de fichero, confirmar con una línea de resumen (qué cambió,
+   dónde) en vez de pegar el diff/log completo en la respuesta. Si el usuario
+   pide explícitamente ver el diff, sí mostrarlo.
+
+Estas siete son elecciones de herramienta/momento, no gates automáticos.
