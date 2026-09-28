@@ -1,17 +1,21 @@
 {
   "channel_name": "TheCylonPilot",
-  "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C.",
+  "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14A/B/U, UH-1H, A-10CII, MIG-29, C-130J, AH-64D.",
   "squadron": "Escuadrón 111 (E111)",
   "default_links": {
+    "dcs_f18_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6M0sXB-Fv6I7tFBs6UBd3Y",
     "dcs_a10c_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6igw-XjMgNI8msORPNLAoQ",
     "dcs_huey_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l4givZ9uAOA67mKLGFrbk7C",
-    "dcs_f18_playlist": "https://youtube.com/playlist?list=PLbOMVlk368l6M0sXB-Fv6I7tFBs6UBd3Y",
     "twitter": "https://twitter.com/thecylonpilot",
     "twitch": "https://www.twitch.tv/thecylonpilot",
     "tiktok": "https://www.tiktok.com/@cylon.pilot",
     "buymeacoffee": "https://www.buymeacoffee.com/pilotcylon",
     "escuadron111": "https://www.escuadron111.eu/"
   },
-  "frames_to_extract": 8,
-  "model": "gemini-2.5-flash"
+  "frames_to_extract": 20,
+  "model": "gemini-2.5-flash",
+  "description_templates": {
+    "es_long": "DESCRIPTION RULES — LONG VIDEO (>30 min) — \"complete mission debrief\":\n[2 frases de hook: qué era la misión + el momento culminante o resultado]\n\n✈ Aeronave: [nombre]\n🗺 Mapa: [mapa]\n🎯 Tipo de misión: [tipo]\n👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/\n\n[Resumen de misión: 1 frase de overview]\n\n[3-4 frases con desglose detallado: fases de la misión, compromisos clave, errores y éxitos, momentos memorables]\n\n💬 ¿Cómo lo habrías hecho tú? Déjanos tu análisis en los comentarios.\n\n---\n🕐 CAPÍTULOS\n[OBLIGATORIO para vídeos largos — incluir siempre aunque sea con tiempos aproximados]\n\n---\n📺 MÁS VÍDEOS DCS\n[playlists relevantes]\n\n🔗 SÍGUENOS\nTwitter: https://twitter.com/thecylonpilot\nTwitch: https://www.twitch.tv/thecylonpilot\nTikTok: https://www.tiktok.com/@cylon.pilot\n\n#DCSWorld #[Aeronave] #[tags relevantes]"
+  },
+  "recordings_folder": ""
 }
