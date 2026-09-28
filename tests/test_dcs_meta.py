@@ -1011,7 +1011,7 @@ def test_debrief_acmi_friendly_loss_overrides_rtb(tmp_path, monkeypatch):
 def test_debrief_prompt_includes_eject_option(tmp_path, monkeypatch):
     captured = {}
 
-    def fake_call_gemini(frames, prompt, model):
+    def fake_call_gemini(frames, prompt, model, json_mode=False):
         captured["prompt"] = prompt
         return json.dumps({"result": "RTB", "kills": 0, "sam_evasions": 0,
                            "max_mach": "--", "max_altitude": "--",
@@ -1829,3 +1829,75 @@ def test_call_gemini_simulate_mode_skips_http(monkeypatch):
     assert metadata["title"]
     assert metadata["description"]
     assert isinstance(metadata["tags"], list)
+
+
+class _FakeResp:
+    """Minimal urlopen() context manager returning a canned Gemini response."""
+
+    def __init__(self, text):
+        self._body = json.dumps({"candidates": [{"content": {"parts": [{"text": text}]}}]}).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def _capture_gemini_request(monkeypatch):
+    """Patch urlopen and return a dict that receives the outgoing request."""
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["payload"] = json.loads(req.data.decode())
+        return _FakeResp('{"ok": true}')
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.delenv("DCS_SIMULATE", raising=False)
+    monkeypatch.setattr(dcs_meta.urllib.request, "urlopen", fake_urlopen)
+    return captured
+
+
+def test_call_gemini_json_mode_sets_response_mime_type_on_v1beta(monkeypatch):
+    captured = _capture_gemini_request(monkeypatch)
+    dcs_meta.call_gemini([], "prompt", "gemini-2.5-flash", json_mode=True)
+    assert "/v1beta/models/gemini-2.5-flash:generateContent" in captured["url"]
+    assert captured["payload"]["generationConfig"]["responseMimeType"] == "application/json"
+
+
+def test_call_gemini_plain_mode_has_no_response_mime_type(monkeypatch):
+    captured = _capture_gemini_request(monkeypatch)
+    dcs_meta.call_gemini([], "prompt", "gemini-2.5-flash")
+    assert "responseMimeType" not in captured["payload"]["generationConfig"]
+
+
+def test_build_prompt_uses_channel_identity_from_config():
+    cfg = {**dcs_meta.DEFAULT_CONFIG,
+           "channel_name": "OtherChannel",
+           "channel_description": "Flies only the MiG-29 and the Ka-50",
+           "squadron": "Escuadron 222"}
+    prompt = dcs_meta.build_prompt("", cfg, is_squadron=False, memory={"videos": []})
+    assert '"OtherChannel"' in prompt
+    assert "Flies only the MiG-29 and the Ka-50" in prompt
+    assert "Escuadron 222" in prompt
+    assert "AH-64D Apache" not in prompt.split("MODULE IDENTIFICATION GUIDE")[0]
+
+
+def test_build_prompt_spanish_templates_take_social_links_from_config():
+    cfg = {**dcs_meta.DEFAULT_CONFIG, "description_templates": {},
+           "default_links": {**dcs_meta.DEFAULT_CONFIG["default_links"],
+                             "twitter": "https://x.com/otro", "twitch": "https://www.twitch.tv/otro"}}
+    prompt = dcs_meta.build_prompt("", cfg, is_squadron=True, memory={"videos": []})
+    assert "Twitter: https://x.com/otro" in prompt
+    assert "Twitch: https://www.twitch.tv/otro" in prompt
+
+
+def test_build_prompt_tag_rule_matches_upload_checklist_range():
+    prompt = dcs_meta.build_prompt("", dict(dcs_meta.DEFAULT_CONFIG), is_squadron=False,
+                                   memory={"videos": []})
+    assert "10-15 tags" in prompt
+    assert "30-40 tags" not in prompt

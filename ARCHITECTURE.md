@@ -97,12 +97,16 @@ El idioma se decide con `is_squadron_video()`, que busca `SQUADRON_KEYWORDS` en 
 
 ### 3.3 Llamada a Gemini
 
-`call_gemini()` usa **`urllib.request` directamente contra la API REST**, no el SDK de Google. Los frames
-viajan en base64. `_recover_json()` intenta rescatar la respuesta cuando Gemini devuelve JSON malformado
-o envuelto en markdown.
+`call_gemini()` usa **`urllib.request` directamente contra la API REST** (`v1beta`), no el SDK de Google.
+Los frames viajan en base64. Las llamadas que esperan JSON (metadatos, debrief, captions) pasan
+`json_mode=True`, que fija `responseMimeType: application/json` en `generationConfig`; la API `v1` lo
+rechaza con un 400, de ahí `v1beta`. `_recover_json()` sigue cubriendo el JSON truncado por
+`maxOutputTokens`.
 
-Modelos permitidos (allowlist en `web/app.py::VALID_MODELS`): `gemini-2.5-flash`, `gemini-2.5-pro`,
-`gemini-1.5-flash`, `gemini-1.5-pro`.
+La identidad del canal que va en el prompt (`channel_name`, `channel_description`, `squadron`) sale de
+`config/config.json`, no de texto fijo.
+
+Modelos permitidos (allowlist en `web/app.py::VALID_MODELS`): `gemini-2.5-flash`, `gemini-2.5-pro`.
 
 ### 3.4 Subida a YouTube
 

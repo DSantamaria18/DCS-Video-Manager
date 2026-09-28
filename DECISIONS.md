@@ -225,6 +225,13 @@ específico de Gemini en `requirements.txt`, solo los de la API de YouTube.
 **Consecuencia.** El manejo de errores y el parseo de la respuesta son responsabilidad del proyecto. De
 ahí `_recover_json()`, que rescata respuestas envueltas en markdown o con JSON truncado.
 
+**Actualización 2026-09-29 — modo JSON nativo.** Las llamadas que esperan JSON pasan
+`call_gemini(..., json_mode=True)`, que fija `generationConfig.responseMimeType = "application/json"`.
+Con eso Gemini ya no envuelve la respuesta en markdown, y se eliminan del prompt el texto "respond ONLY
+with JSON / no fences" y el recorte manual de fences. Requiere el endpoint `v1beta`: `v1` responde
+`400 JSON mode is not enabled for api version v1` (verificado con una llamada real). `_recover_json()` se
+mantiene solo para el JSON truncado por `maxOutputTokens`.
+
 **Antes de cambiarlo:** verifica contra documentación oficial qué SDK es realmente el correcto y qué
 garantías aporta. Un nombre de paquete que suena bien puede no ser el que crees.
 

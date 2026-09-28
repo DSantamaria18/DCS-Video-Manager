@@ -2,7 +2,7 @@
 """
 DCS YouTube Metadata Generator — TheCylonPilot
 Analyzes DCS World video files and generates optimized YouTube metadata.
-Uses Google Gemini Vision API (gemini-1.5-flash) — free tier: 1500 req/day.
+Uses the Google Gemini Vision API (model set in config, default gemini-2.5-flash).
 """
 
 import argparse
@@ -496,8 +496,8 @@ DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
 [playlists relevantes]
 
 🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
+Twitter: [link]
+Twitch: [link]
 TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
@@ -522,8 +522,8 @@ DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
 [playlists relevantes]
 
 🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
+Twitter: [link]
+Twitch: [link]
 TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
@@ -552,8 +552,8 @@ DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
 [playlists relevantes]
 
 🔗 SÍGUENOS
-Twitter: https://twitter.com/thecylonpilot
-Twitch: https://www.twitch.tv/thecylonpilot
+Twitter: [link]
+Twitch: [link]
 TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
@@ -670,13 +670,17 @@ This is a solo/campaign video. The pilot is learning DCS and shares both success
             "Use these confirmed events to improve chapter accuracy and description specificity."
         )
 
-    return f"""You are a YouTube metadata specialist for the DCS World simulation channel "TheCylonPilot".
+    cfg = config or {}
+    channel_name = cfg.get("channel_name", DEFAULT_CONFIG["channel_name"])
+    channel_desc = cfg.get("channel_description", DEFAULT_CONFIG["channel_description"])
+    squadron = cfg.get("squadron", DEFAULT_CONFIG["squadron"])
+
+    return f"""You are a YouTube metadata specialist for the DCS World simulation channel "{channel_name}".
 
 CHANNEL IDENTITY:
 - Creator: Spanish simmer, 47 years old, IT professional
-- Main module: F/A-18C Hornet | Also flies: F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache
-- Philosophy: Learning through mistakes, helping beginners
-- Squadron: Escuadrón 111 (E111) — veteran Spanish virtual aviation community
+- Channel: {channel_desc}
+- Squadron: {squadron} — veteran Spanish virtual aviation community
 
 {lang_instructions}{duration_hint}
 
@@ -698,7 +702,7 @@ Pay close attention to:
 - Any text overlays, mission names, or briefing screens visible
 - The type of activity shown (combat, training, refueling, landing, etc.)
 
-OUTPUT FORMAT — respond ONLY with a valid JSON object. No markdown fences, no explanation, no preamble. Just the raw JSON:
+OUTPUT FORMAT — a JSON object with these keys:
 
 {{
   "title": "...",
@@ -726,7 +730,7 @@ TITLE RULES:
 {description_rules}
 
 TAGS RULES:
-- 30-40 tags total
+- 10-15 tags total — the upload checklist expects 7-15 and YouTube truncates tags beyond 500 characters
 - Return tags as plain strings with NO surrounding quotes — correct: "dcs world", wrong: "'dcs world'"
 - Mix: generic (dcs world, flight simulator) + specific (aircraft, map, mission type, campaign)
 - Always include: dcs, dcs world, eagle dynamics, digital combat simulator
@@ -742,8 +746,10 @@ CHAPTERS:
 
 # ── Gemini API call ───────────────────────────────────────────────────────────
 
-def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
+def call_gemini(frames_b64: list[str], prompt: str, model: str, json_mode: bool = False) -> str:
     """Call Gemini Vision API using only stdlib (no SDK needed).
+
+    json_mode=True sets responseMimeType so Gemini returns bare JSON (no fences or preamble).
 
     DCS_SIMULATE=1 skips the HTTP call and returns canned metadata (FEA-04):
     lets agents/QA validate the full UI flow without spending Gemini quota.
@@ -767,7 +773,7 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
         raise OSError("GEMINI_API_KEY not set.")
 
     url = (
-        f"https://generativelanguage.googleapis.com/v1/models/"
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={api_key}"
     )
 
@@ -780,12 +786,16 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str) -> str:
             }
         })
 
+    generation_config = {
+        "temperature": 0.3,
+        "maxOutputTokens": 16384
+    }
+    if json_mode:
+        generation_config["responseMimeType"] = "application/json"
+
     payload = json.dumps({
         "contents": [{"parts": parts}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 16384
-        }
+        "generationConfig": generation_config
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -863,22 +873,17 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
         else:
             print("  → No significant ACMI events detected")
 
-    model = config.get("model", "gemini-1.5-flash")
+    model = config.get("model", DEFAULT_CONFIG["model"])
     prompt = build_prompt(user_context, config, is_squadron, memory, duration_seconds,
                           series_context, aircraft_suggestions, audio_markers, acmi_events)
     print(f"  Calling Gemini API ({model})...")
 
     try:
-        raw = call_gemini(frames, prompt, model)
+        raw = call_gemini(frames, prompt, model, json_mode=True)
     except _GEMINI_ERRORS as e:
         print(f"  ✗ API error: {e}")
         return {}
 
-    # Strip markdown fences if model added them
-    raw = raw.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     raw = raw.strip()
 
     try:
@@ -1182,7 +1187,7 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
         "result values: RTB=landed safely at any base; CRASH=aircraft destroyed, no ejection detected; "
         "EJECT=pilot ejected after aircraft loss (aircraft destroyed but pilot survived by ejecting); "
         "COMPLETE=scenario/campaign objective met.\n\n"
-        "Return ONLY a valid JSON object with these exact keys (use null if truly unknown):\n"
+        "Return a JSON object with these exact keys (use null if truly unknown):\n"
         '{\n'
         '  "result": "RTB" | "CRASH" | "EJECT" | "COMPLETE",\n'
         '  "kills": <integer or null>,\n'
@@ -1191,18 +1196,13 @@ def generate_debrief(metadata: dict, video_path: Path, config: dict,
         '  "max_altitude": "<e.g. 24000 ft or FL240 or -->",\n'
         '  "fuel_remaining": "<e.g. 3200 lb or 45% or -->",\n'
         f'  "narrative": "<2-3 sentences in {lang_label} for the squadron forum>"\n'
-        '}\n\n'
-        "No markdown fences, no explanation — just the JSON."
+        '}'
     )
 
     model = config.get("model", DEFAULT_CONFIG["model"])
     data: dict = {}
     try:
-        raw = call_gemini(frames, prompt, model).strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        data = json.loads(raw)
+        data = json.loads(call_gemini(frames, prompt, model, json_mode=True))
     except _GEMINI_ERRORS:
         data = {}
 
@@ -1296,7 +1296,7 @@ def generate_social_captions(metadata: dict, config: dict) -> dict:
 
     prompt = (
         "Generate social media captions for this DCS World gameplay video. "
-        "Return ONLY a valid JSON object with keys: twitter, instagram, linkedin, tiktok.\n\n"
+        "Return a JSON object with keys: twitter, instagram, linkedin, tiktok.\n\n"
         f"VIDEO TITLE: {title}\n"
         f"AIRCRAFT: {aircraft}\n"
         f"MAP: {map_name}\n"
@@ -1306,17 +1306,12 @@ def generate_social_captions(metadata: dict, config: dict) -> dict:
         "- twitter: max 280 chars, punchy, 3-5 hashtags at end\n"
         "- instagram: engaging with CTA, 8-10 hashtags on new lines after caption\n"
         "- linkedin: professional/educational tone, 2-3 hashtags max, no spam\n"
-        "- tiktok: energetic, 15-20 hashtags, trending format\n\n"
-        "Return raw JSON only. No markdown fences."
+        "- tiktok: energetic, 15-20 hashtags, trending format"
     )
 
     model = config.get("model", DEFAULT_CONFIG["model"])
     try:
-        raw = call_gemini([], prompt, model).strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        result = json.loads(raw)
+        result = json.loads(call_gemini([], prompt, model, json_mode=True))
         return {
             "twitter": result.get("twitter", ""),
             "instagram": result.get("instagram", ""),
