@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest *)",
+      "Bash(python -m ruff check *)",
+      "Bash(python web/app.py)",
+      "Bash(PYTHONUTF8=1 python web/app.py)",
+      "Bash(curl -s http://localhost:5000/*)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Bash(ffprobe *)"
+    ],
+    "deny": [
+      "Read(./config/client_secret.json)",
+      "Read(./config/youtube_token.json)",
+      "Read(./.env)",
+      "Edit(./config/client_secret.json)",
+      "Edit(./config/youtube_token.json)"
+    ]
+  },
+  "env": {
+    "PYTHONUTF8": "1"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/run_tests_on_stop.py\"",
+            "timeout": 120,
+            "statusMessage": "Running tests..."
+          }
+        ]
+      }
+    ]
+  }
+}

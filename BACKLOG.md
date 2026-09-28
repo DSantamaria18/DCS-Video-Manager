@@ -27,6 +27,7 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
 | INF-05 | El sondeo de analytics no sobrevive al reinicio | P2 | M | `schedule_analytics_polling()` usa cuatro `threading.Timer` daemon a 1 h, 6 h, 12 h y 24 h. Si la app se cierra antes, los sondeos pendientes se pierden sin dejar rastro. Propuesta: persistir los sondeos pendientes en `history.json` y reprogramarlos al arrancar. |
+| INF-07 | `memory/history.json` está en `.gitignore` pero sigue rastreado | P3 | S | Se añadió a `.gitignore` después de commitearlo, así que git lo sigue siguiendo y cada análisis lo deja como modificado, con riesgo de mezclarlo en commits de código. Propuesta: `git rm --cached memory/history.json` (el fichero sigue en disco). |
 | INF-06 | Crear el primer tag de git al cortar versión | P2 | S | Decisión ya tomada (ver `DECISIONS.md`, pregunta 6 de `SPEC.md` respondida): tags `vMAYOR.MENOR.PARCHE` a partir de la próxima entrega. CI (INF-01) y SEC-01 ya resueltos; sin bloqueantes pendientes en `CHANGELOG.md` para cortar la primera versión. |
 
 ---
@@ -51,8 +52,7 @@ Ninguna se implementa sin aprobación previa de David (regla 8).
 
 | # | Título | Prioridad | Dif. | Descripción y justificación |
 | --- | --- | --- | --- | --- |
-
-Sin documentación pendiente ahora mismo.
+| DOC-03 | `CHANGELOG.md` describe un split que no existe | P3 | S | La entrada "Split de `CLAUDE.md`/`DECISIONS.md`" en `[No publicado]` > `Cambiado` dice que roles, DoD y flujo de PR pasaron a `.claude/team-workflow.md` y el rationale técnico a `DECISIONS_TECHNICAL.md`. Ninguno de los dos ficheros existe en `main`: el rationale sigue en `DECISIONS.md`. Propuesta: corregir o quitar esa entrada. |
 
 ---
 
