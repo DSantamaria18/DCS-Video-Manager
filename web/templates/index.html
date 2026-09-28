@@ -1248,6 +1248,10 @@
             <input type="url" id="cfg_link_twitch" placeholder="https://www.twitch.tv/…">
           </div>
           <div class="field-group">
+            <label>TikTok</label>
+            <input type="url" id="cfg_link_tiktok" placeholder="https://www.tiktok.com/@…">
+          </div>
+          <div class="field-group">
             <label>Buy Me a Coffee</label>
             <input type="url" id="cfg_link_buymeacoffee" placeholder="https://…">
           </div>
@@ -2922,6 +2926,7 @@ async function loadConfigForm() {
     document.getElementById('cfg_link_dcs_huey_playlist').value = links.dcs_huey_playlist || '';
     document.getElementById('cfg_link_twitter').value = links.twitter || '';
     document.getElementById('cfg_link_twitch').value = links.twitch || '';
+    document.getElementById('cfg_link_tiktok').value = links.tiktok || '';
     document.getElementById('cfg_link_buymeacoffee').value = links.buymeacoffee || '';
     document.getElementById('cfg_link_escuadron111').value = links.escuadron111 || '';
     document.getElementById('cfg_discord_webhook_url').value = cfg.discord_webhook_url || '';
@@ -2951,6 +2956,7 @@ async function saveConfig() {
       dcs_huey_playlist: document.getElementById('cfg_link_dcs_huey_playlist').value.trim(),
       twitter:           document.getElementById('cfg_link_twitter').value.trim(),
       twitch:            document.getElementById('cfg_link_twitch').value.trim(),
+      tiktok:            document.getElementById('cfg_link_tiktok').value.trim(),
       buymeacoffee:      document.getElementById('cfg_link_buymeacoffee').value.trim(),
       escuadron111:      document.getElementById('cfg_link_escuadron111').value.trim(),
     },

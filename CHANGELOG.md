@@ -43,6 +43,9 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - Badges de frames/modelo junto a los 4 botones que llaman a Gemini (ANALYZE VIDEO, GENERATE
   DEBRIEF, GENERATE CAPTIONS, FIX WITH AI), calculados en el cliente a partir de la config ya
   cargada, sin llamadas adicionales al backend (FEA-03).
+- Enlace de TikTok (`default_links.tiktok`) en la pestaña Setup y en el bloque de redes de todas las
+  plantillas de descripción (`TikTok: [link]`, sustituido desde la config en `build_prompt()` y en los
+  metadatos de respaldo).
 
 ### Corregido
 
