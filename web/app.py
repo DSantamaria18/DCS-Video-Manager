@@ -1183,7 +1183,7 @@ def get_stats():
 
 if __name__ == "__main__":
     # PORT override needed on macOS: AirPlay Receiver binds port 5000 by default (Monterey+)
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", "5000"))
 
     # Open browser after a short delay
     def open_browser():
