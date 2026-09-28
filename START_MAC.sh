@@ -24,10 +24,10 @@ echo " Checking dependencies..."
 pip install -r requirements.txt -q
 
 # Check API key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
+if [ -z "$GEMINI_API_KEY" ]; then
     echo ""
-    echo " WARNING: ANTHROPIC_API_KEY not set."
-    echo " Set it with: export ANTHROPIC_API_KEY=sk-ant-..."
+    echo " WARNING: GEMINI_API_KEY not set."
+    echo " Get one at https://aistudio.google.com/app/apikey and set it with: export GEMINI_API_KEY=..."
     echo ""
 fi
 
