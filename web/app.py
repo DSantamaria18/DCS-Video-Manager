@@ -161,7 +161,7 @@ def parse_acmi():
     })
 
 
-VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
+VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
                         "description_templates", "recordings_folder",

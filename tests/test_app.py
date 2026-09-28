@@ -334,9 +334,18 @@ def test_post_config_merges_with_existing(client, tmp_path, monkeypatch):
     assert resp.json["squadron"] == "OldSquad"
 
 
+def test_post_config_rejects_retired_gemini_models(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    for model in ("gemini-1.5-flash", "gemini-1.5-pro"):
+        payload = {**VALID_CONFIG_PAYLOAD, "model": model}
+        with patch("dcs_meta.load_config", return_value=dict(VALID_CONFIG_PAYLOAD)):
+            resp = client.post("/api/config", json=payload)
+        assert resp.status_code == 400, f"Expected 400 for retired model {model}"
+
+
 def test_post_config_all_valid_gemini_models_accepted(client, tmp_path, monkeypatch):
     monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
-    for model in ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"):
+    for model in ("gemini-2.5-flash", "gemini-2.5-pro"):
         payload = {**VALID_CONFIG_PAYLOAD, "model": model}
         with patch("dcs_meta.load_config", return_value=dict(VALID_CONFIG_PAYLOAD)):
             resp = client.post("/api/config", json=payload)

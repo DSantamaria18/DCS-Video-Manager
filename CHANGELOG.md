@@ -67,6 +67,22 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - CI en rojo desde BUG-02: `ruff` (PLW1508) rechazaba `os.environ.get("PORT", 5000)` en `web/app.py`
   porque el valor por defecto de una variable de entorno debe ser `str`; ahora es `"5000"`.
 
+### Cambiado
+
+- Prompts de Gemini: la identidad del canal sale de `config/config.json` (`channel_name`,
+  `channel_description`, `squadron`) en vez de texto fijo, que ya no coincidía con la config; la regla
+  de tags pasa de 30-40 a 10-15, en línea con el checklist de subida (7-15) y el límite de 500
+  caracteres de YouTube; las plantillas en español toman Twitter y Twitch de la config como las
+  inglesas.
+- `call_gemini()` usa el endpoint `v1beta` y el modo JSON nativo (`json_mode=True`,
+  `responseMimeType`) en metadatos, debrief y captions sociales; se eliminan las instrucciones de "solo
+  JSON" del prompt y el recorte manual de fences.
+
+### Eliminado
+
+- Modelos `gemini-1.5-flash` y `gemini-1.5-pro` (retirados por Google) de `VALID_MODELS`, de la UI y
+  del fallback de `generate_metadata()`, que ahora usa `DEFAULT_CONFIG["model"]`.
+
 ### Seguridad
 
 - Los secretos de Discord (`discord_webhook_url`, `discord_bot_token`, `discord_channel_id`) se

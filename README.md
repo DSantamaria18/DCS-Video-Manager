@@ -199,7 +199,7 @@ All settings are editable from the **Setup** tab in the UI. They can also be mod
 | `channel_description` | Channel description injected into the prompt |
 | `squadron` | Squadron name |
 | `frames_to_extract` | Number of frames to extract (1–20, default 8) |
-| `model` | Gemini model (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`) |
+| `model` | Gemini model (`gemini-2.5-flash`, `gemini-2.5-pro`) |
 | `default_links` | Playlist, social media, and sponsorship URLs |
 | `description_templates` | Custom description templates by language and video length |
 
