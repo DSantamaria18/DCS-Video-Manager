@@ -61,6 +61,8 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   devolvía `cancelled: true` sin avisar. Ahora llama a `choose file` directamente (no requiere ese
   permiso) y un error real de `osascript` (no una cancelación del usuario) se propaga como 400 a
   la UI en vez de tragarse (BUG-04).
+- CI en rojo desde BUG-02: `ruff` (PLW1508) rechazaba `os.environ.get("PORT", 5000)` en `web/app.py`
+  porque el valor por defecto de una variable de entorno debe ser `str`; ahora es `"5000"`.
 
 ### Seguridad
 
