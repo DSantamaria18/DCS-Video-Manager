@@ -85,6 +85,11 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Corregido
 
+- El análisis de vídeo podía caer en los metadatos de respaldo porque Gemini cortaba el JSON: el
+  razonamiento de `gemini-2.5-flash` consumía casi todo `maxOutputTokens` (16384). Sube a 65536 y
+  `call_gemini()` avisa en consola cuando la respuesta termina en `MAX_TOKENS`.
+- `generate_metadata()` recorta los tags a 15 (`MAX_TAGS`, el máximo del checklist de subida): Gemini
+  devolvía hasta 19 aunque el prompt pide 10-15.
 - `START_WINDOWS.bat` comprobaba `ANTHROPIC_API_KEY` en vez de `GEMINI_API_KEY`, la variable que usa la
   app; ahora avisa de la correcta y fija `PYTHONUTF8=1` para que el banner de arranque no falle en
   consolas cp1252.
