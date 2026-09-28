@@ -1901,3 +1901,56 @@ def test_build_prompt_tag_rule_matches_upload_checklist_range():
                                    memory={"videos": []})
     assert "10-15 tags" in prompt
     assert "30-40 tags" not in prompt
+
+
+def test_call_gemini_output_limit_leaves_room_for_thinking(monkeypatch):
+    # gemini-2.5 counts thinking tokens against maxOutputTokens; 16384 truncated real responses
+    captured = _capture_gemini_request(monkeypatch)
+    dcs_meta.call_gemini([], "prompt", "gemini-2.5-flash", json_mode=True)
+    assert captured["payload"]["generationConfig"]["maxOutputTokens"] == 65536
+
+
+def test_call_gemini_warns_when_response_hits_max_tokens(monkeypatch, capsys):
+    body = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": '{"title": "cut'}]},
+                        "finishReason": "MAX_TOKENS"}],
+        "usageMetadata": {"thoughtsTokenCount": 15800, "candidatesTokenCount": 584},
+    }).encode()
+
+    class _Resp(_FakeResp):
+        def read(self):
+            return body
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.delenv("DCS_SIMULATE", raising=False)
+    monkeypatch.setattr(dcs_meta.urllib.request, "urlopen", lambda req, timeout=None: _Resp(""))
+    dcs_meta.call_gemini([], "prompt", "gemini-2.5-flash", json_mode=True)
+    out = capsys.readouterr().out
+    assert "MAX_TOKENS" in out
+    assert "15800" in out
+
+
+def _metadata_with_tags(n):
+    """Gemini-style metadata JSON with n distinct tags."""
+    return json.dumps({"title": "t", "description": "d", "tags": [f"tag{i}" for i in range(n)],
+                       "chapters": [], "language": "en"})
+
+
+def test_generate_metadata_caps_tags_at_upload_checklist_max(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr(dcs_meta, "call_gemini", lambda *a, **kw: _metadata_with_tags(19))
+    meta = dcs_meta.generate_metadata(video, "", dict(dcs_meta.DEFAULT_CONFIG), {"videos": []},
+                                      frames=["frame"])
+    assert meta["tags"] == [f"tag{i}" for i in range(15)]
+
+
+def test_generate_metadata_keeps_short_tag_lists(tmp_path, monkeypatch):
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda *a: 300.0)
+    monkeypatch.setattr(dcs_meta, "call_gemini", lambda *a, **kw: _metadata_with_tags(8))
+    meta = dcs_meta.generate_metadata(video, "", dict(dcs_meta.DEFAULT_CONFIG), {"videos": []},
+                                      frames=["frame"])
+    assert len(meta["tags"]) == 8

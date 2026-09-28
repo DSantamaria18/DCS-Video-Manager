@@ -232,6 +232,12 @@ with JSON / no fences" y el recorte manual de fences. Requiere el endpoint `v1be
 `400 JSON mode is not enabled for api version v1` (verificado con una llamada real). `_recover_json()` se
 mantiene solo para el JSON truncado por `maxOutputTokens`.
 
+**Actualización 2026-09-29 — límite de salida.** Un análisis real con 20 frames llegó cortado hacia el
+carácter 2.083 con `maxOutputTokens: 16384`: el razonamiento de `gemini-2.5-flash` cuenta dentro de ese
+límite. David eligió subirlo a 65536 (máximo del modelo) en lugar de limitar `thinkingBudget`: solo se
+facturan los tokens generados y no se recorta el razonamiento. `call_gemini()` avisa si la respuesta
+termina en `MAX_TOKENS`, para distinguir este caso de otros fallos.
+
 **Antes de cambiarlo:** verifica contra documentación oficial qué SDK es realmente el correcto y qué
 garantías aporta. Un nombre de paquete que suena bien puede no ser el que crees.
 

@@ -100,8 +100,11 @@ El idioma se decide con `is_squadron_video()`, que busca `SQUADRON_KEYWORDS` en 
 `call_gemini()` usa **`urllib.request` directamente contra la API REST** (`v1beta`), no el SDK de Google.
 Los frames viajan en base64. Las llamadas que esperan JSON (metadatos, debrief, captions) pasan
 `json_mode=True`, que fija `responseMimeType: application/json` en `generationConfig`; la API `v1` lo
-rechaza con un 400, de ahí `v1beta`. `_recover_json()` sigue cubriendo el JSON truncado por
-`maxOutputTokens`.
+rechaza con un 400, de ahí `v1beta`. `maxOutputTokens` es 65536 (el máximo de `gemini-2.5-flash`)
+porque el razonamiento interno cuenta dentro de ese límite; si aun así la respuesta llega con
+`finishReason: MAX_TOKENS`, `call_gemini()` lo avisa en consola con los tokens de razonamiento y de
+salida. `_recover_json()` sigue intentando rescatar el JSON truncado. `generate_metadata()` recorta los
+tags a `MAX_TAGS` (15), el máximo del checklist de subida.
 
 La identidad del canal que va en el prompt (`channel_name`, `channel_description`, `squadron`) sale de
 `config/config.json`, no de texto fijo.

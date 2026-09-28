@@ -38,6 +38,9 @@ _DURATION_ERRORS = (RuntimeError, subprocess.CalledProcessError, json.JSONDecode
 # failure, or a malformed API response — all surfaced as OSError/RuntimeError/JSONDecodeError.
 _GEMINI_ERRORS = (OSError, RuntimeError, json.JSONDecodeError)
 
+# Upper bound of the upload checklist's recommended tag range; Gemini sometimes overshoots the prompt.
+MAX_TAGS = 15
+
 DEFAULT_CONFIG = {
     "channel_name": "TheCylonPilot",
     "channel_description": "DCS World simulation — learning through mistakes, F/A-18C Hornet main module, also F-16C, F-14, UH-1H, A-10C, C-130J, AH-64D Apache.",
@@ -786,9 +789,11 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str, json_mode: bool 
             }
         })
 
+    # gemini-2.5 counts thinking tokens against maxOutputTokens: 16384 truncated real JSON responses.
+    # 65536 is the model maximum; only generated tokens are billed, so the ceiling itself costs nothing.
     generation_config = {
         "temperature": 0.3,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 65536
     }
     if json_mode:
         generation_config["responseMimeType"] = "application/json"
@@ -812,9 +817,15 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str, json_mode: bool 
         raise RuntimeError(f"Gemini API error {e.code}: {body}")
 
     try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        candidate = data["candidates"][0]
+        text = candidate["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
         raise RuntimeError(f"Unexpected Gemini response: {data}")
+    if candidate.get("finishReason") == "MAX_TOKENS":
+        usage = data.get("usageMetadata", {})
+        print(f"  ⚠ Gemini stopped at MAX_TOKENS (thinking={usage.get('thoughtsTokenCount')}, "
+              f"output={usage.get('candidatesTokenCount')} tokens): response is truncated")
+    return text
 
 # ── Main analysis ─────────────────────────────────────────────────────────────
 
@@ -887,7 +898,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     raw = raw.strip()
 
     try:
-        metadata = json.loads(raw)
+        metadata = _cap_tags(json.loads(raw))
         print("  ✓ Metadata generated")
         if duration_seconds is not None:
             metadata["duration_s"] = duration_seconds
@@ -895,7 +906,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     except json.JSONDecodeError as e:
         # Try to recover truncated JSON by closing open braces/brackets
         print("  ⚠ JSON truncated, attempting recovery...")
-        recovered = _recover_json(raw)
+        recovered = _cap_tags(_recover_json(raw))
         if recovered:
             print("  ✓ Recovered from truncated response")
             if duration_seconds is not None:
@@ -965,6 +976,13 @@ def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -
     if duration_s is not None:
         result["duration_s"] = duration_s
     return result
+
+
+def _cap_tags(metadata: dict) -> dict:
+    """Trim metadata["tags"] to MAX_TAGS in place and return metadata."""
+    if isinstance(metadata.get("tags"), list):
+        metadata["tags"] = metadata["tags"][:MAX_TAGS]
+    return metadata
 
 
 def _recover_json(raw: str) -> dict:
@@ -1357,11 +1375,12 @@ def run_upload_checklist(metadata: dict, config: dict) -> list[dict]:
                        "message": f"{desc_len} chars — minimum 300 recommended"})
 
     tag_count = len(tags)
-    if 7 <= tag_count <= 15:
-        checks.append({"rule": "Tag count", "status": "ok", "message": f"{tag_count} tags (7-15 recommended)"})
+    if 7 <= tag_count <= MAX_TAGS:
+        checks.append({"rule": "Tag count", "status": "ok",
+                       "message": f"{tag_count} tags (7-{MAX_TAGS} recommended)"})
     else:
         checks.append({"rule": "Tag count", "status": "warn",
-                       "message": f"{tag_count} tags — optimal range is 7-15"})
+                       "message": f"{tag_count} tags — optimal range is 7-{MAX_TAGS}"})
 
     has_dcs = "dcs world" in title.lower() or "dcs world" in description.lower()
     checks.append({
