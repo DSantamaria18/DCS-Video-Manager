@@ -24,7 +24,7 @@ de metadatos y la subida de vídeos de DCS World a YouTube.
 | Bot | `discord.py` (`discord_bot.py`) |
 | Tests | pytest (`tests/`) |
 | Rama principal | **`main`** |
-| CI | **No existe todavía** (no hay `.github/workflows/`) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): `ruff check .` + `pytest` con coverage, ambos bloqueantes |
 
 **Entrypoints principales:** `dcs_meta.py` (motor de análisis + CLI batch), `youtube_uploader.py`
 (subida OAuth2), `web/app.py` (servidor Flask), `batch_watcher.py`, `discord_bot.py`.
@@ -135,14 +135,24 @@ Comunicación en español. Reglas de formato (aplican a toda respuesta, no solo 
    ramas, y backup antes de operaciones sensibles.
 10. **Una rama por feature/bug.** Commits directos a `main` solo para documentación puramente
     descriptiva (`.md` sin efecto en comportamiento); cualquier cambio con efecto colateral real
-    (código, datos que consume la UI, configuración de build o runtime) va por rama, aunque no haya
-    CI que lo valide todavía.
+    (código, datos que consume la UI, configuración de build o runtime) va por rama y PR, con el CI en
+    verde (`gh pr checks`).
 11. **Llamadas de pago a APIs externas** (Gemini, YouTube Data API): modelo y parámetros se fijan
     explícitamente en el encargo. En tests y desarrollo van mockeadas por defecto; cualquier test que
     consuma cuota real se marca y se ejecuta solo bajo petición explícita.
 12. **Toda acción de escritura real sobre servicios externos** (subir un vídeo a YouTube, publicar en
     Discord, modificar playlists) exige confirmación explícita de David para cada disparo, aunque el
     diseño del flujo ya esté aprobado.
+
+### Configuración de Claude Code del repo
+
+- `.claude/settings.json`: permisos para pytest, ruff, git de lectura y la app en local; bloquea leer
+  o editar `config/client_secret.json`, `config/youtube_token.json` y `.env`; fija `PYTHONUTF8=1`.
+- Hook `Stop` (`.claude/hooks/run_tests_on_stop.py`): si hay `.py` modificados, corre la suite y no
+  deja cerrar el turno con tests en rojo.
+- Skills del proyecto: `backlog` (anotar o trabajar una entrada con este flujo) y `run-app` (arrancar
+  la UI, probar la API sin gastar cuota con `DCS_SIMULATE=1`, pararla).
+- `.claude/settings.local.json` es personal y no se commitea.
 
 ---
 

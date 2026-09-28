@@ -83,6 +83,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 - Modelos `gemini-1.5-flash` y `gemini-1.5-pro` (retirados por Google) de `VALID_MODELS`, de la UI y
   del fallback de `generate_metadata()`, que ahora usa `DEFAULT_CONFIG["model"]`.
 
+### Corregido
+
+- `START_WINDOWS.bat` comprobaba `ANTHROPIC_API_KEY` en vez de `GEMINI_API_KEY`, la variable que usa la
+  app; ahora avisa de la correcta y fija `PYTHONUTF8=1` para que el banner de arranque no falle en
+  consolas cp1252.
+
 ### Seguridad
 
 - Los secretos de Discord (`discord_webhook_url`, `discord_bot_token`, `discord_channel_id`) se
@@ -108,6 +114,9 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
   flujo de PR movidos a `.claude/team-workflow.md` (solo se lee al orquestar multi-agente); rationale
   de decisiones técnicas de código movido a `DECISIONS_TECHNICAL.md` (solo al tocar el fichero/feature
   concreto).
+- Configuración de Claude Code versionada: `.claude/settings.json` (permisos, bloqueo de lectura de
+  credenciales OAuth, `PYTHONUTF8=1`), hook `Stop` que corre la suite si hay `.py` modificados y skills
+  del proyecto `backlog` y `run-app`. `CLAUDE.md` documenta la configuración y ya no dice que no hay CI.
 
 ### Pendiente antes de poder cortar la primera versión
 

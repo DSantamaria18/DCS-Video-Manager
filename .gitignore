@@ -46,3 +46,4 @@ desktop.ini
 .idea/
 *.sublime-project
 *.sublime-workspace
+.claude/settings.local.json

@@ -17,13 +17,14 @@ echo  Checking dependencies...
 pip install -r requirements.txt -q
 
 REM Check API key
-if "%ANTHROPIC_API_KEY%"=="" (
+if "%GEMINI_API_KEY%"=="" (
     echo.
-    echo  WARNING: ANTHROPIC_API_KEY not set.
-    echo  Set it with: set ANTHROPIC_API_KEY=sk-ant-...
+    echo  WARNING: GEMINI_API_KEY not set.
+    echo  Get one at https://aistudio.google.com/app/apikey and set it with: set GEMINI_API_KEY=...
     echo.
 )
 
+set PYTHONUTF8=1
 echo  Starting web server...
 echo  Opening http://localhost:5000
 echo.
