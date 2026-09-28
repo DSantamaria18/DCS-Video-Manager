@@ -48,6 +48,7 @@ DEFAULT_CONFIG = {
         "dcs_f18_playlist":  "https://youtube.com/playlist?list=PLbOMVlk368l6M0sXB-Fv6I7tFBs6UBd3Y",
         "twitter":           "https://twitter.com/thecylonpilot",
         "twitch":            "https://www.twitch.tv/thecylonpilot",
+        "tiktok":            "https://www.tiktok.com/@cylon.pilot",
         "buymeacoffee":      "https://www.buymeacoffee.com/pilotcylon",
         "escuadron111":      "https://www.escuadron111.eu/"
     },
@@ -417,6 +418,7 @@ DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
+TikTok: [link]
 Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
@@ -443,6 +445,7 @@ DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
+TikTok: [link]
 Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
@@ -473,6 +476,7 @@ DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
 🔗 FOLLOW
 Twitter: [link]
 Twitch: [link]
+TikTok: [link]
 Buy Me a Coffee: [link]
 
 #DCSWorld #[Aircraft] #[relevant tags]""",
@@ -494,6 +498,7 @@ DESCRIPTION RULES — SHORT VIDEO (<10 min) — "quick tactical breakdown":
 🔗 SÍGUENOS
 Twitter: https://twitter.com/thecylonpilot
 Twitch: https://www.twitch.tv/thecylonpilot
+TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
 
@@ -519,6 +524,7 @@ DESCRIPTION RULES — MEDIUM VIDEO (10-30 min) — "full training video":
 🔗 SÍGUENOS
 Twitter: https://twitter.com/thecylonpilot
 Twitch: https://www.twitch.tv/thecylonpilot
+TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
 
@@ -548,6 +554,7 @@ DESCRIPTION RULES — LONG VIDEO (>30 min) — "complete mission debrief":
 🔗 SÍGUENOS
 Twitter: https://twitter.com/thecylonpilot
 Twitch: https://www.twitch.tv/thecylonpilot
+TikTok: [link]
 
 #DCSWorld #[Aeronave] #[tags relevantes]""",
 }
@@ -638,6 +645,7 @@ This is a solo/campaign video. The pilot is learning DCS and shares both success
     description_rules = (description_rules
         .replace("Twitter: [link]", f"Twitter: {links.get('twitter', '')}")
         .replace("Twitch: [link]", f"Twitch: {links.get('twitch', '')}")
+        .replace("TikTok: [link]", f"TikTok: {links.get('tiktok', '')}")
         .replace("Buy Me a Coffee: [link]", f"Buy Me a Coffee: {links.get('buymeacoffee', '')}"))
 
     chapters_rule = {
@@ -923,6 +931,7 @@ def build_fallback_metadata(video_path: Path, user_context: str, config: dict) -
     description = (desc_template
         .replace("Twitter: [link]", f"Twitter: {links.get('twitter', '')}")
         .replace("Twitch: [link]", f"Twitch: {links.get('twitch', '')}")
+        .replace("TikTok: [link]", f"TikTok: {links.get('tiktok', '')}")
         .replace("Buy Me a Coffee: [link]", f"Buy Me a Coffee: {links.get('buymeacoffee', '')}"))
 
     tags = ["dcs", "dcs world", "eagle dynamics", "digital combat simulator",

@@ -1293,6 +1293,7 @@ def test_build_prompt_substitutes_social_links(monkeypatch):
         "default_links": {
             "twitter": "https://twitter.com/testuser",
             "twitch": "https://www.twitch.tv/testuser",
+            "tiktok": "https://www.tiktok.com/@testuser",
             "buymeacoffee": "https://www.buymeacoffee.com/testuser",
             "escuadron111": "https://example.com",
             "dcs_f18_playlist": "",
@@ -1305,8 +1306,22 @@ def test_build_prompt_substitutes_social_links(monkeypatch):
     assert "[link]" not in prompt
     assert "https://twitter.com/testuser" in prompt
     assert "https://www.twitch.tv/testuser" in prompt
+    assert "TikTok: https://www.tiktok.com/@testuser" in prompt
     assert "https://www.buymeacoffee.com/testuser" in prompt
     assert "Buy Me a Coffee:" in prompt
+
+
+def test_build_prompt_substitutes_tiktok_link_in_spanish_template():
+    """Spanish squadron templates must also get the TikTok link substituted."""
+    cfg = {
+        **dcs_meta.DEFAULT_CONFIG,
+        "description_templates": {},
+        "default_links": {**dcs_meta.DEFAULT_CONFIG["default_links"],
+                          "tiktok": "https://www.tiktok.com/@testuser"},
+    }
+    prompt = dcs_meta.build_prompt("", cfg, is_squadron=True, memory={"videos": []})
+    assert "TikTok: [link]" not in prompt
+    assert "TikTok: https://www.tiktok.com/@testuser" in prompt
 
 
 def test_build_prompt_no_patreon_hallucination(monkeypatch):
