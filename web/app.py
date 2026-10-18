@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import dcs_meta
 import video_edit
+import video_render
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4GB max upload
@@ -197,7 +198,7 @@ def parse_acmi():
 VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
-                        "description_templates", "recordings_folder",
+                        "description_templates", "recordings_folder", "music_folder", "edit_cq",
                         "discord_webhook_url", "discord_bot_token", "discord_channel_id"}
 
 
@@ -223,6 +224,21 @@ def save_config():
             data["frames_to_extract"] = n
         except (ValueError, TypeError):
             return jsonify({"error": "frames_to_extract must be an integer between 1 and 20"}), 400
+
+    if "edit_cq" in data:
+        try:
+            cq = int(data["edit_cq"])
+            if not (18 <= cq <= 38):
+                raise ValueError
+            data["edit_cq"] = cq
+        except (ValueError, TypeError):
+            return jsonify({"error": "edit_cq must be an integer between 18 and 38"}), 400
+
+    if "music_folder" in data:
+        folder = data["music_folder"]
+        if not isinstance(folder, str) or (folder.strip() and not Path(folder.strip()).is_dir()):
+            return jsonify({"error": "music_folder must be an existing folder (or empty)"}), 400
+        data["music_folder"] = folder.strip()
 
     if "model" in data and data["model"] not in VALID_MODELS:
         return jsonify({"error": f"Invalid model. Allowed: {', '.join(sorted(VALID_MODELS))}"}), 400
@@ -1100,6 +1116,86 @@ def edit_analyze_cuts():
             processing_status[job_id]["error"] = str(e)
 
     threading.Thread(target=run_analyze_cuts, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+def _plan_payload_error(segments, fade) -> str | None:
+    """Shape checks shared by the plan endpoints; the real validation against the video is video_edit's."""
+    if (not isinstance(segments, list) or not segments or len(segments) > _MAX_PLAN_SEGMENTS
+            or not all(isinstance(s, dict) for s in segments)):
+        return f"segments must be a non-empty list of at most {_MAX_PLAN_SEGMENTS} objects"
+    if isinstance(fade, bool) or not isinstance(fade, (int, float)) or not 0 <= fade <= 2:
+        return "fade_s must be between 0 and 2"
+    return None
+
+
+_render_lock = threading.Lock()   # un solo render a la vez: ocupa la GPU y mucho disco
+
+
+@app.route("/api/edit/render", methods=["POST"])
+def edit_render():
+    """POST /api/edit/render — render the reviewed edit to output/edits/<name>_editado.mp4.
+
+    Request body: {"video_path": str, "segments": [{start, end, action, speed (optional), fase}],
+    "fade_s": number (optional, 0-2)}. Starts a background job (one render at a time, else 409); poll
+    /api/status/<job_id>. Never overwrites the original or an existing output; music comes from the
+    configured music_folder and the quality from edit_cq.
+    """
+    data = request.get_json() or {}
+    video_path = (data.get("video_path") or "").strip()
+    if not video_path:
+        return jsonify({"error": "Missing video_path"}), 400
+    video = Path(video_path)
+    if not video.is_file():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+    segments, fade = data.get("segments"), data.get("fade_s", video_edit.DEFAULT_FADE_S)
+    error = _plan_payload_error(segments, fade)
+    if error:
+        return jsonify({"error": error}), 400
+    simulate = os.environ.get("DCS_SIMULATE") == "1"
+    if not simulate:
+        try:
+            video_edit.build_pieces(segments, dcs_meta._get_video_duration(video))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 500
+    if not _render_lock.acquire(blocking=False):
+        return jsonify({"error": "A render is already running"}), 409
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {"status": "running", "progress": 0, "message": "Preparing render...",
+                                 "result": None, "error": None}
+    cfg = dcs_meta.load_config()
+    out_dir = OUTPUT_DIR / "edits"
+
+    def on_progress(pct, message):
+        processing_status[job_id]["progress"] = round(pct)
+        processing_status[job_id]["message"] = message
+
+    def run_render():
+        try:
+            if simulate:
+                result = {"output_path": str(out_dir / f"{video.stem}_editado.mp4"), "duration": 0.0,
+                          "warnings": ["Simulated: nothing was rendered"], "encoder": "simulated", "chunks": 0,
+                          "simulated": True}
+            else:
+                result = video_render.render_edit(video, segments, out_dir, fade_s=float(fade),
+                                                  cq=int(cfg.get("edit_cq", video_render.DEFAULT_CQ)),
+                                                  music_folder=cfg.get("music_folder") or None,
+                                                  on_progress=on_progress)
+            processing_status[job_id]["status"] = "done"
+            processing_status[job_id]["progress"] = 100
+            processing_status[job_id]["message"] = "Done!"
+            processing_status[job_id]["result"] = {**result, "output_name": Path(result["output_path"]).name}
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+        finally:
+            _render_lock.release()
+
+    threading.Thread(target=run_render, daemon=True).start()
     return jsonify({"job_id": job_id})
 
 

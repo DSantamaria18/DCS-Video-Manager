@@ -17,6 +17,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Añadido
 
+- Render de la edición (FEA-09, fase 1b): el botón RENDER EDIT de la pestaña "Edición" genera
+  `output/edits/<nombre>_editado.mp4` sin tocar el original y sin sobrescribir ficheros existentes (sufijo `_2`...).
+  Acelera los tramos elegidos, une todo con fundido de 0,3 s, fusiona las pistas de audio útiles (descarta las
+  vacías o duplicadas) y pone música por fase de vuelo en los tramos acelerados, si hay carpeta de música. NVENC con
+  respaldo a libx264. Nuevo `video_render.py`, `POST /api/edit/render` (job, un render a la vez) y claves
+  `music_folder` y `edit_cq` (por defecto 28) en `config/config.json`.
 - Pestaña "Edición" (FEA-09, fase 1a): propone los tiempos muertos de una grabación a partir de la telemetría
   del jugador en el ACMI (rodaje y crucero estático, sin eventos de combate cerca, con márgenes de 10 s) y
   permite revisarlos antes de editar: acción por tramo (acelerar, cortar o conservar), fase, inicio y fin

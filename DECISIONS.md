@@ -273,6 +273,23 @@ fotogramas reales.
 **Regla derivada.** El tiempo de vídeo es el tiempo del ACMI menos un desfase que sale de `RecordingTime`
 (UTC) frente a la hora local de inicio del vídeo. No se debe asumir que ambos empiezan a la vez.
 
+### Render de la edición: vídeo por bloques, audio aparte y `-cq` 28
+
+**Evidencia.** Fase 1b de FEA-09 (2026-10-18), medido sobre `2026-10-17_00-34-43.mkv` (1080p60, RTX 4090).
+
+**Motivo.** Un único grafo de ffmpeg con todos los tramos (`trim`, `setpts`, `xfade`) consume memoria más que
+linealmente: 1 GB con 6 piezas, 2,6 GB con 20 y 16 GB con 40. Renderizar cada pieza y ensamblar después no mejora:
+187 s y 4,1 GB frente a 147 s y 2,6 GB del grafo único con 20 piezas. Por eso el vídeo se renderiza en bloques de
+unas 12 piezas, cortados en mitad de un tramo a velocidad normal (imagen continua, sin fundido) y unidos con el
+*concat demuxer* sin recodificar; el audio va en un único grafo ligero (fusión de pistas, música, fundidos y
+`loudnorm`) y un muxado final copia ambos flujos. Con `h264_nvenc`, `-cq` 21 a 30 cambia el bitrate 3 veces
+(26 a 8,9 Mbps) y el PSNR solo 0,25 dB; se elige 28 (~11 Mbps, cercano a los ~10 Mbps de las grabaciones).
+El PSNR frente al original se satura en ~31 dB, así que no es una prueba perceptual: conviene un vistazo visual.
+
+**Límites conocidos.** La ganancia de la música es fija (0,35) y luego se aplica `loudnorm` al conjunto; las piezas
+de menos de 0,7 s se descartan para poder hacer fundido; de un tramo que 16x no absorbe se corta el final; las
+pruebas con ffmpeg real se omiten si no hay ffmpeg.
+
 ### Cola de pendientes: playlist de subidas en vez de `search.list`, y `status` reenviado al programar
 
 **Evidencia.** `list_pending_videos()` y `schedule_video()` en `youtube_uploader.py`. Verificado contra la

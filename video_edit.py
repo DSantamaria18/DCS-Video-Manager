@@ -233,37 +233,59 @@ def _validate_segments(segments: list, video_duration: float) -> list:
     return ordered
 
 
-def summarize_plan(segments: list, video_duration: float, fade_s: float = DEFAULT_FADE_S) -> dict:
-    """Per-segment speed/output length and the resulting video duration (fades overlap the joins)."""
-    ordered = _validate_segments(segments, video_duration)
-    out_segments, pieces, cursor = [], [], 0.0
+def build_pieces(segments: list, video_duration: float) -> list:
+    """Ordered output pieces of an edit: {"kind": normal|speed|cut, start, end, out_s, ...} in source seconds.
 
-    def add_normal(length):
-        if length <= 0:
+    Normal footage between segments and `keep` segments merge into one normal piece; a `cut` leaves a marker
+    so the footage on both sides is joined with a fade instead of being merged. A sped-up segment only covers
+    the part speed_plan() accelerates (the rest is cut).
+    """
+    ordered = _validate_segments(segments, video_duration)
+    pieces, cursor = [], 0.0
+
+    def add_normal(start, end):
+        if end - start <= 0:
             return
-        if pieces and pieces[-1][0] == "n":
-            pieces[-1][1] += length
+        if pieces and pieces[-1]["kind"] == "normal" and pieces[-1]["end"] == start:
+            pieces[-1]["end"] = end
+            pieces[-1]["out_s"] = end - pieces[-1]["start"]
         else:
-            pieces.append(["n", length])
+            pieces.append({"kind": "normal", "start": start, "end": end, "out_s": end - start})
 
     for seg in ordered:
-        add_normal(seg["start"] - cursor)
+        add_normal(cursor, seg["start"])
         length = seg["end"] - seg["start"]
         if seg["action"] == "speed":
             plan = speed_plan(length, seg.get("speed"))
-            pieces.append(["a", plan["out_s"]])
-            out_segments.append({**seg, **plan})
+            pieces.append({"kind": "speed", "start": seg["start"], "end": seg["start"] + plan["accelerated_s"],
+                           "out_s": plan["out_s"], "factor": plan["factor"], "fase": seg.get("fase")})
         elif seg["action"] == "cut":
-            pieces.append(["c", 0.0])
+            pieces.append({"kind": "cut", "start": seg["start"], "end": seg["end"], "out_s": 0.0})
+        else:
+            add_normal(seg["start"], seg["end"])
+        cursor = seg["end"]
+    add_normal(cursor, video_duration)
+    return pieces
+
+
+def kept_pieces(pieces: list) -> list:
+    return [p for p in pieces if p["kind"] != "cut"]
+
+
+def summarize_plan(segments: list, video_duration: float, fade_s: float = DEFAULT_FADE_S) -> dict:
+    """Per-segment speed/output length and the resulting video duration (fades overlap the joins)."""
+    ordered = _validate_segments(segments, video_duration)
+    out_segments = []
+    for seg in ordered:
+        length = seg["end"] - seg["start"]
+        if seg["action"] == "speed":
+            out_segments.append({**seg, **speed_plan(length, seg.get("speed"))})
+        elif seg["action"] == "cut":
             out_segments.append({**seg, "factor": None, "accelerated_s": 0.0, "cut_s": length, "out_s": 0.0})
         else:
-            add_normal(length)
             out_segments.append({**seg, "factor": 1.0, "accelerated_s": 0.0, "cut_s": 0.0, "out_s": length})
-        cursor = seg["end"]
-    add_normal(video_duration - cursor)
-
-    kept = [p for p in pieces if p[0] != "c"]
-    resulting = sum(p[1] for p in kept) - fade_s * max(0, len(kept) - 1)
+    kept = kept_pieces(build_pieces(segments, video_duration))
+    resulting = sum(p["out_s"] for p in kept) - fade_s * max(0, len(kept) - 1)
     return {"segments": out_segments, "original_duration": video_duration, "resulting_duration": resulting,
             "fade_s": fade_s}
 

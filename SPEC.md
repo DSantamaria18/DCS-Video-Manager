@@ -496,7 +496,8 @@ cortarse (se puede elegir cortar), y la música cambia según la fase de vuelo.
   (rodaje, despegue, navegación, aproximación y aterrizaje) se puede clasificar con la telemetría del ACMI.
   Decidir umbrales con datos. Sin UI.
 - **Fase 1, cortes:** detectar tiempos muertos, lista de tramos editable en la UI, render del vídeo recortado.
-  Se entrega en dos PRs: 1a (análisis y revisión en la pestaña Edición, hecha 2026-10-18) y 1b (audio, música y render).
+  Se entrega en dos PRs: 1a (análisis y revisión en la pestaña Edición, hecha 2026-10-18) y 1b (audio, música y
+  render, hecha 2026-10-18; la arquitectura del render y sus mediciones están en `DECISIONS.md`).
 - **Fase 2, highlights:** montar un vídeo horizontal 16:9 con los mejores momentos.
 - **Fase 3, imagen:** vista previa antes/después y aplicación de la corrección en el mismo render.
 

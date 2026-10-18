@@ -1181,6 +1181,21 @@
         </label>
       </div>
       <div id="editList"></div>
+      <div id="editRender" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:10px;color:var(--text3);">
+          <button class="copy-btn" id="editRenderBtn" onclick="renderEdit()"
+            style="background:var(--green3);border-color:var(--green2);">RENDER EDIT</button>
+          <label>MUSIC FOLDER
+            <input type="text" id="editMusicFolder" onchange="saveMusicFolder()"
+              placeholder="folder with rodaje_despegue, navegacion and aproximacion_aterrizaje subfolders"
+              style="width:440px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;">
+          </label>
+        </div>
+        <div style="height:4px;background:var(--bg3);margin-top:10px;border-radius:2px;">
+          <div id="editRenderFill" style="height:100%;width:0;background:var(--green);border-radius:2px;"></div>
+        </div>
+        <div id="editRenderMsg" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;white-space:pre-line;"></div>
+      </div>
     </div>
 
     <!-- PENDIENTES TAB (FEA-08) -->
@@ -1755,6 +1770,7 @@ function openTab(name) {
   if (name === 'history') loadHistory();
   if (name === 'stats') loadStats();
   if (name === 'queue') loadQueue();
+  if (name === 'edit') loadEditSettings();
   if (name === 'setup') { loadConfigForm(); loadDescriptionTemplates(); }
 }
 
@@ -2696,9 +2712,68 @@ async function refreshEditSummary() {
     document.getElementById('editTotals').textContent =
       `Original ${_editClock(data.original_duration)}  →  ${_editClock(data.resulting_duration)}  (saves ${_editClock(saved)})`;
     document.getElementById('editSummary').style.display = '';
+    document.getElementById('editRender').style.display = '';
   } catch (e) {
     msg.textContent = '⚠ Could not recalculate the plan';
     msg.style.color = 'var(--red)';
+  }
+}
+
+async function loadEditSettings() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    document.getElementById('editMusicFolder').value = cfg.music_folder || '';
+  } catch (e) { /* la pestaña funciona sin esto */ }
+}
+
+async function saveMusicFolder() {
+  const msg = document.getElementById('editRenderMsg');
+  const res = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                                           body: JSON.stringify({ music_folder: document.getElementById('editMusicFolder').value.trim() }) });
+  const data = await res.json();
+  msg.style.color = res.ok ? 'var(--text3)' : 'var(--amber)';
+  msg.textContent = res.ok ? 'Music folder saved.' : '⚠ ' + data.error;
+}
+
+async function renderEdit() {
+  if (!_editPlan) return;
+  const btn = document.getElementById('editRenderBtn');
+  const msg = document.getElementById('editRenderMsg');
+  const fill = document.getElementById('editRenderFill');
+  const video = document.getElementById('videoPath').value.trim();
+  btn.disabled = true;
+  fill.style.width = '0';
+  msg.style.color = 'var(--text3)';
+  msg.textContent = 'Starting render...';
+  try {
+    const res = await fetch('/api/edit/render', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        video_path: video, fade_s: document.getElementById('editFade').checked ? 0.3 : 0,
+        segments: _editPlan.segments.map(s => ({ start: s.start, end: s.end, action: s.action, fase: s.fase,
+                                                 ...(s.speed ? { speed: s.speed } : {}) })),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Render failed');
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1500));
+      const st = await (await fetch('/api/status/' + data.job_id)).json();
+      fill.style.width = (st.progress || 0) + '%';
+      msg.textContent = st.message || '';
+      if (st.status === 'error') throw new Error(st.error || 'Render failed');
+      if (st.status === 'done') {
+        const r = st.result;
+        msg.textContent = `Done: ${r.output_path}\n${r.warnings.map(w => '· ' + w).join('\n')}`;
+        showToast('Edit rendered: ' + r.output_name);
+        break;
+      }
+    }
+  } catch (e) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '⚠ ' + e.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 

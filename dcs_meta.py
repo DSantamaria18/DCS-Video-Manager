@@ -62,7 +62,9 @@ DEFAULT_CONFIG = {
     "frames_to_extract": 8,
     "model": "gemini-2.5-flash",
     "description_templates": {},
-    "recordings_folder": ""
+    "recordings_folder": "",
+    "music_folder": "",
+    "edit_cq": 28
 }
 
 # Discord secrets (SEC-01) — see SECRETS_PATH above.

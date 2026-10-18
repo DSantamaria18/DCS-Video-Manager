@@ -189,3 +189,27 @@ def test_read_player_telemetry_without_cockpit_data_raises(tmp_path):
     text = "FileType=text/acmi/tacview\nFileVersion=2.2\n#0\na1,T=1|2|10,Type=Air+FixedWing,Name=AI,Pilot=Bot\n#5\n"
     with pytest.raises(ValueError, match="player"):
         video_edit.read_player_telemetry(_write(tmp_path, text))
+
+
+# ── piezas de la edición (compartidas por el resumen y el render) ─────────────
+
+def test_build_pieces_orders_normal_speed_and_cut_markers():
+    segs = [{"start": 100, "end": 400, "action": "speed", "fase": "navegacion"},
+            {"start": 500, "end": 600, "action": "cut"}]
+    pieces = video_edit.build_pieces(segs, 1000.0)
+    assert [(p["kind"], p["start"], p["end"]) for p in pieces] == [
+        ("normal", 0, 100), ("speed", 100, 400), ("normal", 400, 500), ("cut", 500, 600), ("normal", 600, 1000)]
+    assert pieces[1]["factor"] == pytest.approx(15.0) and pieces[1]["fase"] == "navegacion"
+    assert pieces[1]["out_s"] == pytest.approx(20.0)
+
+
+def test_build_pieces_merges_keep_into_the_neighbouring_normal_footage():
+    pieces = video_edit.build_pieces([{"start": 100, "end": 400, "action": "keep"}], 1000.0)
+    assert [(p["kind"], p["start"], p["end"]) for p in pieces] == [("normal", 0, 1000)]
+
+
+def test_build_pieces_speed_covers_only_the_accelerated_part():
+    pieces = video_edit.build_pieces([{"start": 0, "end": 582, "action": "speed", "fase": "rodaje"}], 1000.0)
+    speed = pieces[0]
+    assert speed["end"] == pytest.approx(320.0)          # 16x * 20 s; el resto se corta
+    assert pieces[1]["kind"] == "normal" and pieces[1]["start"] == 582
