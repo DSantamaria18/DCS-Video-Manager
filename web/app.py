@@ -21,6 +21,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import dcs_meta
+import video_edit
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4GB max upload
@@ -1040,6 +1041,89 @@ def _run_schedule_batch(job_id, video_ids, first_publish_at, interval_days):
     processing_status[job_id]["status"] = "done"
     processing_status[job_id]["message"] = f"Done! {done_count} scheduled, {error_count} failed."
     processing_status[job_id]["result"] = {"scheduled": done_count, "failed": error_count}
+
+
+# ── Edición automática del vídeo (FEA-09) ───────────────────────────────────
+
+_MAX_PLAN_SEGMENTS = 200
+_SIMULATED_CUT_SEGMENTS = [
+    {"start": 10.0, "end": 580.0, "fase": "rodaje", "reason": "rodaje", "action": "speed"},
+    {"start": 1450.0, "end": 1890.0, "fase": "navegacion", "reason": "navegacion estatica", "action": "speed"},
+]
+
+
+@app.route("/api/edit/analyze_cuts", methods=["POST"])
+def edit_analyze_cuts():
+    """POST /api/edit/analyze_cuts — propose dead-time segments from the ACMI telemetry (no rendering).
+
+    Request body: {"video_path": str, "acmi_path": str, "acmi_offset_s": number (optional)}.
+    Starts a background job; poll /api/status/<job_id>. The result holds the proposed segments in video
+    time (start, end, fase, action, factor, out_s), the original and resulting duration and the offset used.
+    """
+    data = request.get_json() or {}
+    video_path = (data.get("video_path") or "").strip()
+    acmi_path = (data.get("acmi_path") or "").strip()
+    if not video_path:
+        return jsonify({"error": "Missing video_path"}), 400
+    video = Path(video_path)
+    if not video.is_file():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+    if not acmi_path:
+        return jsonify({"error": "Missing acmi_path: dead time is detected from the ACMI telemetry"}), 400
+    acmi_file = Path(acmi_path)
+    if acmi_file.suffix.lower() != ".acmi":
+        return jsonify({"error": "File must be a .acmi file"}), 400
+    if not acmi_file.is_file():
+        return jsonify({"error": f"File not found: {acmi_path}"}), 404
+    try:
+        offset = _parse_offset(data.get("acmi_offset_s"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {"status": "running", "progress": 0, "message": "Reading ACMI telemetry...",
+                                 "result": None, "error": None}
+
+    def run_analyze_cuts():
+        try:
+            if os.environ.get("DCS_SIMULATE") == "1":
+                plan = {**video_edit.summarize_plan(_SIMULATED_CUT_SEGMENTS, 3600.0), "offset_s": 0.0}
+            else:
+                plan = video_edit.analyze_cuts(video, acmi_file, offset)
+            processing_status[job_id]["status"] = "done"
+            processing_status[job_id]["progress"] = 100
+            processing_status[job_id]["message"] = f"Done! {len(plan['segments'])} segment(s) proposed."
+            processing_status[job_id]["result"] = {**plan, "video_name": video.name}
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+
+    threading.Thread(target=run_analyze_cuts, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/edit/plan_summary", methods=["POST"])
+def edit_plan_summary():
+    """POST /api/edit/plan_summary — speed, output length and resulting duration for an edited segment list.
+
+    Request body: {"segments": [{start, end, action: speed|cut|keep, speed (optional), fase}],
+    "video_duration": number, "fade_s": number (optional, 0-2)}. Pure computation, no files touched.
+    """
+    data = request.get_json() or {}
+    segments, duration = data.get("segments"), data.get("video_duration")
+    fade = data.get("fade_s", video_edit.DEFAULT_FADE_S)
+    if (not isinstance(segments, list) or len(segments) > _MAX_PLAN_SEGMENTS
+            or not all(isinstance(s, dict) for s in segments)):
+        return jsonify({"error": f"segments must be a list of at most {_MAX_PLAN_SEGMENTS} objects"}), 400
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not duration > 0:
+        return jsonify({"error": "video_duration must be a positive number"}), 400
+    if isinstance(fade, bool) or not isinstance(fade, (int, float)) or not 0 <= fade <= 2:
+        return jsonify({"error": "fade_s must be between 0 and 2"}), 400
+    try:
+        return jsonify(video_edit.summarize_plan(segments, float(duration), float(fade)))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/api/suggest_playlists", methods=["POST"])

@@ -311,6 +311,14 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 
 ---
 
+## Automatic editing (in progress)
+
+- **Dead-time proposal** — the Edición tab reads the player's own telemetry from the ACMI (gear, speed, height, heading, controls) and proposes taxiing and steady-cruise stretches away from combat events, trimmed by 10 s on each side. Image motion and audio level were measured and do not separate dead time in VR recordings, so the ACMI is required.
+- **Review before editing** — each segment can be sped up (automatic 4x-16x aiming at ~20 s of output, or a manual speed), cut or kept, with editable phase, start and end, and the resulting duration with a 0.3 s fade between pieces.
+- **Not rendered yet** — rendering with speed-up, music per flight phase and fades is the next step (see `SPEC.md`).
+
+---
+
 ## Thumbnail
 
 - **Smart frame selection** — extracts 6 candidate frames between 18% and 78% of the video and scores each by sharpness (edge detection), brightness (penalises dark or washed-out frames), and colorfulness (per-channel standard deviation).

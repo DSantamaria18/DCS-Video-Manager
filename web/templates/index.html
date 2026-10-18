@@ -908,6 +908,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="metadata" onclick="openTab('metadata')">Metadata</div>
       <div class="tab" data-tab="history" onclick="openTab('history')">History</div>
+      <div class="tab" data-tab="edit" onclick="openTab('edit')">Edición</div>
       <div class="tab" data-tab="queue" onclick="openTab('queue')">Pendientes</div>
       <div class="tab" data-tab="stats" onclick="openTab('stats')">Stats</div>
       <div class="tab" data-tab="setup" onclick="openTab('setup')">Setup</div>
@@ -1162,6 +1163,24 @@
           No history yet
         </div>
       </div>
+    </div>
+
+    <!-- EDICIÓN TAB (FEA-09, fase 1a: propuesta y revisión, sin render) -->
+    <div class="tab-content" id="tab-edit">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="section-label" style="margin:0">Dead time from the ACMI telemetry</div>
+        <button class="copy-btn" id="editAnalyzeBtn" onclick="analyzeCuts()">ANALYZE CUTS</button>
+      </div>
+      <div id="editMsg" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin:8px 0;">
+        Uses the video, ACMI and ACMI offset from the left panel. This step only proposes and previews the edit.
+      </div>
+      <div id="editSummary" style="display:none;margin-bottom:10px;padding:10px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;font-family:var(--mono);font-size:11px;">
+        <span id="editTotals"></span>
+        <label style="margin-left:14px;color:var(--text3);cursor:pointer;">
+          <input type="checkbox" id="editFade" checked onchange="refreshEditSummary()"> 0.3 s fade between pieces
+        </label>
+      </div>
+      <div id="editList"></div>
     </div>
 
     <!-- PENDIENTES TAB (FEA-08) -->
@@ -2545,6 +2564,142 @@ function pollQueueJob(jobId, total) {
       }
     } catch (e) {}
   }, 2000);
+}
+
+// ── Edición: dead time proposal and review (FEA-09, phase 1a) ──────────────────
+let _editPlan = null;          // {videoDuration, segments: [{start, end, action, speed, fase, factor, out_s, cut_s}]}
+let _editTimer = null;
+const _EDIT_PHASES = ['rodaje', 'despegue', 'navegacion', 'aproximacion'];
+
+function _editClock(s) {
+  const m = Math.floor(s / 60), sec = Math.round(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+async function analyzeCuts() {
+  const msg = document.getElementById('editMsg');
+  const btn = document.getElementById('editAnalyzeBtn');
+  const video = document.getElementById('videoPath').value.trim();
+  const acmi = document.getElementById('acmiPath').value.trim();
+  if (!video || !acmi) {
+    msg.textContent = 'Select the video and its ACMI file in the left panel first.';
+    msg.style.color = 'var(--amber)';
+    return;
+  }
+  btn.disabled = true;
+  msg.style.color = 'var(--text3)';
+  msg.textContent = 'Analysing the ACMI telemetry...';
+  try {
+    const res = await fetch('/api/edit/analyze_cuts', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ video_path: video, acmi_path: acmi, acmi_offset_s: acmiOffsetValue() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    const result = await _waitForJob(data.job_id);
+    _editPlan = {
+      videoDuration: result.original_duration,
+      segments: result.segments.map(s => ({ start: s.start, end: s.end, action: s.action, speed: null, fase: s.fase,
+                                            factor: s.factor, out_s: s.out_s, cut_s: s.cut_s })),
+    };
+    msg.textContent = `${_editPlan.segments.length} segment(s) proposed (ACMI offset ${Math.round(result.offset_s)} s). Review and adjust them below.`;
+    renderEditList();
+    refreshEditSummary();
+  } catch (e) {
+    msg.textContent = '⚠ ' + e.message;
+    msg.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function _waitForJob(jobId) {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1000));
+    const data = await (await fetch('/api/status/' + jobId)).json();
+    if (data.status === 'done') return data.result;
+    if (data.status === 'error') throw new Error(data.error || 'Analysis failed');
+  }
+}
+
+function renderEditList() {
+  const list = document.getElementById('editList');
+  if (!_editPlan || !_editPlan.segments.length) {
+    list.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:30px;">No dead time found</div>';
+    document.getElementById('editSummary').style.display = 'none';
+    return;
+  }
+  const input = 'background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:3px 5px;border-radius:2px;';
+  list.innerHTML = _editPlan.segments.map((s, i) => `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10px;">
+      <span style="color:var(--text3);width:22px;">#${i + 1}</span>
+      <select onchange="onEditField(${i}, 'fase', this.value)" style="${input}">
+        ${_EDIT_PHASES.map(p => `<option value="${p}" ${p === s.fase ? 'selected' : ''}>${p}</option>`).join('')}
+      </select>
+      <label>START <input type="number" min="0" step="1" value="${Math.round(s.start)}" style="width:70px;${input}"
+        onchange="onEditField(${i}, 'start', this.value)"></label>
+      <label>END <input type="number" min="0" step="1" value="${Math.round(s.end)}" style="width:70px;${input}"
+        onchange="onEditField(${i}, 'end', this.value)"></label>
+      <span id="edit_range_${i}" style="color:var(--text3);">${_editClock(s.start)}-${_editClock(s.end)}</span>
+      <select onchange="onEditField(${i}, 'action', this.value)" style="${input}">
+        <option value="speed" ${s.action === 'speed' ? 'selected' : ''}>speed up</option>
+        <option value="cut" ${s.action === 'cut' ? 'selected' : ''}>cut</option>
+        <option value="keep" ${s.action === 'keep' ? 'selected' : ''}>keep</option>
+      </select>
+      <label>SPEED <input type="number" min="2" max="64" step="1" placeholder="auto" value="${s.speed || ''}"
+        style="width:60px;${input}" ${s.action === 'speed' ? '' : 'disabled'}
+        onchange="onEditField(${i}, 'speed', this.value)"></label>
+      <span id="edit_out_${i}" style="color:var(--green);"></span>
+    </div>`).join('');
+}
+
+function onEditField(i, field, value) {
+  const s = _editPlan.segments[i];
+  if (field === 'start' || field === 'end') s[field] = Number(value);
+  else if (field === 'speed') s.speed = value === '' ? null : Number(value);
+  else s[field] = value;
+  if (field === 'action') renderEditList();
+  clearTimeout(_editTimer);
+  _editTimer = setTimeout(refreshEditSummary, 250);
+}
+
+// El cálculo vive en el servidor (video_edit.summarize_plan): la UI no duplica las reglas de velocidad.
+async function refreshEditSummary() {
+  if (!_editPlan) return;
+  const msg = document.getElementById('editMsg');
+  const body = {
+    video_duration: _editPlan.videoDuration,
+    fade_s: document.getElementById('editFade').checked ? 0.3 : 0,
+    segments: _editPlan.segments.map(s => ({ start: s.start, end: s.end, action: s.action, fase: s.fase,
+                                             ...(s.speed ? { speed: s.speed } : {}) })),
+  };
+  try {
+    const res = await fetch('/api/edit/plan_summary', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                        body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = '⚠ ' + data.error; msg.style.color = 'var(--amber)'; return; }
+    msg.style.color = 'var(--text3)';
+    // el servidor devuelve los tramos ordenados por inicio
+    const order = [..._editPlan.segments.keys()].sort((a, b) => _editPlan.segments[a].start - _editPlan.segments[b].start);
+    order.forEach((idx, k) => {
+      const r = data.segments[k];
+      Object.assign(_editPlan.segments[idx], { factor: r.factor, out_s: r.out_s, cut_s: r.cut_s });
+      const out = document.getElementById('edit_out_' + idx);
+      const range = document.getElementById('edit_range_' + idx);
+      const s = _editPlan.segments[idx];
+      if (range) range.textContent = `${_editClock(s.start)}-${_editClock(s.end)}`;
+      if (out) out.textContent = s.action === 'speed'
+        ? `x${r.factor.toFixed(1)} → ${Math.round(r.out_s)} s${r.cut_s ? ` (cut ${Math.round(r.cut_s)} s)` : ''}`
+        : s.action === 'cut' ? `cut ${Math.round(r.cut_s)} s` : 'kept';
+    });
+    const saved = data.original_duration - data.resulting_duration;
+    document.getElementById('editTotals').textContent =
+      `Original ${_editClock(data.original_duration)}  →  ${_editClock(data.resulting_duration)}  (saves ${_editClock(saved)})`;
+    document.getElementById('editSummary').style.display = '';
+  } catch (e) {
+    msg.textContent = '⚠ Could not recalculate the plan';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 function showToast(msg, type) {

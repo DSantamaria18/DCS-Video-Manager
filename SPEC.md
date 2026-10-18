@@ -496,6 +496,7 @@ cortarse (se puede elegir cortar), y la música cambia según la fase de vuelo.
   (rodaje, despegue, navegación, aproximación y aterrizaje) se puede clasificar con la telemetría del ACMI.
   Decidir umbrales con datos. Sin UI.
 - **Fase 1, cortes:** detectar tiempos muertos, lista de tramos editable en la UI, render del vídeo recortado.
+  Se entrega en dos PRs: 1a (análisis y revisión en la pestaña Edición, hecha 2026-10-18) y 1b (audio, música y render).
 - **Fase 2, highlights:** montar un vídeo horizontal 16:9 con los mejores momentos.
 - **Fase 3, imagen:** vista previa antes/después y aplicación de la corrección en el mismo render.
 
@@ -606,6 +607,8 @@ y el render sobre un clip corto.
 9. Audio del juego sustituido por la música en los tramos acelerados.
 10. En los tramos normales, las 3 pistas (general, radio y micro) se fusionan en una.
 11. Música por fase de vuelo: rodaje y despegue, navegación o tiempo muerto, y aproximación y aterrizaje.
+12. En la fusión de audio se descartan automáticamente las pistas vacías (p. ej. el micro en misiones monojugador) o
+    duplicadas.
 
 ### Criterios de aceptación
 - Fase 0: un informe con, para 2 o 3 grabaciones reales, qué señales detectan tiempos muertos y con qué
@@ -672,9 +675,10 @@ Las pistas 1 y 2 de `op_green_line-05` dieron estadísticas idénticas (duplicad
 | `2026-10-17_00-34-43` (93 min) | 4 min (4%): crucero y rodaje en pista | ~90 min |
 
 Con hojas de contactos de 27 fotogramas, los tramos propuestos son tiempo realmente muerto (rodaje, esperas, crucero
-sobre las nubes), con un falso positivo: el final de `op_green_line-05` (4519 a 4630 s) incluye los últimos segundos
-de la aproximación y el cartel "MISSION SUCCESS". La regla corrige descartando los segundos posteriores al toque y
-los márgenes. No se ha contrastado con rangos de tiempo muerto elegidos por David.
+sobre las nubes). Corrección (Fase 1a): este informe decía que el último tramo de `op_green_line-05` (4529 a 4620 s)
+incluía los últimos segundos de la aproximación. La telemetría muestra que el toque ocurre en 4518 a 4521 s (la `IAS`
+baja de 160 a 52 kt), así que ese tramo es la cubierta tras el aterrizaje y termina con el cartel "MISSION SUCCESS".
+No había falso positivo claro en los fotogramas revisados. No se ha contrastado con rangos de tiempo muerto elegidos por David.
 
 **6. Rendimiento medido (RTX 4090, NVDEC y NVENC `h264_nvenc`).**
 - Imagen a 1 fps de 93 min: 331 s. Audio de una pista: 6 s. Como la imagen no sirve, no se usará.

@@ -1218,3 +1218,97 @@ def test_analyze_invalid_acmi_offset_returns_400(client, tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     resp = client.post("/api/analyze", json={"video_path": str(video), "acmi_offset_s": "mucho"})
     assert resp.status_code == 400
+
+
+# ── POST /api/edit/analyze_cuts y /api/edit/plan_summary (FEA-09, Fase 1a) ─────
+
+def _edit_files(tmp_path):
+    video = tmp_path / "2026-10-17_00-34-43.mkv"
+    video.write_bytes(b"fake")
+    acmi_file = tmp_path / "m.acmi"
+    acmi_file.write_text("FileType=text/acmi/tacview\n", encoding="utf-8")
+    return video, acmi_file
+
+
+@pytest.mark.parametrize("payload, status", [
+    ({}, 400),
+    ({"video_path": "no-existe.mkv", "acmi_path": "x.acmi"}, 404),
+])
+def test_analyze_cuts_rejects_missing_files(client, payload, status):
+    assert client.post("/api/edit/analyze_cuts", json=payload).status_code == status
+
+
+def test_analyze_cuts_requires_an_acmi_file(client, tmp_path):
+    video, _acmi_file = _edit_files(tmp_path)
+    assert client.post("/api/edit/analyze_cuts", json={"video_path": str(video)}).status_code == 400
+    wrong = tmp_path / "m.txt"
+    wrong.write_text("x")
+    resp = client.post("/api/edit/analyze_cuts", json={"video_path": str(video), "acmi_path": str(wrong)})
+    assert resp.status_code == 400
+
+
+def test_analyze_cuts_invalid_offset_returns_400(client, tmp_path):
+    video, acmi_file = _edit_files(tmp_path)
+    resp = client.post("/api/edit/analyze_cuts", json={"video_path": str(video), "acmi_path": str(acmi_file),
+                                                       "acmi_offset_s": "mucho"})
+    assert resp.status_code == 400
+
+
+def test_analyze_cuts_job_returns_the_proposed_plan(client, tmp_path):
+    video, acmi_file = _edit_files(tmp_path)
+    plan = {"segments": [{"start": 10.0, "end": 100.0}], "original_duration": 500.0, "resulting_duration": 400.0,
+            "offset_s": 12.5, "fade_s": 0.3}
+
+    with patch("video_edit.analyze_cuts", return_value=plan) as mock_analyze:
+        resp = client.post("/api/edit/analyze_cuts", json={"video_path": str(video), "acmi_path": str(acmi_file),
+                                                           "acmi_offset_s": 12.5})
+        status = _wait_done(client, resp.json["job_id"])
+
+    assert status["result"]["resulting_duration"] == 400.0
+    assert mock_analyze.call_args.args[2] == 12.5
+
+
+def test_analyze_cuts_failure_is_reported_in_the_job(client, tmp_path):
+    video, acmi_file = _edit_files(tmp_path)
+    with patch("video_edit.analyze_cuts", side_effect=ValueError("No player aircraft")):
+        resp = client.post("/api/edit/analyze_cuts", json={"video_path": str(video), "acmi_path": str(acmi_file)})
+        import time
+        for _ in range(100):
+            status = client.get(f"/api/status/{resp.json['job_id']}").json
+            if status["status"] != "running":
+                break
+            time.sleep(0.05)
+    assert status["status"] == "error"
+    assert "No player aircraft" in status["error"]
+
+
+def test_analyze_cuts_simulate_mode_skips_real_analysis(client, tmp_path, monkeypatch):
+    video, acmi_file = _edit_files(tmp_path)
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    with patch("video_edit.analyze_cuts", side_effect=AssertionError("must not run in simulate mode")):
+        resp = client.post("/api/edit/analyze_cuts", json={"video_path": str(video), "acmi_path": str(acmi_file)})
+        status = _wait_done(client, resp.json["job_id"])
+    assert status["status"] == "done"
+    assert status["result"]["segments"]
+
+
+def test_plan_summary_returns_totals_and_per_segment_speed(client):
+    resp = client.post("/api/edit/plan_summary", json={
+        "video_duration": 1000, "fade_s": 0,
+        "segments": [{"start": 100, "end": 400, "action": "speed", "fase": "navegacion"}]})
+    assert resp.status_code == 200
+    assert resp.json["resulting_duration"] == pytest.approx(720.0)
+    assert resp.json["segments"][0]["factor"] == pytest.approx(15.0)
+
+
+@pytest.mark.parametrize("payload", [
+    {"video_duration": 1000, "segments": [{"start": 10, "end": 5, "action": "cut"}]},
+    {"video_duration": 1000, "segments": [{"start": 0, "end": 10, "action": "speed", "speed": 0.1}]},
+    {"video_duration": 0, "segments": []},
+    {"video_duration": "x", "segments": []},
+    {"video_duration": 1000, "segments": "no"},
+    {"video_duration": 1000, "segments": [{"start": 0, "end": 1, "action": "cut"}] * 201},
+    {"video_duration": 1000, "segments": [], "fade_s": 99},
+])
+def test_plan_summary_rejects_invalid_payloads(client, payload):
+    assert client.post("/api/edit/plan_summary", json=payload).status_code == 400
