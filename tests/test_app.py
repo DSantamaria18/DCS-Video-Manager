@@ -67,7 +67,9 @@ def test_analyze_returns_job_id(client, tmp_path, monkeypatch):
     video = tmp_path / "test.mp4"
     video.write_bytes(b"fake")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
-    resp = client.post("/api/analyze", json={"video_path": str(video)})
+    # Sin congelar el hilo, el job sigue vivo durante el test siguiente y ejecuta sus mocks (flaky en CI).
+    with patch("app.threading.Thread"):
+        resp = client.post("/api/analyze", json={"video_path": str(video)})
     assert resp.status_code == 200
     assert "job_id" in resp.json
     assert len(resp.json["job_id"]) == 8
