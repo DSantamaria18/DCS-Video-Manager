@@ -18,7 +18,6 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 
 # Add parent dir to path so we can import dcs_meta
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from datetime import UTC
 
 import dcs_meta
 
@@ -697,7 +696,7 @@ def _suggest_playlist_ids(metadata: dict, playlists: list[dict]) -> list[str]:
 def _compute_publish_at(first_publish_at: str, interval_days: int, order: int) -> str:
     """Return the ISO 8601 (Z-suffixed) publish_at for a clip at position `order` (1-based)."""
     from datetime import datetime, timedelta
-    base = datetime.fromisoformat(first_publish_at.replace("Z", "+00:00"))  # noqa: FURB162 — fromisoformat solo acepta "Z" desde Python 3.11 y damos soporte a 3.10
+    base = datetime.fromisoformat(first_publish_at.replace("Z", "+00:00"))
     scheduled = base + timedelta(days=interval_days * (order - 1))
     return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1124,8 +1123,8 @@ def competitors():
     try:
         from youtube_uploader import _build_service
         youtube = _build_service()
-        from datetime import datetime, timedelta
-        published_after = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        from datetime import datetime, timedelta, timezone
+        published_after = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
         resp = youtube.search().list(
             part="snippet",
             q=query,
