@@ -2093,6 +2093,7 @@ function renderShortsGrid(clips) {
     card.style.cssText = 'background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:10px;position:relative;';
 
     const checkId = 'short_sel_' + idx;
+    const clipName = (clip.clip_url || '').split('/').pop();
 
     card.innerHTML = `
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
@@ -2107,6 +2108,9 @@ function renderShortsGrid(clips) {
             <span style="background:var(--bg3);border:1px solid var(--border);border-radius:2px;padding:1px 5px;margin-left:6px;color:var(--green);">
               ★ ${clip.score || 0}
             </span>
+          </div>
+          <div id="short_file_${idx}" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(clipName)}">
+            ${escHtml(clipName)}
           </div>
           <div id="short_title_${idx}" style="font-size:11px;color:var(--text);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(meta.title || '')}">
             ${escHtml((meta.title || '').slice(0, 60))}

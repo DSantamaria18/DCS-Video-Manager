@@ -78,6 +78,8 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Cambiado
 
+- Las tarjetas de Shorts de la UI muestran el nombre del fichero del clip (`renderShortsGrid()`), con
+  recorte por elipsis y el nombre completo en el `title`.
 - `memory/history.json` deja de estar rastreado por git (`git rm --cached`; el fichero sigue en disco y
   en `.gitignore`), así que cada análisis ya no lo deja como modificado ni se cuela en commits (INF-07).
   En otros clones, el primer `git pull` borrará su copia local: hacer copia antes si interesa conservarla.
