@@ -17,6 +17,11 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Añadido
 
+- La UI conserva su estado al recargar la página: campos del formulario (ruta del vídeo, contexto, ACMI,
+  fecha e intervalo de Shorts y de Pendientes), el resultado del análisis con las ediciones de título,
+  descripción y tags, y los Shorts generados con sus metadatos. Se guarda en `localStorage` cada 1,5 s y al
+  cerrar la pestaña; no hay cambios de backend. No se restauran las miniaturas, el debrief ni las capturas
+  sociales, que se vuelven a generar.
 - Pestaña "Pendientes" (FEA-08): lista los vídeos del canal privados y sin `publishAt` (más antiguos primero,
   Shorts etiquetados) y los ya programados en solo lectura; permite programar hasta 15 con primera fecha e
   intervalo en días, con tabla de confirmación previa y estado por vídeo. Nuevos

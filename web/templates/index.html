@@ -1501,7 +1501,70 @@ let currentAcmiPath = null;
 let currentAcmiEvents = null;
 
 // ── Init ─────────────────────────────────────────────────────────────────────
+// ── UI state survives a page reload ───────────────────────────────────────────
+// Guardado periódico en localStorage (en vez de enganchar cada evento de edición: cubre también los
+// valores que se asignan por código, como el selector de ficheros). Solo del navegador: no hay backend.
+const UI_STATE_KEY = 'dcs-ui-state';
+const _PERSISTED_FIELDS = ['videoPath', 'missionContext', 'acmiPath', 'shortsFirstPublishAt',
+  'shortsIntervalDays', 'queueFirstPublishAt', 'queueIntervalDays'];
+
+function saveUiState() {
+  try {
+    const state = { fields: {} };
+    _PERSISTED_FIELDS.forEach(id => { state.fields[id] = document.getElementById(id).value; });
+    state.acmiEvents = currentAcmiEvents;
+    if (currentMetadata) {
+      state.videoPath = currentVideoPath;
+      state.metadata = {
+        ...currentMetadata,
+        title: document.getElementById('titleEdit').value,
+        description: document.getElementById('descEdit').value,
+        tags: getCurrentTags(),
+      };
+    }
+    const clips = document.getElementById('shortsGrid').__clips;
+    if (clips && clips.length) state.shorts = clips;
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify(state));
+  } catch (e) { /* localStorage puede no estar disponible (modo privado, cuota): la UI funciona igual */ }
+}
+
+function restoreUiState() {
+  let state;
+  try { state = JSON.parse(localStorage.getItem(UI_STATE_KEY) || 'null'); } catch (e) { return; }
+  if (!state) return;
+
+  Object.entries(state.fields || {}).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el && typeof value === 'string') el.value = value;
+  });
+  const videoPath = document.getElementById('videoPath').value.trim();
+  if (videoPath) {
+    currentVideoPath = videoPath;
+    const nameEl = document.getElementById('fileSelectedName');
+    nameEl.textContent = '▶ ' + videoPath.split(/[\\/]/).pop();
+    nameEl.style.display = 'block';
+  }
+  const acmi = document.getElementById('acmiPath').value.trim();
+  currentAcmiPath = acmi || null;
+  currentAcmiEvents = state.acmiEvents || null;
+
+  if (state.metadata) {
+    currentMetadata = state.metadata;
+    currentVideoPath = state.videoPath || currentVideoPath;
+    document.getElementById('emptyState').style.display = 'none';
+    renderMetadata(state.metadata);
+    document.getElementById('uploadBtn').disabled = false;
+    if (state.shorts && state.shorts.length) {
+      document.getElementById('shortsBlock').style.display = '';
+      renderShortsGrid(state.shorts);
+    }
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  restoreUiState();
+  setInterval(saveUiState, 1500);
+  window.addEventListener('pagehide', saveUiState);
   checkYouTubeStatus();
   loadHistory();
   loadPlaylists();
@@ -1808,6 +1871,7 @@ function renderMetadata(m) {
   document.getElementById('shortsBlock').style.display = 'none';
   document.getElementById('shortsGrid').style.display = 'none';
   document.getElementById('shortsCards').innerHTML = '';
+  document.getElementById('shortsGrid').__clips = [];
   document.getElementById('shortsMsg').textContent = '';
   document.getElementById('shortsGenBtn').disabled = false;
   document.getElementById('shortsGenBtn').textContent = 'GENERATE SHORTS';
