@@ -60,6 +60,7 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Corregido
 
+- Los tiempos de los eventos del ACMI se convierten a tiempo de vídeo (BUG-06): el desfase sale de `RecordingTime` (UTC) frente a la fecha del nombre del vídeo (hora local) y se puede ajustar a mano en el campo ACMI OFFSET. Afecta a los capítulos del análisis, a los Shorts y al debrief; antes los Shorts de una grabación que empezaba 20 min después del ACMI se alineaban 20 min mal. Los eventos anteriores al inicio del vídeo se descartan. `POST /api/parse_acmi` y `POST /api/analyze` aceptan `offset_s` / `acmi_offset_s`, y la huella de la caché de análisis incluye el desfase.
 - La detección de fases por audio (`detect_audio_chapters()`) ya no decodifica el vídeo: `ffmpeg` recibe
   `-vn -sn -dn` y solo procesa el audio (TEC-06). Medido con un vídeo de 46 min (2,7 GB): de ~52 s a
   1,6 s, con el mismo resultado de `silencedetect`. En ese vídeo el paso sigue sin encontrar transiciones

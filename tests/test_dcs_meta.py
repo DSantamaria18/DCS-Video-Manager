@@ -2011,3 +2011,108 @@ def test_generate_metadata_keeps_short_tag_lists(tmp_path, monkeypatch):
     meta = dcs_meta.generate_metadata(video, "", dict(dcs_meta.DEFAULT_CONFIG), {"videos": []},
                                       frames=["frame"])
     assert len(meta["tags"]) == 8
+
+
+# ── BUG-06: desfase entre el tiempo del ACMI y el del vídeo ───────────────────
+
+def _write_timed_acmi(tmp_path, recording_time, lines, name="mission.acmi"):
+    f = tmp_path / name
+    header = ("FileType=text/acmi/tacview\nFileVersion=2.2\n0,ReferenceTime=2016-06-22T05:00:00Z\n"
+              + (f"0,RecordingTime={recording_time}\n" if recording_time else ""))
+    f.write_text(header + "\n".join(lines), encoding="utf-8")
+    return f
+
+
+def test_read_recording_time_parses_utc_header(tmp_path):
+    from datetime import datetime, timezone
+
+    import acmi
+    f = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28.398Z", ["#0"])
+    assert acmi.read_recording_time(f) == datetime(2026, 10, 16, 22, 14, 28, 398000, tzinfo=timezone.utc)
+
+
+def test_read_recording_time_missing_returns_none(tmp_path):
+    import acmi
+    assert acmi.read_recording_time(_write_timed_acmi(tmp_path, None, ["#0"])) is None
+
+
+def test_read_recording_time_inside_zip(tmp_path):
+    import zipfile
+
+    import acmi
+    plain = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", ["#0"], name="inner.txt.acmi")
+    zipped = tmp_path / "zipped.zip.acmi"
+    with zipfile.ZipFile(zipped, "w") as zf:
+        zf.write(plain, "inner.txt.acmi")
+    assert acmi.read_recording_time(zipped).hour == 22
+
+
+def test_video_start_from_filename_obs_format():
+    from datetime import datetime, timedelta, timezone
+
+    import acmi
+    tz = timezone(timedelta(hours=2))
+    start = acmi.video_start_from_filename(Path("C:/Videos/2026-10-17_00-34-43.mkv"), tz=tz)
+    assert start == datetime(2026, 10, 17, 0, 34, 43, tzinfo=tz)
+
+
+def test_video_start_from_filename_without_timestamp_returns_none():
+    import acmi
+    assert acmi.video_start_from_filename(Path("op_green_line-05.mkv")) is None
+
+
+def test_acmi_offset_seconds_is_video_start_minus_recording_start(tmp_path):
+    """Caso real del 17 de octubre: ACMI 22:14:28Z, vídeo 00:34:43 locales (UTC+2) = 1215 s."""
+    from datetime import timedelta, timezone
+
+    import acmi
+    f = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28.398Z", ["#0"])
+    offset = acmi.acmi_offset_seconds(Path("2026-10-17_00-34-43.mkv"), f, tz=timezone(timedelta(hours=2)))
+    assert offset == pytest.approx(1214.602, abs=0.01)
+
+
+def test_acmi_offset_is_zero_when_a_start_time_is_unknown(tmp_path):
+    import acmi
+    timed = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", ["#0"])
+    untimed = _write_timed_acmi(tmp_path, None, ["#0"], name="untimed.acmi")
+    assert acmi.acmi_offset_seconds(Path("op_green_line-05.mkv"), timed) == 0.0
+    assert acmi.acmi_offset_seconds(Path("2026-10-17_00-34-43.mkv"), untimed) == 0.0
+
+
+def test_resolve_acmi_offset_manual_value_wins(tmp_path):
+    import acmi
+    f = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", ["#0"])
+    assert acmi.resolve_acmi_offset(Path("2026-10-17_00-34-43.mkv"), f, manual=42.0) == 42.0
+    assert acmi.resolve_acmi_offset(Path("op_green_line-05.mkv"), f, manual=None) == 0.0
+
+
+def test_parse_acmi_events_shifts_times_to_video_time(tmp_path):
+    lines = ["#0", "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies", "#300", "-A001"]
+    f = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", lines)
+    result = dcs_meta.parse_acmi_events(f, offset_s=100.0)
+    assert result["kills"][0]["time_s"] == 200.0
+    assert result["kills"][0]["time"] == "3:20"
+    assert "3:20" in result["events_text"]
+    assert result["offset_s"] == 100.0
+
+
+def test_parse_acmi_events_drops_events_before_the_video_starts(tmp_path):
+    lines = ["#0", "A001,Type=FixedWing+Air+FixedWing,Name=Early,Coalition=Enemies", "#50", "-A001",
+             "A002,Type=FixedWing+Air+FixedWing,Name=Late,Coalition=Enemies", "#300", "-A002"]
+    f = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", lines)
+    names = [k["name"] for k in dcs_meta.parse_acmi_events(f, offset_s=100.0)["kills"]]
+    assert names == ["Late"]
+
+
+def test_parse_acmi_events_default_offset_keeps_acmi_times(tmp_path):
+    lines = ["#0", "A001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies", "#300", "-A001"]
+    result = dcs_meta.parse_acmi_events(_write_timed_acmi(tmp_path, None, lines))
+    assert result["kills"][0]["time_s"] == 300.0
+
+
+def test_analysis_fingerprint_changes_with_acmi_offset(tmp_path):
+    acmi_file = _write_timed_acmi(tmp_path, "2026-10-16T22:14:28Z", ["#0"])
+    cfg = {"model": "gemini-2.5-flash", "frames_to_extract": 8}
+    a = dcs_meta.analysis_fingerprint("ctx", acmi_file, cfg, acmi_offset=0.0)
+    b = dcs_meta.analysis_fingerprint("ctx", acmi_file, cfg, acmi_offset=1215.0)
+    assert a != b

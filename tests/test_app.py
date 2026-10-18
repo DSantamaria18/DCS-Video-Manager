@@ -1157,3 +1157,64 @@ def test_schedule_batch_continues_after_one_video_fails(client):
     assert status["videos"]["V2"] == {"status": "error", "error": "video has been published before"}
     assert status["videos"]["V3"]["status"] == "done"
     assert status["result"] == {"scheduled": 2, "failed": 1}
+
+
+# ── POST /api/parse_acmi con desfase (BUG-06) ─────────────────────────────────
+
+def _acmi_with_one_kill(tmp_path):
+    f = tmp_path / "m.acmi"
+    f.write_text("FileType=text/acmi/tacview\nFileVersion=2.2\n0,RecordingTime=2026-10-16T22:14:28Z\n"
+                 "#0\nA001,Type=FixedWing+Air+FixedWing,Name=MiG-29,Coalition=Enemies\n#300\n-A001\n",
+                 encoding="utf-8")
+    return f
+
+
+def test_parse_acmi_manual_offset_shifts_events(client, tmp_path):
+    resp = client.post("/api/parse_acmi", json={"acmi_path": str(_acmi_with_one_kill(tmp_path)),
+                                                "video_path": "x.mkv", "offset_s": 100})
+    assert resp.status_code == 200
+    assert resp.json["events"]["kills"][0]["time_s"] == 200.0
+    assert resp.json["offset_s"] == 100.0
+    assert resp.json["offset_source"] == "manual"
+
+
+def test_parse_acmi_auto_offset_from_video_name(client, tmp_path):
+    with patch("acmi.acmi_offset_seconds", return_value=60.0):
+        resp = client.post("/api/parse_acmi", json={"acmi_path": str(_acmi_with_one_kill(tmp_path)),
+                                                    "video_path": "2026-10-17_00-34-43.mkv"})
+    assert resp.json["events"]["kills"][0]["time_s"] == 240.0
+    assert resp.json["offset_source"] == "auto"
+
+
+def test_parse_acmi_without_video_or_offset_keeps_acmi_time(client, tmp_path):
+    resp = client.post("/api/parse_acmi", json={"acmi_path": str(_acmi_with_one_kill(tmp_path))})
+    assert resp.json["events"]["kills"][0]["time_s"] == 300.0
+    assert resp.json["offset_source"] == "none"
+
+
+@pytest.mark.parametrize("bad", ["abc", float("inf"), 10 ** 9])
+def test_parse_acmi_invalid_offset_returns_400(client, tmp_path, bad):
+    resp = client.post("/api/parse_acmi", json={"acmi_path": str(_acmi_with_one_kill(tmp_path)), "offset_s": bad})
+    assert resp.status_code == 400
+
+
+def test_analyze_forwards_manual_acmi_offset_to_generate_metadata(client, tmp_path, monkeypatch):
+    """BUG-06: el desfase manual de la UI debe llegar al análisis (capítulos y contexto de Gemini)."""
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    acmi_file = tmp_path / "m.acmi"
+    acmi_file.write_text("FileType=text/acmi/tacview\n", encoding="utf-8")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+    _, _, mock_generate, _, _ = _run_analyze_sync(
+        client, video, {"acmi_path": str(acmi_file), "acmi_offset_s": 1215}, return_value=None)
+
+    assert mock_generate.call_args.kwargs["acmi_offset_s"] == 1215.0
+
+
+def test_analyze_invalid_acmi_offset_returns_400(client, tmp_path, monkeypatch):
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    resp = client.post("/api/analyze", json={"video_path": str(video), "acmi_offset_s": "mucho"})
+    assert resp.status_code == 400

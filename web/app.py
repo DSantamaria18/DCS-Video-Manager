@@ -6,6 +6,7 @@ Then open: http://localhost:5000
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -134,9 +135,29 @@ def browse_acmi_file():
     return jsonify({"path": selected, "name": Path(selected).name})
 
 
+_MAX_ACMI_OFFSET_S = 2 * 86400  # un desfase mayor de dos días es un error de entrada, no un caso real
+
+
+def _parse_offset(value) -> float | None:
+    """Validate the manual ACMI offset from a request body; None means "derive it automatically"."""
+    if value is None or value == "":
+        return None
+    try:
+        offset = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("offset_s must be a number") from None
+    if not math.isfinite(offset) or abs(offset) > _MAX_ACMI_OFFSET_S:
+        raise ValueError("offset_s out of range")
+    return offset
+
+
 @app.route("/api/parse_acmi", methods=["POST"])
 def parse_acmi():
-    """POST /api/parse_acmi — parse a TacView ACMI file and return extracted tactical events."""
+    """POST /api/parse_acmi — parse a TacView ACMI file and return extracted tactical events.
+
+    Optional "video_path" derives the ACMI-to-video offset from file names and headers, and "offset_s"
+    overrides it (BUG-06); event times in the response are in video time.
+    """
     data = request.get_json()
     acmi_path = data.get("acmi_path", "").strip()
 
@@ -149,11 +170,21 @@ def parse_acmi():
     if path.suffix.lower() != ".acmi":
         return jsonify({"error": "File must be a .acmi file"}), 400
 
-    events = dcs_meta.parse_acmi_events(path)
+    try:
+        manual = _parse_offset(data.get("offset_s"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    video_path = (data.get("video_path") or "").strip()
+    offset = dcs_meta.resolve_acmi_offset(Path(video_path), path, manual) if (manual is not None or video_path) else 0.0
+    source = "manual" if manual is not None else "auto" if offset else "none"
+
+    events = dcs_meta.parse_acmi_events(path, offset_s=offset)
     if events is None:
         return jsonify({"error": "Could not parse ACMI file"}), 500
 
     return jsonify({
+        "offset_s": offset,
+        "offset_source": source,
         "events": events,
         "kills": len(events.get("kills", [])),
         "sam_launches": len(events.get("sam_launches", [])),
@@ -271,6 +302,10 @@ def analyze():
     acmi_path = Path(acmi_path_str) if acmi_path_str else None
     if acmi_path and not acmi_path.exists():
         return jsonify({"error": f"ACMI file not found: {acmi_path_str}"}), 404
+    try:
+        manual_offset = _parse_offset(data.get("acmi_offset_s"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     if not os.environ.get("GEMINI_API_KEY"):
         return jsonify({"error": "GEMINI_API_KEY not set. Get a free key at https://aistudio.google.com/app/apikey"}), 500
@@ -290,7 +325,8 @@ def analyze():
             cfg = dcs_meta.load_config()
             mem = dcs_meta.load_memory()
 
-            fingerprint = dcs_meta.analysis_fingerprint(context, acmi_path, cfg)
+            acmi_offset = dcs_meta.resolve_acmi_offset(path, acmi_path, manual_offset) if acmi_path else 0.0
+            fingerprint = dcs_meta.analysis_fingerprint(context, acmi_path, cfg, acmi_offset=acmi_offset)
             metadata = None if force else dcs_meta.get_cached_metadata(path, fingerprint=fingerprint)
             if metadata:
                 processing_status[job_id]["message"] = "Using cached analysis..."
@@ -311,7 +347,7 @@ def analyze():
                 gemini_error = None
                 try:
                     metadata = dcs_meta.generate_metadata(path, context, cfg, mem, frames=frames,
-                                                           acmi_path=acmi_path)
+                                                           acmi_path=acmi_path, acmi_offset_s=manual_offset)
                 except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
                     gemini_error = str(e)
                     metadata = None
