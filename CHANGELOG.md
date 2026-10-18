@@ -17,6 +17,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Añadido
 
+- Pestaña "Edición" (FEA-09, fase 1a): propone los tiempos muertos de una grabación a partir de la telemetría
+  del jugador en el ACMI (rodaje y crucero estático, sin eventos de combate cerca, con márgenes de 10 s) y
+  permite revisarlos antes de editar: acción por tramo (acelerar, cortar o conservar), fase, inicio y fin
+  editables, velocidad manual opcional y duración resultante con el fundido de 0,3 s. Nuevo módulo
+  `video_edit.py`, `POST /api/edit/analyze_cuts` (job) y `POST /api/edit/plan_summary`. Aún no renderiza:
+  el render con aceleración, música y fundidos llega en la fase 1b.
 - La UI conserva su estado al recargar la página: campos del formulario (ruta del vídeo, contexto, ACMI,
   fecha e intervalo de Shorts y de Pendientes), el resultado del análisis con las ediciones de título,
   descripción y tags, y los Shorts generados con sus metadatos. Se guarda en `localStorage` cada 1,5 s y al
