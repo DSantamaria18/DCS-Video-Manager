@@ -354,7 +354,7 @@ Ninguna.
 
 ## Feature: Cola de vídeos pendientes de publicar
 
-**Estado:** Borrador
+**Estado:** Aprobada 2026-10-18 (con las 5 propuestas de las preguntas abiertas, ya resueltas abajo)
 **Entrada de BACKLOG.md:** FEA-08
 
 ### Problema
@@ -376,7 +376,9 @@ mismo reparto que ya usan los Shorts (`_compute_publish_at`).
 
 ### Requisitos funcionales
 - RF-1: Un endpoint lista los vídeos del canal con `privacyStatus == "private"` y sin `publishAt`, ordenados
-  por fecha de subida ascendente, con `video_id`, título, fecha de subida, duración y miniatura.
+  por fecha de subida ascendente, con `video_id`, título, fecha de subida, duración, miniatura y una
+  marca `is_short` (duración ≤ 3 min, heurística de etiqueta, no criterio de YouTube). El mismo endpoint
+  devuelve aparte los vídeos con `publishAt` futuro, solo para mostrarlos.
 - RF-2: La UI muestra esa lista con un checkbox por vídeo, tope de 15 seleccionados (mismo bloqueo duro
   que los Shorts) y un botón de recarga.
 - RF-3: Un panel reutiliza los controles de los Shorts: primera publicación (`datetime-local`) e intervalo
@@ -389,18 +391,22 @@ mismo reparto que ya usan los Shorts (`_compute_publish_at`).
   `publish_at = first_publish_at + interval_days*(orden-1)`, reutilizando `_compute_publish_at`.
 - RF-7: El backend actualiza cada vídeo en secuencia; el fallo de uno no aborta el resto, y el resultado
   por vídeo (`done` / `error`) se consulta en `/api/status/<job_id>` como en el lote de Shorts.
-- RF-8: Al actualizar un vídeo se conservan los demás campos de `status` (ver Riesgos, punto 1).
+- RF-8: Al actualizar un vídeo se reenvían los campos de `status` que ya tenía (`embeddable`, `license`,
+  `publicStatsViewable`) junto con `privacyStatus: "private"` y `publishAt` (ver Riesgos, punto 1).
+  `selfDeclaredMadeForKids` y `containsSyntheticMedia` no hace falta reenviarlos: la API los exime.
 - RF-9: Con `DCS_SIMULATE=1` ambos endpoints devuelven datos de ejemplo y no llaman a YouTube.
 
 ### Requisitos no funcionales
-- Cuota: listar cuesta unas pocas unidades (`channels.list`, `playlistItems.list`, `videos.list`) y cada
-  `videos.update` cuesta 50, así que 15 vídeos son 750 de las 10.000 diarias por defecto. Cifras por
-  verificar en la documentación oficial de la API antes de implementar.
+- Cuota (verificada el 2026-10-18 en la documentación oficial, `determine_quota_cost` y `videos/update`):
+  `channels.list`, `playlistItems.list` y `videos.list` cuestan 1 unidad; `videos.update` cuesta 50. Un lote
+  de 15 vídeos son 750 unidades del bloque de 10.000 diarias por defecto para los endpoints que no son
+  `search.list` ni `videos.insert`. Reinicio a medianoche, hora del Pacífico. No se usa `search.list`
+  (100 llamadas al día): se lista por la playlist de subidas.
 - Sin credenciales nuevas: `SCOPES` ya incluye `youtube` y `youtube.force-ssl`, y el token actual los cubre.
 - Listar vídeos no gasta cuota de Gemini. Los tests mockean la API de YouTube; ninguno consume cuota real.
 
 ### Contratos afectados
-- Nuevo `GET /api/youtube/pending_videos` devuelve `{"videos": [{video_id, title, published_at, duration, thumbnail_url}]}`.
+- Nuevo `GET /api/youtube/pending_videos` devuelve `{"videos": [{video_id, title, uploaded_at, duration_sec, thumbnail_url, is_short}], "scheduled": [{video_id, title, publish_at, ...}]}`.
 - Nuevo `POST /api/schedule_videos_batch` recibe `{"video_ids": [str], "first_publish_at": str (ISO 8601, Z), "interval_days": int}`
   y devuelve `{"job_id": str}`; el estado sale por `/api/status/<job_id>`.
 - Cruza la frontera servidor ↔ navegador: exige verificación en navegador real con `run-app`.
@@ -421,24 +427,25 @@ confirmación y el estado por vídeo.
 
 ### Riesgos y decisiones abiertas
 **Riesgos**
-1. `videos.update` con `part=status` sustituye los campos de ese bloque que no se envíen. Hay que leer el
-   `status` actual con `videos.list` y reenviarlo entero con `publishAt` añadido; si no, se pueden
-   resetear `embeddable`, `license` o `selfDeclaredMadeForKids`. Debe haber un test que lo cubra.
-2. Un `publishAt` en el pasado hace que YouTube publique el vídeo al instante. La validación debe rechazar
-   fechas anteriores a "ahora".
-3. Si la subida se hizo desde otro cliente, el listado puede incluir borradores a medio completar; el
+1. Según la documentación de `videos.update`, si la petición no especifica una propiedad que ya tiene
+   valor, ese valor se borra (salvo `selfDeclaredMadeForKids` y `containsSyntheticMedia`). Con `part=status`
+   hay que leer el `status` actual con `videos.list` y reenviar `embeddable`, `license` y
+   `publicStatsViewable`, más `privacyStatus: "private"` (obligatorio al fijar `publishAt`, aunque ya sea
+   privado) y `publishAt`. Debe haber un test que lo cubra.
+2. Un `publishAt` en el pasado hace que YouTube publique el vídeo al instante (la documentación lo equipara
+   a pasar de `private` a `public`). La validación debe rechazar fechas anteriores a "ahora".
+3. `publishAt` solo se puede fijar en vídeos privados **que nunca se han publicado**. Un vídeo que fue
+   público y se volvió a poner privado aparecerá en la lista, pero la API lo rechazará: la API de
+   listado no distingue ese caso, así que se trata como error por vídeo (RF-7), con el mensaje de YouTube.
+4. Si la subida se hizo desde otro cliente, el listado puede incluir borradores a medio completar; el
    filtro `private` sin `publishAt` no los distingue.
 
-**Preguntas para David**
-1. ¿Dónde va en la UI? Propuesta: una pestaña nueva "Pendientes" junto a Metadata, History, Stats y Setup,
-   para no recargar la pestaña de Metadata.
-2. ¿Los vídeos que ya tienen `publishAt` futuro se listan aparte (solo lectura) o se pueden reprogramar?
-   Propuesta: solo lectura en esta iteración.
-3. ¿Se incluyen los Shorts ya subidos en la lista? Propuesta: sí, con una etiqueta "Short" (duración ≤ 3 min), porque
-   también pueden quedar sin programar.
-4. ¿El orden lo marca la fecha de subida, o quieres poder reordenar a mano? Propuesta: fecha de subida
-   ascendente en esta iteración.
-5. ¿Tope de 15 por lote como en los Shorts, o más? Propuesta: 15.
+**Decisiones de David (2026-10-18), todas según la propuesta**
+1. UI: pestaña nueva "Pendientes" junto a Metadata, History, Stats y Setup.
+2. Vídeos con `publishAt` futuro: se listan aparte, en solo lectura. No se reprograman en esta iteración.
+3. Shorts ya subidos: se incluyen en la lista, con etiqueta "Short" (duración ≤ 3 min).
+4. Orden: fecha de subida ascendente, sin reordenar a mano.
+5. Tope: 15 por lote.
 
 ### Criterios de aceptación
 - Con `DCS_SIMULATE=1`, la pestaña muestra una lista de ejemplo y permite programar el lote sin llamar a YouTube.
