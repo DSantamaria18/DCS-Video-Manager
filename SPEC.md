@@ -354,7 +354,7 @@ Ninguna.
 
 ## Feature: Cola de vídeos pendientes de publicar
 
-**Estado:** Aprobada 2026-10-18 (con las 5 propuestas de las preguntas abiertas, ya resueltas abajo)
+**Estado:** Implementada 2026-10-18 (aprobada el mismo día con las 5 propuestas de las preguntas abiertas, resueltas abajo)
 **Entrada de BACKLOG.md:** FEA-08
 
 ### Problema

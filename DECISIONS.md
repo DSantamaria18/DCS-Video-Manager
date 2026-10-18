@@ -260,6 +260,20 @@ YouTube en lugar de mantener un scheduler propio.
 Discord, tocar playlists) exige confirmación explícita de David **para cada disparo**, aunque el diseño
 del flujo ya esté aprobado. Son dos decisiones distintas.
 
+### Cola de pendientes: playlist de subidas en vez de `search.list`, y `status` reenviado al programar
+
+**Evidencia.** `list_pending_videos()` y `schedule_video()` en `youtube_uploader.py`. Verificado contra la
+documentación oficial de YouTube Data API v3 el 2026-10-18.
+
+**Motivo.** `search.list` tiene un tope propio de 100 llamadas al día; la playlist de subidas
+(`playlistItems.list`) y `videos.list` cuestan 1 unidad por página. `videos.update` (50 unidades) borra las
+propiedades de `status` que no se envían, salvo `selfDeclaredMadeForKids` y `containsSyntheticMedia`, así que
+`schedule_video()` lee el `status` actual y reenvía `embeddable`, `license` y `publicStatsViewable`.
+
+**Límite conocido.** `publishAt` solo se acepta en vídeos privados que nunca se han publicado y la API de
+listado no distingue ese caso: un vídeo que fue público aparece en la lista y falla al programarlo, como
+error de ese vídeo sin abortar el lote.
+
 ### Reintento sin tags ante `invalidTags`
 
 **Evidencia.** `upload_video()` captura la excepción, comprueba `"invalidTags" in str(e)` y reintenta con

@@ -189,6 +189,8 @@ Todos los endpoints viven en `web/app.py`. El servidor escucha en `localhost:500
   `POST /api/youtube/revoke`.
 - `GET /api/playlists`, `POST /api/suggest_playlists`.
 - `POST /api/upload_youtube`.
+- `GET /api/youtube/pending_videos` — vídeos privados sin `publishAt` (y los ya programados, solo lectura).
+- `POST /api/schedule_videos_batch` — job que asigna `publishAt` escalonado a hasta 15 vídeos ya subidos; estado por vídeo en `/api/status/<job_id>`.
 - `GET /api/analytics/<video_id>`.
 - `GET /api/competitors?aircraft=&mission_type=`.
 

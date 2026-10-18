@@ -901,6 +901,111 @@ def _run_shorts_batch(job_id, clips, first_publish_at, interval_days, playlist_i
     processing_status[job_id]["result"] = {"uploaded": done_count, "failed": error_count}
 
 
+@app.route("/api/youtube/pending_videos")
+def pending_videos():
+    """GET /api/youtube/pending_videos — channel videos waiting to be published (FEA-08).
+
+    Returns {"pending": [...], "scheduled": [...]}: private videos without publishAt, and private
+    videos with a future publishAt (read-only in the UI).
+    """
+    from youtube_uploader import list_pending_videos
+    try:
+        return jsonify(list_pending_videos())
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 401
+    except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo de la API de YouTube se devuelve como error al navegador
+        return jsonify({"error": str(e)}), 502
+
+
+def _validate_schedule_batch(data: dict) -> str | None:
+    """Return an error message if the schedule-batch payload is invalid, else None."""
+    from datetime import datetime, timezone
+
+    video_ids = data.get("video_ids") or []
+    if not video_ids:
+        return "Missing video_ids"
+    if len(video_ids) > 15:
+        return "Too many videos: max 15 per batch"
+    if len(set(video_ids)) != len(video_ids):
+        return "Remove duplicate video_ids"
+
+    first_publish_at = data.get("first_publish_at", "")
+    if not first_publish_at:
+        return "Missing first_publish_at"
+    try:
+        first = _compute_publish_at(first_publish_at, 0, 1)
+    except ValueError:
+        return "Invalid first_publish_at"
+    # YouTube publica al instante una fecha pasada, justo lo contrario de programar
+    if datetime.fromisoformat(first.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+        return "first_publish_at is in the past"
+
+    interval_days = data.get("interval_days")
+    if not isinstance(interval_days, int) or interval_days < 1:
+        return "interval_days must be an integer >= 1"
+
+    return None
+
+
+@app.route("/api/schedule_videos_batch", methods=["POST"])
+def schedule_videos_batch():
+    """POST /api/schedule_videos_batch — set a staggered publishAt on up to 15 already-uploaded videos.
+
+    Request body: {"video_ids": [str] (publication order), "first_publish_at": str (ISO 8601, Z-suffixed,
+    in the future), "interval_days": int}.
+    Starts a background job; poll /api/status/<job_id> — the response includes a "videos" dict keyed by
+    video_id with each one's status (pending/scheduling/done/error).
+    """
+    data = request.get_json()
+    error = _validate_schedule_batch(data)
+    if error:
+        return jsonify({"error": error}), 400
+
+    video_ids = data["video_ids"]
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {
+        "status": "scheduling_batch",
+        "message": "Scheduling videos...",
+        "result": None,
+        "error": None,
+        "videos": {vid: {"status": "pending"} for vid in video_ids},
+    }
+
+    thread = threading.Thread(
+        target=_run_schedule_batch,
+        args=(job_id, video_ids, data["first_publish_at"], data["interval_days"]),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id})
+
+
+def _run_schedule_batch(job_id, video_ids, first_publish_at, interval_days):
+    """Schedule each video sequentially via youtube_uploader.schedule_video(); a single video's
+    failure does not abort the rest of the batch."""
+    from youtube_uploader import schedule_video
+
+    done_count = 0
+    error_count = 0
+    for order, video_id in enumerate(video_ids, start=1):
+        processing_status[job_id]["videos"][video_id] = {"status": "scheduling"}
+        try:
+            publish_at = _compute_publish_at(first_publish_at, interval_days, order)
+            schedule_video(video_id, publish_at)
+            processing_status[job_id]["videos"][video_id] = {"status": "done", "publish_at": publish_at}
+            done_count += 1
+        except Exception as e:  # noqa: BLE001 — boundary: fallo de un vídeo no debe abortar el resto del lote
+            processing_status[job_id]["videos"][video_id] = {"status": "error", "error": str(e)}
+            error_count += 1
+
+    processing_status[job_id]["status"] = "done"
+    processing_status[job_id]["message"] = f"Done! {done_count} scheduled, {error_count} failed."
+    processing_status[job_id]["result"] = {"scheduled": done_count, "failed": error_count}
+
+
 @app.route("/api/suggest_playlists", methods=["POST"])
 def suggest_playlists():
     """Given metadata and a playlist list, return IDs of playlists that match."""

@@ -5,7 +5,9 @@ Credential type: Desktop app (InstalledAppFlow)
 """
 
 import os
+import re
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 BASE               = Path(__file__).parent
@@ -102,6 +104,114 @@ def get_playlists() -> list:
         {"id": item["id"], "title": item["snippet"]["title"]}
         for item in response.get("items", [])
     ]
+
+
+SHORT_MAX_SECONDS = 180  # etiqueta "Short" de la cola de pendientes; heurística, no criterio de YouTube
+# videos.list admite como máximo 50 ids por llamada
+_VIDEOS_LIST_BATCH = 50
+_ISO_DURATION = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
+
+
+def _iso_duration_to_seconds(iso: str) -> int:
+    """Convert a YouTube ISO 8601 duration ('PT1H2M3S') to seconds; 0 if unparseable."""
+    m = _ISO_DURATION.match(iso or "")
+    if not m:
+        return 0
+    hours, minutes, seconds = (int(g or 0) for g in m.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _uploads_video_ids(youtube) -> list:
+    """Return every video id in the channel's uploads playlist, newest first."""
+    channel = youtube.channels().list(part="contentDetails", mine=True).execute()
+    uploads = channel["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    ids, token = [], None
+    while True:
+        page = youtube.playlistItems().list(
+            part="contentDetails", playlistId=uploads, maxResults=50, pageToken=token
+        ).execute()
+        ids += [it["contentDetails"]["videoId"] for it in page.get("items", [])]
+        token = page.get("nextPageToken")
+        if not token:
+            return ids
+
+
+def _simulated_pending_queue() -> dict:
+    def _item(n, uploaded, duration_sec):
+        return {"video_id": f"SIMULATED{n}", "title": f"[SIMULATED] Video {n}", "uploaded_at": uploaded,
+                "duration_sec": duration_sec, "thumbnail_url": "", "is_short": duration_sec <= SHORT_MAX_SECONDS}
+    return {
+        "pending": [_item(1, "2026-09-01T10:00:00Z", 2700), _item(2, "2026-09-05T10:00:00Z", 3100),
+                    _item(3, "2026-09-09T10:00:00Z", 45)],
+        "scheduled": [{**_item(4, "2026-08-20T10:00:00Z", 1800), "publish_at": "2999-01-01T18:00:00Z"}],
+    }
+
+
+def list_pending_videos() -> dict:
+    """Return {"pending": [...], "scheduled": [...]} for the channel's own videos (FEA-08).
+
+    pending: private, no publishAt, oldest upload first. scheduled: private with a future publishAt.
+    Reads the uploads playlist (1 quota unit per page) instead of search.list, which has its own
+    100-calls-per-day cap. DCS_SIMULATE=1 returns canned data without touching the API.
+    """
+    if os.environ.get("DCS_SIMULATE") == "1":
+        return _simulated_pending_queue()
+
+    youtube = _build_service()
+    ids = _uploads_video_ids(youtube)
+    now = datetime.now(timezone.utc)
+    pending, scheduled = [], []
+    for i in range(0, len(ids), _VIDEOS_LIST_BATCH):
+        batch = ids[i:i + _VIDEOS_LIST_BATCH]
+        response = youtube.videos().list(part="snippet,status,contentDetails", id=",".join(batch)).execute()
+        for item in response.get("items", []):
+            status = item.get("status", {})
+            if status.get("privacyStatus") != "private":
+                continue
+            snippet = item.get("snippet", {})
+            duration = _iso_duration_to_seconds(item.get("contentDetails", {}).get("duration", ""))
+            thumbs = snippet.get("thumbnails", {})
+            entry = {
+                "video_id": item["id"],
+                "title": snippet.get("title", ""),
+                "uploaded_at": snippet.get("publishedAt", ""),
+                "duration_sec": duration,
+                "thumbnail_url": (thumbs.get("medium") or thumbs.get("default") or {}).get("url", ""),
+                "is_short": duration <= SHORT_MAX_SECONDS,
+            }
+            publish_at = status.get("publishAt")
+            if not publish_at:
+                pending.append(entry)
+            elif datetime.fromisoformat(publish_at.replace("Z", "+00:00")) > now:
+                scheduled.append({**entry, "publish_at": publish_at})
+    pending.sort(key=lambda v: v["uploaded_at"])
+    scheduled.sort(key=lambda v: v["publish_at"])
+    return {"pending": pending, "scheduled": scheduled}
+
+
+# videos.update borra las propiedades de `status` que no se envían, salvo estas dos (documentado por YouTube)
+_RESENT_STATUS_FIELDS = ("embeddable", "license", "publicStatsViewable")
+
+
+def schedule_video(video_id: str, publish_at: str) -> dict:
+    """Set publishAt on an existing private video, keeping its other status fields (FEA-08).
+
+    publish_at is ISO 8601 UTC. YouTube only accepts publishAt on a private video that has never
+    been published, and a past date publishes it immediately: callers must validate the date.
+    Raises LookupError if the video does not exist. DCS_SIMULATE=1 skips the API.
+    """
+    if os.environ.get("DCS_SIMULATE") == "1":
+        return {"status": "simulated", "video_id": video_id, "publish_at": publish_at}
+
+    youtube = _build_service()
+    items = youtube.videos().list(part="status", id=video_id).execute().get("items", [])
+    if not items:
+        raise LookupError(f"Video not found: {video_id}")
+    current = items[0].get("status", {})
+    status = {"privacyStatus": "private", "publishAt": publish_at}
+    status.update({k: current[k] for k in _RESENT_STATUS_FIELDS if k in current})
+    youtube.videos().update(part="status", body={"id": video_id, "status": status}).execute()
+    return {"status": "scheduled", "video_id": video_id, "publish_at": publish_at}
 
 
 def _build_description_with_chapters(description: str, chapters: list) -> str:
@@ -322,7 +432,7 @@ def fetch_video_analytics(video_id: str) -> dict:
 
     Returns a dict with keys views, watch_minutes, likes, fetched_at, or {} on error.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
     try:
         svc = build_analytics_service()
         today = datetime.now(timezone.utc).date()
