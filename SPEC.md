@@ -491,7 +491,7 @@ cortarse (se puede elegir cortar), y la música cambia según la fase de vuelo.
 - Subida automática del resultado (sigue el flujo actual de Metadata y Pendientes).
 
 ### Entrega por fases (una PR por fase)
-- **Fase 0, spike con medidas:** probar las señales de tiempo muerto sobre 2 grabaciones reales (93 y 77 min,
+- **Fase 0, spike con medidas (hecha 2026-10-18, ver resultados al final):** probar las señales de tiempo muerto sobre 2 grabaciones reales (93 y 77 min,
   con ACMI), calcular el desfase entre el tiempo del ACMI y el del vídeo, y comprobar si la fase de vuelo
   (rodaje, despegue, navegación, aproximación y aterrizaje) se puede clasificar con la telemetría del ACMI.
   Decidir umbrales con datos. Sin UI.
@@ -619,6 +619,80 @@ y el render sobre un clip corto.
   vuelve el audio normal fusionado al acabar el tramo, sin saltos de sincronía.
 - Fase 2: el highlight dura lo pedido (±5 %) y contiene los momentos de mayor puntuación.
 - Fase 3: la vista previa y el render dan el mismo aspecto sobre el mismo frame.
+
+### Resultados de la Fase 0 (2026-10-18)
+
+**Muestra.** `op_green_line-05.mkv` (77 min) y `2026-10-17_00-34-43.mkv` (93 min), ambas 1080p60 H.264 con 3
+pistas de audio, y su ACMI. Aeronave FA-18C, despegue desde portaaviones en las dos. Medida solo de lectura.
+
+**1. Desfase ACMI-vídeo (resuelto).**
+- `RecordingTime` de la cabecera del ACMI está en UTC; el nombre de fichero de Tacview y el de OBS están en hora
+  local (UTC+2 en las dos grabaciones). Tiempo de vídeo = tiempo ACMI menos el desfase.
+- 17 de octubre: el vídeo empieza 1215 s después del ACMI (vídeo 00:34:43 local frente a ACMI 00:14:28 local).
+  Comprobado con imagen: el despegue previsto a los 12 s del vídeo coincide con el fotograma (cubierta a los 0 s,
+  en el aire a los 12 s). Margen de error observado de unos 5 s. Además 1215 + 5605 s da 6820 s frente a 6778 s
+  de duración del ACMI.
+- `op_green_line-05`: desfase aproximado 0 s, comprobado con imagen (despegue previsto a los 584 s). El nombre de
+  este fichero no lleva marca de tiempo, así que ahí el desfase hay que obtenerlo de otra fuente (ver propuestas).
+- El código actual (`detect_short_clips()`) usa los tiempos del ACMI como tiempos del vídeo, sin desfase. Anotado
+  como BUG-06 en `BACKLOG.md`.
+
+**2. Telemetría disponible.** El objeto del jugador (`Pilot` igual a su nombre) trae `AGL`, `IAS`,
+`LandingGear`, `Throttle`, `Flaps`, `AirBrakes`, `AOA`, rumbo (`HDM`) y posición de los mandos, con un dato por
+segundo en las dos grabaciones. El parser actual (`parse_acmi_events`) solo extrae eventos de combate, no esta
+telemetría.
+
+**3. Qué señales sirven.**
+
+| Señal | Resultado |
+|---|---|
+| Telemetría ACMI | Fiable. Separa rodaje, despegue, navegación estática y aproximación. |
+| Movimiento de imagen (`YDIF` a 1 fps) | No sirve. Mediana ~24 en tramos muertos y en activos (grabación en VR, la cabeza se mueve siempre). Un detector solo de imagen marcó 0 min. |
+| Fotogramas congelados o negros | Marginal: 1 y 33 s congelados, 0 negros. |
+| Nivel de audio (3 pistas) | Débil. Pistas muy bajas (-51 y -65 dBFS de mediana). Solo en la del 17 de octubre se nota diferencia (-79 dB en muertos, -65 dB en activos). |
+| Micrófono (pista 3) | Vacío en `op_green_line-05` (-120 dB) y activo ~6% del tiempo en la otra. |
+
+Las pistas 1 y 2 de `op_green_line-05` dieron estadísticas idénticas (duplicadas o misma mezcla); no verificado.
+
+**4. Reglas propuestas (umbrales medidos).**
+- **Fase por segundo:** `rodaje` si tren abajo, `IAS` menor de 60 kt y `AGL` menor de 30 m (en portaaviones la
+  cubierta marca 22 m); `despegue` si tren abajo, volando por debajo de 600 m tras un rodaje reciente;
+  `aproximacion` si tren abajo y en el aire sin rodaje reciente; `navegacion` con tren arriba. Se absorben
+  segmentos de menos de 15 s. En los datos, rodaje y despegue se funden bien, como pide la carpeta de música.
+- **Navegación estática:** ventana de 60 s con rango de altitud menor de 100 m, de `IAS` menor de 15 kt, de rumbo
+  menor de 10 grados y movimiento de mandos casi nulo.
+- **Tramo muerto:** rodaje o navegación estática durante al menos 60 s, sin eventos de combate a menos de 20 s,
+  recortando 10 s por extremo y descartando lo que quede por debajo de 40 s.
+
+**5. Resultado sobre las dos grabaciones.**
+
+| Grabación | Tramos muertos (con márgenes) | Vídeo final acelerando 4x a 16x |
+|---|---|---|
+| `op_green_line-05` (77 min) | 27 min (35%): 10 min de cubierta al inicio y 5 tramos de crucero | ~53 min |
+| `2026-10-17_00-34-43` (93 min) | 4 min (4%): crucero y rodaje en pista | ~90 min |
+
+Con hojas de contactos de 27 fotogramas, los tramos propuestos son tiempo realmente muerto (rodaje, esperas, crucero
+sobre las nubes), con un falso positivo: el final de `op_green_line-05` (4519 a 4630 s) incluye los últimos segundos
+de la aproximación y el cartel "MISSION SUCCESS". La regla corrige descartando los segundos posteriores al toque y
+los márgenes. No se ha contrastado con rangos de tiempo muerto elegidos por David.
+
+**6. Rendimiento medido (RTX 4090, NVDEC y NVENC `h264_nvenc`).**
+- Imagen a 1 fps de 93 min: 331 s. Audio de una pista: 6 s. Como la imagen no sirve, no se usará.
+- Render normal: unas 5,7 veces tiempo real (un vídeo de 90 min saldría en ~16 min).
+- Acelerar x12: 600 s de origen en 36 s. `xfade` de 0,3 s entre tramos: sin penalización medible en dos tramos.
+- Con `-cq 19` el fichero sale a ~27 Mbps frente a los ~10 Mbps del original: usar un `-cq` más alto (a decidir
+  en la Fase 1 comparando calidad).
+
+**7. Consecuencias para la especificación.**
+- La detección de tiempos muertos se basa en la telemetría del ACMI; no usa la imagen ni el audio.
+- Hace falta un parser de telemetría nuevo (hoy solo hay eventos) y un cálculo de desfase con `RecordingTime`.
+- Fuentes del inicio del vídeo, por orden: marca de tiempo del nombre de fichero (OBS), metadatos del contenedor y,
+  en último caso, un ajuste manual en la UI con el despegue como referencia.
+- La Fase 1 puede arrancar. Pendiente de David: elegir las pistas de audio que se conservan (pista 3 vacía en una
+  grabación) y comprobar tramos concretos.
+
+**Límites.** Solo 2 grabaciones, ambas FA-18C con salida de portaaviones. Las reglas de fase no se han probado con
+otras aeronaves ni con aterrizajes en pista.
 
 ---
 
