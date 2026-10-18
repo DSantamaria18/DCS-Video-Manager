@@ -49,6 +49,10 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Corregido
 
+- La detección de fases por audio (`detect_audio_chapters()`) ya no decodifica el vídeo: `ffmpeg` recibe
+  `-vn -sn -dn` y solo procesa el audio (TEC-06). Medido con un vídeo de 46 min (2,7 GB): de ~52 s a
+  1,6 s, con el mismo resultado de `silencedetect`. En ese vídeo el paso sigue sin encontrar transiciones
+  (solo `0:00`); al costar ya ~1,5 s no compensa quitarlo.
 - La caché de análisis ya no devuelve resultados obsoletos (BUG-05): la clave incluye ahora una huella
   del contexto, el fichero ACMI, el modelo, `frames_to_extract` y `PROMPT_VERSION` (constante en
   `dcs_meta.py` que se sube al cambiar el prompt o su postprocesado). La UI añade la casilla

@@ -783,6 +783,21 @@ def test_detect_audio_chapters_includes_zero(tmp_path, monkeypatch):
     assert result[0] == "0:00"
 
 
+def test_detect_audio_chapters_decodes_audio_only(tmp_path, monkeypatch):
+    """TEC-06: sin -vn/-sn/-dn ffmpeg decodifica el vídeo entero (~50 s en 46 min) para analizar solo audio."""
+    video = tmp_path / "v.mkv"
+    video.write_bytes(b"")
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        return type("R", (), {"stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    dcs_meta.detect_audio_chapters(video, duration_seconds=1200.0)
+    assert {"-vn", "-sn", "-dn"} <= set(captured["cmd"])
+
+
 def test_detect_audio_chapters_converts_seconds(tmp_path, monkeypatch):
     video = tmp_path / "v.mkv"
     video.write_bytes(b"")
