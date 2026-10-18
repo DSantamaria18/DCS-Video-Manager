@@ -184,6 +184,8 @@ Todos los endpoints viven en `web/app.py`. El servidor escucha en `localhost:500
 - `POST /api/generate_shorts` — job de detección y recorte de clips 9:16.
 - `POST /api/edit/analyze_cuts` — job que propone tramos muertos desde la telemetría del ACMI (`video_edit.py`).
 - `POST /api/edit/plan_summary` — velocidad, duración de salida y duración total de una lista de tramos editada.
+- `POST /api/edit/render` — job que renderiza la edición revisada (`video_render.py`): vídeo por bloques unidos sin
+  recodificar, audio en un grafo aparte y muxado final. Un render a la vez (409 si hay otro en curso).
 
 **YouTube**
 

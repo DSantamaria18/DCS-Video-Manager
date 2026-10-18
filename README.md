@@ -315,7 +315,8 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 
 - **Dead-time proposal** — the Edición tab reads the player's own telemetry from the ACMI (gear, speed, height, heading, controls) and proposes taxiing and steady-cruise stretches away from combat events, trimmed by 10 s on each side. Image motion and audio level were measured and do not separate dead time in VR recordings, so the ACMI is required.
 - **Review before editing** — each segment can be sped up (automatic 4x-16x aiming at ~20 s of output, or a manual speed), cut or kept, with editable phase, start and end, and the resulting duration with a 0.3 s fade between pieces.
-- **Not rendered yet** — rendering with speed-up, music per flight phase and fades is the next step (see `SPEC.md`).
+- **Render** — RENDER EDIT writes `output/edits/<name>_editado.mp4` (never overwrites; the original is untouched) with `h264_nvenc` (falls back to libx264), speed-ups, a 0.3 s fade between pieces and the usable audio tracks fused into one (empty or duplicated tracks are dropped). Quality is `edit_cq` in `config/config.json` (28 by default, about the bitrate of the recordings). Measured: a 12-minute excerpt renders in about a minute.
+- **Music per flight phase** — set `music_folder` (the MUSIC FOLDER field) to a folder with `rodaje_despegue`, `navegacion` and `aproximacion_aterrizaje` subfolders; sped-up sections get a random track of their phase, faded in and out. The app neither downloads nor generates music, and the licence is yours: YouTube can claim copyrighted tracks through Content ID. Without tracks the sections are sped up in silence and the app says so.
 
 ---
 

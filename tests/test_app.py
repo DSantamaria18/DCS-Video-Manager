@@ -1312,3 +1312,123 @@ def test_plan_summary_returns_totals_and_per_segment_speed(client):
 ])
 def test_plan_summary_rejects_invalid_payloads(client, payload):
     assert client.post("/api/edit/plan_summary", json=payload).status_code == 400
+
+
+# ── POST /api/edit/render y claves de configuración (FEA-09, Fase 1b) ──────────
+
+_RENDER_SEGMENTS = [{"start": 10, "end": 100, "action": "speed", "fase": "rodaje"}]
+
+
+def _render_video(tmp_path):
+    video = tmp_path / "rec.mkv"
+    video.write_bytes(b"fake")
+    return video
+
+
+@pytest.mark.parametrize("payload, status", [
+    ({}, 400),
+    ({"video_path": "no-existe.mkv", "segments": _RENDER_SEGMENTS}, 404),
+])
+def test_render_rejects_missing_video(client, payload, status):
+    assert client.post("/api/edit/render", json=payload).status_code == status
+
+
+@pytest.mark.parametrize("extra", [
+    {"segments": "no"},
+    {"segments": []},
+    {"segments": [{"start": 0, "end": 1, "action": "cut"}] * 201},
+    {"segments": _RENDER_SEGMENTS, "fade_s": 99},
+])
+def test_render_rejects_invalid_payloads(client, tmp_path, extra):
+    resp = client.post("/api/edit/render", json={"video_path": str(_render_video(tmp_path)), **extra})
+    assert resp.status_code == 400
+
+
+def test_render_rejects_segments_outside_the_real_video_duration(client, tmp_path):
+    video = _render_video(tmp_path)
+    with patch("dcs_meta._get_video_duration", return_value=50.0):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS})
+    assert resp.status_code == 400
+    assert "outside the video" in resp.json["error"]
+
+
+def test_render_job_passes_config_and_reports_progress(client, tmp_path):
+    video = _render_video(tmp_path)
+    seen = {}
+
+    def fake_render(video_path, segments, out_dir, **kwargs):
+        seen.update(kwargs, video=video_path, segments=segments, out_dir=out_dir)
+        kwargs["on_progress"](40, "Rendering video 1/1")
+        return {"output_path": str(tmp_path / "rec_editado.mp4"), "duration": 99.0, "warnings": ["w"],
+                "encoder": "libx264", "chunks": 1}
+
+    cfg = {**dcs_meta.DEFAULT_CONFIG, "music_folder": "D:/music", "edit_cq": 30}
+    with patch("dcs_meta._get_video_duration", return_value=500.0), \
+         patch("dcs_meta.load_config", return_value=cfg), \
+         patch("video_render.render_edit", side_effect=fake_render):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS,
+                                                     "fade_s": 0})
+        status = _wait_done(client, resp.json["job_id"])
+
+    assert status["result"]["output_name"] == "rec_editado.mp4"
+    assert status["result"]["warnings"] == ["w"]
+    assert seen["cq"] == 30 and seen["music_folder"] == "D:/music" and seen["fade_s"] == 0.0
+    assert seen["out_dir"].name == "edits"
+
+
+def test_render_failure_is_reported_in_the_job(client, tmp_path):
+    video = _render_video(tmp_path)
+    with patch("dcs_meta._get_video_duration", return_value=500.0), \
+         patch("video_render.render_edit", side_effect=RuntimeError("ffmpeg failed: boom")):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS})
+        import time
+        for _ in range(100):
+            status = client.get(f"/api/status/{resp.json['job_id']}").json
+            if status["status"] != "running":
+                break
+            time.sleep(0.05)
+    assert status["status"] == "error" and "boom" in status["error"]
+
+
+def test_render_refuses_a_second_render_while_one_is_running(client, tmp_path):
+    video = _render_video(tmp_path)
+    assert app_module._render_lock.acquire(blocking=False)
+    try:
+        with patch("dcs_meta._get_video_duration", return_value=500.0):
+            resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS})
+    finally:
+        app_module._render_lock.release()
+    assert resp.status_code == 409
+
+
+def test_render_releases_the_lock_after_the_job_finishes(client, tmp_path):
+    video = _render_video(tmp_path)
+    with patch("dcs_meta._get_video_duration", return_value=500.0), \
+         patch("video_render.render_edit", return_value={"output_path": "x.mp4", "duration": 1.0, "warnings": [],
+                                                         "encoder": "libx264", "chunks": 1}):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS})
+        _wait_done(client, resp.json["job_id"])
+    assert app_module._render_lock.acquire(blocking=False)
+    app_module._render_lock.release()
+
+
+def test_render_simulate_mode_skips_ffmpeg(client, tmp_path, monkeypatch):
+    video = _render_video(tmp_path)
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    with patch("video_render.render_edit", side_effect=AssertionError("must not run in simulate mode")):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "segments": _RENDER_SEGMENTS})
+        status = _wait_done(client, resp.json["job_id"])
+    assert status["status"] == "done" and status["result"]["simulated"] is True
+
+
+@pytest.mark.parametrize("payload", [{"edit_cq": 5}, {"edit_cq": "x"}, {"music_folder": "Z:/no/existe/nunca"},
+                                     {"music_folder": 7}])
+def test_config_rejects_invalid_edit_settings(client, payload):
+    assert client.post("/api/config", json=payload).status_code == 400
+
+
+def test_config_accepts_a_music_folder_that_exists(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    resp = client.post("/api/config", json={"music_folder": str(tmp_path), "edit_cq": 26})
+    assert resp.status_code == 200
+    assert resp.json["music_folder"] == str(tmp_path) and resp.json["edit_cq"] == 26
