@@ -1056,3 +1056,104 @@ def test_browse_endpoint_surfaces_mac_error_to_client(client, monkeypatch):
 
     assert resp.status_code == 400
     assert "boom" in resp.json["error"]
+
+
+# ── GET /api/youtube/pending_videos (FEA-08) ──────────────────────────────────
+
+def test_pending_videos_returns_pending_and_scheduled(client):
+    queue = {"pending": [{"video_id": "A"}], "scheduled": [{"video_id": "B", "publish_at": "2999-01-01T18:00:00Z"}]}
+    with patch("youtube_uploader.list_pending_videos", return_value=queue):
+        resp = client.get("/api/youtube/pending_videos")
+    assert resp.status_code == 200
+    assert resp.json == queue
+
+
+def test_pending_videos_not_authenticated_returns_401(client):
+    with patch("youtube_uploader.list_pending_videos", side_effect=PermissionError("Not authenticated")):
+        resp = client.get("/api/youtube/pending_videos")
+    assert resp.status_code == 401
+    assert "Not authenticated" in resp.json["error"]
+
+
+def test_pending_videos_api_failure_returns_502(client):
+    with patch("youtube_uploader.list_pending_videos", side_effect=RuntimeError("quotaExceeded")):
+        resp = client.get("/api/youtube/pending_videos")
+    assert resp.status_code == 502
+    assert "quotaExceeded" in resp.json["error"]
+
+
+# ── POST /api/schedule_videos_batch (FEA-08) ──────────────────────────────────
+
+_FUTURE = "2999-06-01T19:00:00Z"
+
+
+def _schedule_payload(**overrides):
+    payload = {"video_ids": ["V1", "V2", "V3"], "first_publish_at": _FUTURE, "interval_days": 3}
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.parametrize("overrides, fragment", [
+    ({"video_ids": []}, "video_ids"),
+    ({"video_ids": [f"V{i}" for i in range(16)]}, "max 15"),
+    ({"video_ids": ["V1", "V1"]}, "duplicate"),
+    ({"first_publish_at": ""}, "first_publish_at"),
+    ({"first_publish_at": "no-es-una-fecha"}, "first_publish_at"),
+    ({"first_publish_at": "2020-01-01T00:00:00Z"}, "past"),
+    ({"interval_days": 0}, "interval_days"),
+    ({"interval_days": "3"}, "interval_days"),
+])
+def test_schedule_batch_invalid_payload_returns_400(client, overrides, fragment):
+    with patch("app.threading.Thread") as mock_thread_cls:
+        resp = client.post("/api/schedule_videos_batch", json=_schedule_payload(**overrides))
+    assert resp.status_code == 400
+    assert fragment in resp.json["error"]
+    mock_thread_cls.assert_not_called()
+
+
+def test_schedule_batch_valid_payload_creates_job_with_pending_videos(client):
+    with patch("app.threading.Thread") as mock_thread_cls:
+        mock_thread_cls.return_value.start.return_value = None
+        resp = client.post("/api/schedule_videos_batch", json=_schedule_payload())
+    assert resp.status_code == 200
+    status = client.get(f"/api/status/{resp.json['job_id']}").json
+    assert status["status"] == "scheduling_batch"
+    assert {v: s["status"] for v, s in status["videos"].items()} == {"V1": "pending", "V2": "pending", "V3": "pending"}
+
+
+def _wait_done(client, job_id):
+    import time
+    for _ in range(100):
+        if client.get(f"/api/status/{job_id}").json["status"] == "done":
+            break
+        time.sleep(0.05)
+    return client.get(f"/api/status/{job_id}").json
+
+
+def test_schedule_batch_assigns_staggered_dates_in_list_order(client):
+    with patch("youtube_uploader.schedule_video") as mock_sv:
+        resp = client.post("/api/schedule_videos_batch", json=_schedule_payload())
+        status = _wait_done(client, resp.json["job_id"])
+
+    assert status["result"] == {"scheduled": 3, "failed": 0}
+    assert [(c.args[0], c.args[1]) for c in mock_sv.call_args_list] == [
+        ("V1", "2999-06-01T19:00:00Z"),
+        ("V2", "2999-06-04T19:00:00Z"),
+        ("V3", "2999-06-07T19:00:00Z"),
+    ]
+
+
+def test_schedule_batch_continues_after_one_video_fails(client):
+    def fake_schedule(video_id, publish_at):
+        if video_id == "V2":
+            raise RuntimeError("video has been published before")
+
+    with patch("youtube_uploader.schedule_video", side_effect=fake_schedule) as mock_sv:
+        resp = client.post("/api/schedule_videos_batch", json=_schedule_payload())
+        status = _wait_done(client, resp.json["job_id"])
+
+    assert mock_sv.call_count == 3
+    assert status["videos"]["V1"]["status"] == "done"
+    assert status["videos"]["V2"] == {"status": "error", "error": "video has been published before"}
+    assert status["videos"]["V3"]["status"] == "done"
+    assert status["result"] == {"scheduled": 2, "failed": 1}
