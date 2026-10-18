@@ -7,6 +7,7 @@ Uses the Google Gemini Vision API (model set in config, default gemini-2.5-flash
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -40,6 +41,9 @@ _GEMINI_ERRORS = (OSError, RuntimeError, json.JSONDecodeError)
 
 # Upper bound of the upload checklist's recommended tag range; Gemini sometimes overshoots the prompt.
 MAX_TAGS = 15
+
+# Subir al cambiar build_prompt() o el postprocesado de generate_metadata(): invalida la caché de análisis (BUG-05).
+PROMPT_VERSION = 1
 
 DEFAULT_CONFIG = {
     "channel_name": "TheCylonPilot",
@@ -192,11 +196,26 @@ def save_analysis_cache(cache: dict) -> None:
         json.dump(cache, f, indent=2, ensure_ascii=False)
 
 
-def get_cached_metadata(video_path: Path) -> dict | None:
-    """Return cached Gemini metadata for video_path if size and mtime still match.
+def analysis_fingerprint(context: str, acmi_path: Path | None, config: dict) -> str:
+    """Hash of everything besides the video file that shapes a Gemini analysis.
 
-    Keyed by resolved absolute path. A stale entry (file replaced/re-encoded, so size
-    or mtime changed) is treated as a miss — the caller re-analyses and overwrites it.
+    The cache must miss when any of these change, otherwise the user gets a stale result
+    that never went through the current prompt or post-processing.
+    """
+    acmi = None
+    if acmi_path:
+        stat = acmi_path.stat()
+        acmi = [str(acmi_path.resolve()), stat.st_size, stat.st_mtime]
+    payload = [PROMPT_VERSION, context, acmi, config.get("model"), config.get("frames_to_extract")]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def get_cached_metadata(video_path: Path, fingerprint: str = "") -> dict | None:
+    """Return cached Gemini metadata for video_path if size, mtime and fingerprint still match.
+
+    Keyed by resolved absolute path. A stale entry (file replaced/re-encoded, or analysed
+    with other settings) is treated as a miss — the caller re-analyses and overwrites it.
+    Entries written before BUG-05 carry no fingerprint and so miss for any non-empty one.
     """
     stat = video_path.stat()
     with _analysis_cache_lock:
@@ -205,19 +224,22 @@ def get_cached_metadata(video_path: Path) -> dict | None:
         return None
     if entry.get("size") != stat.st_size or entry.get("mtime") != stat.st_mtime:
         return None
+    if entry.get("fingerprint", "") != fingerprint:
+        return None
     return entry.get("metadata")
 
 
-def set_cached_metadata(video_path: Path, metadata: dict) -> None:
-    """Store metadata for video_path, keyed by resolved path + current size/mtime."""
+def set_cached_metadata(video_path: Path, metadata: dict, fingerprint: str = "") -> None:
+    """Store metadata for video_path, keyed by resolved path + current size/mtime + fingerprint."""
     stat = video_path.stat()
     with _analysis_cache_lock:
         cache = load_analysis_cache()
         cache[str(video_path.resolve())] = {
             "size": stat.st_size,
             "mtime": stat.st_mtime,
+            "fingerprint": fingerprint,
             "metadata": metadata,
-            "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # noqa: DTZ005 — hora local de la máquina, coherente con el resto de timestamps del proyecto
+            "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         save_analysis_cache(cache)
 
@@ -1534,7 +1556,7 @@ def save_output(metadata: dict, video_path: Path, config: dict):
     """Write metadata to timestamped .json and .txt files in the output folder."""
     OUTPUT_PATH.mkdir(exist_ok=True)
     stem = video_path.stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 — nombre de fichero en hora local de la máquina, intencional
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = OUTPUT_PATH / f"{stem}_{timestamp}"
 
     metadata["description"] = format_description(metadata, config)
@@ -1547,7 +1569,7 @@ def save_output(metadata: dict, video_path: Path, config: dict):
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(f"{'═'*60}\n  DCS YouTube Metadata — TheCylonPilot\n")
         f.write(f"  Video: {video_path.name}\n")
-        f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n{'═'*60}\n\n")  # noqa: DTZ005 — hora local de la máquina, intencional
+        f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n{'═'*60}\n\n")
         f.write(f"TITLE\n{'─'*40}\n{metadata.get('title','')}\n\n")
         f.write(f"DESCRIPTION\n{'─'*40}\n{metadata.get('description','')}\n\n")
         f.write(f"TAGS\n{'─'*40}\n{', '.join(metadata.get('tags', []))}\n\n")
@@ -1573,7 +1595,7 @@ def update_memory(metadata: dict, video_path: Path) -> None:
     with _memory_lock:
         memory = load_memory()
         memory["videos"].append({
-            "date": datetime.now().strftime("%Y-%m-%d"),  # noqa: DTZ005 — fecha local de la máquina, intencional
+            "date": datetime.now().strftime("%Y-%m-%d"),
             "filename": video_path.name,
             "title": metadata.get("title", ""),
             "language": metadata.get("language", ""),

@@ -189,6 +189,48 @@ def test_cached_metadata_survives_reload(tmp_path, monkeypatch):
     assert entry["size"] == video.stat().st_size
 
 
+# ── BUG-05: la huella de los ajustes forma parte de la clave de caché ────────
+
+CFG = {"model": "gemini-2.5-flash", "frames_to_extract": 8}
+
+
+def test_fingerprint_is_stable_for_same_inputs():
+    assert dcs_meta.analysis_fingerprint("ctx", None, CFG) == dcs_meta.analysis_fingerprint("ctx", None, CFG)
+
+
+@pytest.mark.parametrize("context, cfg", [
+    ("otro contexto", CFG),
+    ("ctx", {**CFG, "model": "gemini-2.5-pro"}),
+    ("ctx", {**CFG, "frames_to_extract": 12}),
+])
+def test_fingerprint_changes_with_context_model_or_frames(context, cfg):
+    assert dcs_meta.analysis_fingerprint(context, None, cfg) != dcs_meta.analysis_fingerprint("ctx", None, CFG)
+
+
+def test_fingerprint_changes_with_acmi_file(tmp_path):
+    acmi = tmp_path / "a.acmi"
+    acmi.write_bytes(b"one")
+    before = dcs_meta.analysis_fingerprint("ctx", acmi, CFG)
+    acmi.write_bytes(b"different content")
+    assert dcs_meta.analysis_fingerprint("ctx", acmi, CFG) != before
+    assert before != dcs_meta.analysis_fingerprint("ctx", None, CFG)
+
+
+def test_fingerprint_changes_with_prompt_version(monkeypatch):
+    before = dcs_meta.analysis_fingerprint("ctx", None, CFG)
+    monkeypatch.setattr(dcs_meta, "PROMPT_VERSION", dcs_meta.PROMPT_VERSION + 1)
+    assert dcs_meta.analysis_fingerprint("ctx", None, CFG) != before
+
+
+def test_cache_miss_when_fingerprint_differs(tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "ANALYSIS_CACHE_PATH", tmp_path / "analysis_cache.json")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"fake video bytes")
+    dcs_meta.set_cached_metadata(video, SAMPLE_META, fingerprint="aaa")
+    assert dcs_meta.get_cached_metadata(video, fingerprint="aaa") == SAMPLE_META
+    assert dcs_meta.get_cached_metadata(video, fingerprint="bbb") is None
+
+
 # ── build_prompt ──────────────────────────────────────────────────────────────
 
 def test_build_prompt_squadron_uses_spanish():
