@@ -458,6 +458,120 @@ confirmación y el estado por vídeo.
 
 ---
 
+## Feature: Edición automática del vídeo (cortes, highlights y corrección de imagen)
+
+**Estado:** Borrador
+**Entrada de BACKLOG.md:** FEA-09
+
+### Problema
+Las grabaciones de DCS (de 30 min a varias horas, hasta ~9 GB) llevan tiempos muertos (rodaje, esperas,
+cruceros largos), y hoy todo el montaje, los highlights y la corrección de imagen se hacen a mano en un
+editor antes de subir el vídeo.
+
+### Objetivo
+Desde la app, proponer los cortes de tiempos muertos, montar un highlight a partir de los mejores momentos y
+aplicar una corrección de imagen (color, contraste...), dejando siempre a David revisar antes de renderizar y
+generando un fichero nuevo sin tocar el original.
+
+### Por qué ffmpeg y no DaVinci Resolve (versión gratuita)
+- El scripting de Resolve no es una vía: según un informe de terceros (Puget Systems, 2026-09-10) que cita
+  las notas de la versión, Resolve 21.1 eliminó el scripting de la edición gratuita. No confirmado en las notas
+  oficiales de Blackmagic; verificar si algún día se quisiera reabrir esta vía.
+- Importar una línea de tiempo (EDL, XML u OTIO) por el menú es posible, pero no traslada las correcciones de
+  color. Compatibilidad con la edición gratuita sin confirmar.
+- ffmpeg 8.1 ya está instalado, con `h264_nvenc` y `hevc_nvenc` (RTX 4090) y los filtros necesarios (`eq`,
+  `curves`, `colorbalance`, `lut3d`, `freezedetect`, `blackdetect`, `scdet`, `xfade`, `loudnorm`).
+
+### Fuera de alcance
+- Controlar Resolve u otro editor, o exportar EDL/FCPXML/OTIO (posible extra futuro).
+- Editor de línea de tiempo completo: la revisión es una lista de tramos con casillas, no un NLE.
+- Transiciones elaboradas, títulos, música o efectos.
+- Subida automática del resultado (sigue el flujo actual de Metadata y Pendientes).
+
+### Entrega por fases (una PR por fase)
+- **Fase 0, spike con medidas:** probar las señales de tiempo muerto sobre 2 o 3 grabaciones reales y decidir
+  umbrales con datos. Sin UI.
+- **Fase 1, cortes:** detectar tiempos muertos, lista de tramos editable en la UI, render del vídeo recortado.
+- **Fase 2, highlights:** montar un vídeo horizontal 16:9 con los mejores momentos.
+- **Fase 3, imagen:** vista previa antes/después y aplicación de la corrección en el mismo render.
+
+### Requisitos funcionales
+- RF-1 (Fase 1): `POST /api/edit/analyze_cuts` devuelve, por job, los tramos propuestos como
+  `[{start, end, reason}]` más la duración original y la resultante.
+- RF-2 (Fase 1): La UI muestra los tramos con casilla (cortar o conservar), se pueden ajustar inicio y fin, y
+  se ve la duración resultante antes de renderizar. Nada se renderiza sin pulsar el botón.
+- RF-3 (Fase 1): `POST /api/edit/render` recibe los tramos a conservar y genera `output/edits/<nombre>_editado.mp4`.
+  Nunca sobrescribe el original ni un fichero existente (se añade sufijo numérico).
+- RF-4 (Fase 1): El render informa de progreso por `/api/status/<job_id>` y mantiene el audio sincronizado.
+- RF-5 (Fase 2): Seleccionar N momentos (los de `_collect_candidate_timestamps` y su puntuación, reutilizados)
+  y montar un highlight 16:9 con una duración objetivo elegida por David.
+- RF-6 (Fase 3): `GET /api/edit/preview_frame` devuelve un frame con la corrección aplicada para comparar con el
+  original. Parámetros: brillo, contraste, saturación, gamma, balance de color y LUT `.cube` opcional.
+- RF-7 (Fase 3): Presets de corrección guardados en `config/config.json` y aplicables en el mismo render que los
+  cortes (una sola codificación).
+- RF-8: Con `DCS_SIMULATE=1` los endpoints responden con datos de ejemplo y no ejecutan ffmpeg.
+
+### Requisitos no funcionales
+- Local, sin llamadas a Gemini ni a YouTube: no consume cuota.
+- Codificación por defecto con `h264_nvenc` (compatible con YouTube), calidad configurable; el audio se
+  recodifica a AAC, con `loudnorm` opcional.
+- Grabaciones de hasta ~9 GB: todo en hilo de fondo con progreso y con espacio en disco comprobado antes de
+  empezar (aborta con mensaje claro si no hay sitio).
+- Validación de rutas: `video_path` debe existir y ser un vídeo; las salidas solo se escriben bajo
+  `output/edits/` (relación con SEC-02/FEA-05).
+
+### Contratos afectados
+- Nuevos `POST /api/edit/analyze_cuts`, `POST /api/edit/render`, `POST /api/edit/highlights` y
+  `GET /api/edit/preview_frame`; los jobs usan `processing_status` como el resto.
+- Nuevas claves en `config/config.json` para presets de corrección y calidad de codificación.
+- Cruza la frontera servidor ↔ navegador: exige verificación en navegador real con `run-app`.
+
+### Impacto en ficheros
+- Nuevo módulo plano `video_edit.py` (mismo patrón que `acmi.py` y `thumbnail.py`; no se engorda `dcs_meta.py`,
+  coherente con TEC-01). Reutiliza `_get_video_duration`, el parseo de `silencedetect`, `parse_acmi_events` y
+  la puntuación de candidatos de `dcs_meta.py`, con el acoplamiento que hay hasta TEC-01c.
+- `web/app.py`: endpoints y jobs. `web/templates/index.html`: pestaña nueva "Edición".
+- `tests/`: construcción de comandos ffmpeg con subproceso mockeado, y pruebas con ffmpeg real sobre clips
+  sintéticos de pocos segundos (se omiten si no hay ffmpeg).
+
+### Dependencias externas
+- Ninguna nueva: ffmpeg ya es requisito. Una LUT `.cube` es opcional y la aporta David.
+
+### Quality gates
+`ruff check .` y `pytest` en verde en CI. Comprobación en navegador real de la lista de tramos, la vista previa
+y el render sobre un clip corto.
+
+### Riesgos y decisiones abiertas
+**Riesgos**
+1. El audio de DCS rara vez calla (motor, radio). En la medición de TEC-06, un vídeo de 46 min devolvió 1
+   silencio con `silencedetect`, así que el silencio por sí solo no sirve. De ahí la Fase 0: medir otras
+   señales (nivel de audio relativo, movimiento de imagen con `scdet`, fotogramas congelados o negros, tramos
+   sin eventos ACMI) antes de fijar umbrales.
+2. Un umbral agresivo puede cortar momentos buenos. Se mitiga con revisión obligatoria antes de renderizar.
+3. Cortar sin recodificar solo es exacto en fotogramas clave; por eso se recodifica con NVENC.
+4. Sin ACMI la detección pierde su mejor señal. Debe degradar a las señales de audio e imagen, y decirlo.
+5. Tiempo y espacio en disco con grabaciones de 2 a 3 horas.
+
+**Preguntas para David** (propuesta por defecto entre paréntesis)
+1. ¿Se entrega por fases (0, 1, 2 y 3 en PRs separadas)? (Sí.)
+2. ¿Revisión siempre obligatoria antes de renderizar? (Sí, sin modo automático.)
+3. ¿Salida h264 NVENC en MP4 en `output/edits/`, sin tocar el original? (Sí.)
+4. ¿Corrección de imagen con presets y deslizadores, y LUT opcional? (Sí; ¿tienes alguna LUT que uses?)
+5. ¿Entre tramos, corte seco o fundido corto (0,3 s)? (Corte seco por defecto, fundido opcional.)
+6. ¿Las grabaciones llevan siempre su ACMI asociado? (No lo doy por hecho: degradar sin ACMI.)
+7. ¿Duración típica del highlight? (Entre 3 y 10 min, configurable.)
+
+### Criterios de aceptación
+- Fase 0: un informe con, para 2 o 3 grabaciones reales, qué señales detectan tiempos muertos y con qué
+  falsos positivos, y los umbrales propuestos.
+- Fase 1: sobre un clip sintético con un tramo plano conocido, la lista propone ese tramo, el render lo
+  elimina y la duración resultante coincide con la mostrada (±1 fotograma), con audio sincronizado.
+- El original nunca se modifica y un nombre de salida existente no se sobrescribe.
+- Fase 2: el highlight dura lo pedido (±5 %) y contiene los momentos de mayor puntuación.
+- Fase 3: la vista previa y el render dan el mismo aspecto sobre el mismo frame.
+
+---
+
 ## Contexto permanente del producto
 
 Esto no se renegocia por feature; es el marco en el que encaja todo lo demás. Verificado contra el código
