@@ -6,6 +6,7 @@ Credential type: Desktop app (InstalledAppFlow)
 
 import os
 import threading
+from datetime import UTC
 from pathlib import Path
 
 BASE               = Path(__file__).parent
@@ -322,10 +323,10 @@ def fetch_video_analytics(video_id: str) -> dict:
 
     Returns a dict with keys views, watch_minutes, likes, fetched_at, or {} on error.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     try:
         svc = build_analytics_service()
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         end = today + timedelta(days=2)
         response = svc.reports().query(
             ids="channel==MINE",
@@ -341,7 +342,7 @@ def fetch_video_analytics(video_id: str) -> dict:
             "views": int(row[1]) if row else 0,
             "watch_minutes": int(row[2]) if row else 0,
             "likes": int(row[3]) if row else 0,
-            "fetched_at": datetime.now(timezone.utc).isoformat()
+            "fetched_at": datetime.now(UTC).isoformat()
         }
     except Exception as e:  # noqa: BLE001 — superficie de googleapiclient no verificable sin credenciales reales; fallo no fatal por diseño
         print(f"  ⚠ Analytics fetch failed for {video_id}: {e}")

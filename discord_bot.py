@@ -8,7 +8,7 @@ Config keys in config/config.json: discord_bot_token, discord_channel_id
 import json
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
@@ -67,7 +67,7 @@ def record_reaction(message_id: str, video_title: str, emoji: str, user_id: str)
         "video_title": video_title,
         "emoji": emoji,
         "user_id": str(user_id),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     with _reactions_lock:
         reactions = load_reactions()

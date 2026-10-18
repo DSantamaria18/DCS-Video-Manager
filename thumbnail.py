@@ -151,7 +151,7 @@ def _save_thumbnail(img, video_path: Path, suffix: str) -> Path:
     from dcs_meta import OUTPUT_PATH
 
     OUTPUT_PATH.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 — nombre de fichero en hora local de la máquina, intencional
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = OUTPUT_PATH / f"{video_path.stem}_{ts}_{suffix}.jpg"
     for quality in (90, 80, 70, 60, 50):
         buf = io.BytesIO()
