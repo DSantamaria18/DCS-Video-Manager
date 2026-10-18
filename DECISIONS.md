@@ -260,6 +260,19 @@ YouTube en lugar de mantener un scheduler propio.
 Discord, tocar playlists) exige confirmación explícita de David **para cada disparo**, aunque el diseño
 del flujo ya esté aprobado. Son dos decisiones distintas.
 
+### Edición automática: los tiempos muertos se detectan con la telemetría del ACMI, no con imagen ni audio
+
+**Evidencia.** Fase 0 de FEA-09 (2026-10-18), sobre 2 grabaciones reales de 77 y 93 min con su ACMI; detalle en
+`SPEC.md`, sección "Resultados de la Fase 0".
+
+**Motivo.** El movimiento de imagen (`YDIF`) tiene la misma mediana en tramos muertos y activos porque se graba en
+VR, y el audio es demasiado bajo para separarlos con fiabilidad. La telemetría del jugador (`AGL`, `IAS`,
+`LandingGear`, rumbo y mandos) separa rodaje, despegue, navegación estática y aproximación, y se validó con
+fotogramas reales.
+
+**Regla derivada.** El tiempo de vídeo es el tiempo del ACMI menos un desfase que sale de `RecordingTime`
+(UTC) frente a la hora local de inicio del vídeo. No se debe asumir que ambos empiezan a la vez.
+
 ### Cola de pendientes: playlist de subidas en vez de `search.list`, y `status` reenviado al programar
 
 **Evidencia.** `list_pending_videos()` y `schedule_video()` en `youtube_uploader.py`. Verificado contra la

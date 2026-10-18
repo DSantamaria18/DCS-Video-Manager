@@ -72,4 +72,4 @@ Ideas del equipo, no pedidas por David. **No se implementan sin su aprobación**
 
 | # | Título | Prioridad | Dif. | Descripción |
 | --- | --- | --- | --- | --- |
-| - | Sin bugs abiertos | - | - | - |
+| BUG-06 | Los Shorts usan el tiempo del ACMI como tiempo del vídeo, sin desfase | P1 | S | `detect_short_clips()` y `_collect_candidate_timestamps()` en `dcs_meta.py` comparan los `time_s` del ACMI directamente con la línea de tiempo del vídeo. Si el vídeo no empieza a la vez que el registro de Tacview, los eventos caen en ventanas equivocadas: en `2026-10-17_00-34-43.mkv` el desfase es de 1215 s (20 min). Medido en la Fase 0 de FEA-09 (ver `SPEC.md`). Propuesta: calcular el desfase con `RecordingTime` (UTC) frente a la hora local de inicio del vídeo y restarlo, con ajuste manual como respaldo. Comparte el cálculo con FEA-09. |
