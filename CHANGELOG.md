@@ -78,6 +78,9 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Cambiado
 
+- `memory/history.json` deja de estar rastreado por git (`git rm --cached`; el fichero sigue en disco y
+  en `.gitignore`), así que cada análisis ya no lo deja como modificado ni se cuela en commits (INF-07).
+  En otros clones, el primer `git pull` borrará su copia local: hacer copia antes si interesa conservarla.
 - Prompts de Gemini: la identidad del canal sale de `config/config.json` (`channel_name`,
   `channel_description`, `squadron`) en vez de texto fijo, que ya no coincidía con la config; la regla
   de tags pasa de 30-40 a 10-15, en línea con el checklist de subida (7-15) y el límite de 500
