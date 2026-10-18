@@ -821,6 +821,9 @@
     <button class="btn btn-primary" id="analyzeBtn" onclick="startAnalysis()">
       ⬡ &nbsp;ANALYZE VIDEO
     </button>
+    <label style="display:block;font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;cursor:pointer;">
+      <input type="checkbox" id="forceReanalyze"> Ignorar caché (re-analizar)
+    </label>
     <div id="analyzeCostBadge" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px;"></div>
 
     <div style="border-top: 1px solid var(--border); padding-top: 20px;">
@@ -1628,7 +1631,8 @@ async function startAnalysis() {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ video_path: path, context, acmi_path: currentAcmiPath || '' })
+      body: JSON.stringify({ video_path: path, context, acmi_path: currentAcmiPath || '',
+                             force: document.getElementById('forceReanalyze').checked })
     });
     const data = await res.json();
     if (!res.ok) { showAlert(data.error || 'Server error', 'error'); resetUI(); return; }

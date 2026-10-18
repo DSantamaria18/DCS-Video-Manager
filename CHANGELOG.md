@@ -49,6 +49,11 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Corregido
 
+- La caché de análisis ya no devuelve resultados obsoletos (BUG-05): la clave incluye ahora una huella
+  del contexto, el fichero ACMI, el modelo, `frames_to_extract` y `PROMPT_VERSION` (constante en
+  `dcs_meta.py` que se sube al cambiar el prompt o su postprocesado). La UI añade la casilla
+  "Ignorar caché (re-analizar)", que envía `force` a `POST /api/analyze`. Las entradas antiguas, sin
+  huella, se tratan como fallo de caché.
 - El recorte 9:16 de Shorts (`detect_short_clips()`) ya no recorta siempre el centro geométrico
   fijo del frame; se desplaza hacia la zona con más detalle/actividad visual (heurística de
   bordes con Pillow, sin coste de API), con fallback al recorte centrado si el análisis falla

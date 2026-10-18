@@ -258,6 +258,7 @@ def analyze():
     video_path = data.get("video_path", "").strip()
     context = data.get("context", "").strip()
     acmi_path_str = data.get("acmi_path", "").strip()
+    force = bool(data.get("force"))
 
     if not video_path:
         return jsonify({"error": "No video path provided"}), 400
@@ -288,7 +289,8 @@ def analyze():
             cfg = dcs_meta.load_config()
             mem = dcs_meta.load_memory()
 
-            metadata = dcs_meta.get_cached_metadata(path)
+            fingerprint = dcs_meta.analysis_fingerprint(context, acmi_path, cfg)
+            metadata = None if force else dcs_meta.get_cached_metadata(path, fingerprint=fingerprint)
             if metadata:
                 processing_status[job_id]["message"] = "Using cached analysis..."
                 processing_status[job_id]["progress"] = 80
@@ -314,7 +316,7 @@ def analyze():
                     metadata = None
 
                 if metadata:
-                    dcs_meta.set_cached_metadata(path, metadata)
+                    dcs_meta.set_cached_metadata(path, metadata, fingerprint=fingerprint)
                 else:
                     metadata = dcs_meta.build_fallback_metadata(path, context, cfg)
                     processing_status[job_id]["fallback_warning"] = (

@@ -101,6 +101,51 @@ def test_analyze_cache_hit_skips_gemini_call(client, tmp_path, monkeypatch):
     mock_set_cache.assert_not_called()
 
 
+def _run_analyze_sync(client, video, payload, **patches):
+    def run_now(target=None, daemon=None):
+        target()
+        return type("_SyncThread", (), {"start": lambda self: None})()
+
+    with patch("dcs_meta.extract_frames", return_value=["f.jpg"]) as mock_extract, \
+         patch("dcs_meta.generate_metadata", return_value={"title": "Fresh"}) as mock_generate, \
+         patch("dcs_meta.set_cached_metadata") as mock_set_cache, \
+         patch("dcs_meta.save_output", return_value=(video.parent / "t.txt", video.parent / "t.json")), \
+         patch("dcs_meta.update_memory"), \
+         patch("app.threading.Thread", side_effect=run_now), \
+         patch("dcs_meta.get_cached_metadata", **patches) as mock_get_cache:
+        resp = client.post("/api/analyze", json={"video_path": str(video), **payload})
+    return resp, mock_get_cache, mock_generate, mock_extract, mock_set_cache
+
+
+def test_analyze_force_ignores_cache_and_overwrites_it(client, tmp_path, monkeypatch):
+    """BUG-05: 're-analizar' debe saltarse la caché y reescribirla con el resultado nuevo."""
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+    resp, mock_get, mock_generate, _, mock_set = _run_analyze_sync(
+        client, video, {"force": True}, return_value={"title": "Cached"})
+
+    assert client.get(f"/api/status/{resp.json['job_id']}").json["result"]["metadata"]["title"] == "Fresh"
+    mock_get.assert_not_called()
+    mock_generate.assert_called_once()
+    mock_set.assert_called_once()
+
+
+def test_analyze_passes_settings_fingerprint_to_cache(client, tmp_path, monkeypatch):
+    """BUG-05: cambiar el contexto cambia la huella con la que se consulta y se guarda la caché."""
+    video = tmp_path / "test.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+    _, get_a, _, _, set_a = _run_analyze_sync(client, video, {"context": "uno"}, return_value=None)
+    _, get_b, _, _, _ = _run_analyze_sync(client, video, {"context": "dos"}, return_value=None)
+
+    fp_a = get_a.call_args.kwargs["fingerprint"]
+    assert fp_a and fp_a != get_b.call_args.kwargs["fingerprint"]
+    assert set_a.call_args.kwargs["fingerprint"] == fp_a
+
+
 # ── GET /api/status/<job_id> ──────────────────────────────────────────────────
 
 def test_status_unknown_job_returns_404(client):
