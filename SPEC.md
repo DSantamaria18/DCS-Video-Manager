@@ -471,7 +471,8 @@ editor antes de subir el vídeo.
 ### Objetivo
 Desde la app, proponer los cortes de tiempos muertos, montar un highlight a partir de los mejores momentos y
 aplicar una corrección de imagen (color, contraste...), dejando siempre a David revisar antes de renderizar y
-generando un fichero nuevo sin tocar el original.
+generando un fichero nuevo sin tocar el original. Los tiempos muertos se aceleran con música en vez de
+cortarse (se puede elegir cortar), y la música cambia según la fase de vuelo.
 
 ### Por qué ffmpeg y no DaVinci Resolve (versión gratuita)
 - El scripting de Resolve no es una vía: según un informe de terceros (Puget Systems, 2026-09-10) que cita
@@ -485,12 +486,15 @@ generando un fichero nuevo sin tocar el original.
 ### Fuera de alcance
 - Controlar Resolve u otro editor, o exportar EDL/FCPXML/OTIO (posible extra futuro).
 - Editor de línea de tiempo completo: la revisión es una lista de tramos con casillas, no un NLE.
-- Transiciones elaboradas, títulos, música o efectos.
+- Transiciones elaboradas, títulos o efectos. La música se limita a los tramos acelerados (RF-12 y RF-13);
+  una música de fondo bajo el vídeo a velocidad normal sería otra feature.
 - Subida automática del resultado (sigue el flujo actual de Metadata y Pendientes).
 
 ### Entrega por fases (una PR por fase)
-- **Fase 0, spike con medidas:** probar las señales de tiempo muerto sobre 2 o 3 grabaciones reales y decidir
-  umbrales con datos. Sin UI.
+- **Fase 0, spike con medidas:** probar las señales de tiempo muerto sobre 2 grabaciones reales (93 y 77 min,
+  con ACMI), calcular el desfase entre el tiempo del ACMI y el del vídeo, y comprobar si la fase de vuelo
+  (rodaje, despegue, navegación, aproximación y aterrizaje) se puede clasificar con la telemetría del ACMI.
+  Decidir umbrales con datos. Sin UI.
 - **Fase 1, cortes:** detectar tiempos muertos, lista de tramos editable en la UI, render del vídeo recortado.
 - **Fase 2, highlights:** montar un vídeo horizontal 16:9 con los mejores momentos.
 - **Fase 3, imagen:** vista previa antes/después y aplicación de la corrección en el mismo render.
@@ -498,8 +502,9 @@ generando un fichero nuevo sin tocar el original.
 ### Requisitos funcionales
 - RF-1 (Fase 1): `POST /api/edit/analyze_cuts` devuelve, por job, los tramos propuestos como
   `[{start, end, reason}]` más la duración original y la resultante.
-- RF-2 (Fase 1): La UI muestra los tramos con casilla (cortar o conservar), se pueden ajustar inicio y fin, y
-  se ve la duración resultante antes de renderizar. Nada se renderiza sin pulsar el botón.
+- RF-2 (Fase 1): La UI muestra los tramos con una acción por tramo (acelerar, cortar o conservar; acelerar
+  por defecto), se pueden ajustar inicio y fin, y se ve la duración resultante antes de renderizar. Nada se
+  renderiza sin pulsar el botón.
 - RF-3 (Fase 1): `POST /api/edit/render` recibe los tramos a conservar y genera `output/edits/<nombre>_editado.mp4`.
   Nunca sobrescribe el original ni un fichero existente (se añade sufijo numérico).
 - RF-4 (Fase 1): El render informa de progreso por `/api/status/<job_id>` y mantiene el audio sincronizado.
@@ -516,6 +521,18 @@ generando un fichero nuevo sin tocar el original.
   compararlos, y el render aplica la corrección en la misma codificación que los cortes. Una casilla
   permite desactivarla.
 - RF-8: Con `DCS_SIMULATE=1` los endpoints responden con datos de ejemplo y no ejecutan ffmpeg.
+- RF-10 (Fase 1): Un tramo acelerado reduce su duración con `setpts` y descarte de fotogramas. La velocidad es
+  automática según la duración del tramo: objetivo de unos 20 s por tramo, entre 4x y 16x; si aun así
+  excede, el sobrante se corta. Se puede editar a mano en la revisión.
+- RF-11 (Fase 1): La fase de vuelo de cada tramo (rodaje y despegue, navegación, aproximación y aterrizaje)
+  se clasifica con la telemetría del ACMI, corrigiendo el desfase entre el tiempo del ACMI y el del vídeo
+  (medido en la Fase 0). Se muestra en la lista y se puede corregir a mano.
+- RF-12 (Fase 1): Audio: en los tramos a velocidad normal, las 3 pistas de la grabación (general, radio y
+  micro) se fusionan en una sola pista; en los tramos acelerados el audio original se sustituye por música.
+- RF-13 (Fase 1): Música: una carpeta configurable con 3 subcarpetas, una por fase (rodaje y despegue,
+  navegación o tiempo muerto, aproximación y aterrizaje). Se elige una pista al azar de la subcarpeta de la
+  fase del tramo, sin repetir en el mismo vídeo mientras haya otras, con fundido de 1 s. La app no descarga
+  ni genera música. Sin pistas en la subcarpeta, el tramo se acelera en silencio y se avisa.
 
 ### Requisitos no funcionales
 - Local, sin llamadas a Gemini ni a YouTube: no consume cuota.
@@ -529,8 +546,8 @@ generando un fichero nuevo sin tocar el original.
 ### Contratos afectados
 - Nuevos `POST /api/edit/analyze_cuts`, `POST /api/edit/render`, `POST /api/edit/highlights` y
   `GET /api/edit/preview_frame`; los jobs usan `processing_status` como el resto.
-- Nuevas claves en `config/config.json` para la calidad de codificación, la duración objetivo del highlight y
-  la duración del fundido. Sin claves de presets de color: la corrección es automática.
+- Nuevas claves en `config/config.json` para la calidad de codificación, la duración objetivo del highlight,
+  la duración del fundido, la carpeta de música y los nombres de las 3 subcarpetas por fase. Sin claves de presets de color: la corrección es automática.
 - Cruza la frontera servidor ↔ navegador: exige verificación en navegador real con `run-app`.
 
 ### Impacto en ficheros
@@ -543,6 +560,8 @@ generando un fichero nuevo sin tocar el original.
 
 ### Dependencias externas
 - Ninguna nueva: ffmpeg ya es requisito (Pillow, ya instalado, sirve para medir los frames).
+- Música: la aporta David en la carpeta configurada. La licencia es suya: YouTube puede reclamar con Content ID
+  cualquier pista con copyright; lo seguro es la biblioteca de audio de YouTube o pistas con licencia propia.
 
 ### Quality gates
 `ruff check .` y `pytest` en verde en CI. Comprobación en navegador real de la lista de tramos, la vista previa
@@ -563,6 +582,13 @@ y el render sobre un clip corto.
    decidir si se renderiza por bloques y se une después, y medirlo con un caso de 50 o más tramos.
 7. La corrección automática puede empeorar tomas ya buenas: intensidad acotada, casilla para desactivarla y
    vista previa antes/después. Hay que ajustarla con grabaciones reales.
+8. Clasificar la fase de vuelo con telemetría del ACMI puede fallar (p. ej. en portaaviones, donde el rodaje
+   y el aterrizaje no se parecen a los de una pista). La Fase 0 lo mide con las 2 grabaciones y, si no es
+   fiable, la fase se asigna a mano en la revisión.
+9. El tiempo del ACMI y el del vídeo no coinciden (p. ej. 20 min de diferencia en la grabación del 17 de
+   octubre): sin corregir el desfase, los tramos y las fases quedarían desplazados.
+10. Fusionar 3 pistas puede dejar la radio o el micro tapados por el juego: normalizar con `loudnorm` y
+    comprobar el balance en la Fase 1.
 
 **Decisiones de David (2026-10-18)**
 1. Entrega por fases 0, 1, 2 y 3, en PRs separadas.
@@ -576,6 +602,10 @@ y el render sobre un clip corto.
    intermedios solo están disponibles en vídeos monetizados de 8 minutos o más. Aplica solo si el canal
    está monetizado (no verificado); si no, convendría un highlight más corto. La retención de audiencia
    no se ha medido.
+8. Tiempos muertos acelerados con música, en vez de cortados (se puede cortar por tramo).
+9. Audio del juego sustituido por la música en los tramos acelerados.
+10. En los tramos normales, las 3 pistas (general, radio y micro) se fusionan en una.
+11. Música por fase de vuelo: rodaje y despegue, navegación o tiempo muerto, y aproximación y aterrizaje.
 
 ### Criterios de aceptación
 - Fase 0: un informe con, para 2 o 3 grabaciones reales, qué señales detectan tiempos muertos y con qué
@@ -583,6 +613,10 @@ y el render sobre un clip corto.
 - Fase 1: sobre un clip sintético con un tramo plano conocido, la lista propone ese tramo, el render lo
   elimina y la duración resultante coincide con la mostrada (±1 fotograma), con audio sincronizado.
 - El original nunca se modifica y un nombre de salida existente no se sobrescribe.
+- Fase 0: el desfase ACMI-vídeo calculado coincide, en las 2 grabaciones, con la comparación manual de al menos
+  un evento (p. ej. despegue) en ambos tiempos, y la clasificación de fases acierta en los tramos revisados.
+- Fase 1: un tramo muerto largo sale acelerado con la música de su fase y el audio original silenciado, y
+  vuelve el audio normal fusionado al acabar el tramo, sin saltos de sincronía.
 - Fase 2: el highlight dura lo pedido (±5 %) y contiene los momentos de mayor puntuación.
 - Fase 3: la vista previa y el render dan el mismo aspecto sobre el mismo frame.
 
