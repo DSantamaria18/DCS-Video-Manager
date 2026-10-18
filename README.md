@@ -302,6 +302,14 @@ A local Flask web UI that combines AI-powered video analysis, metadata generatio
 
 ---
 
+## Pending queue
+
+- **Pendientes tab** — lists the channel's videos that are private and have no `publishAt` yet (oldest upload first, Shorts tagged), read from the uploads playlist (1 quota unit per page, no `search.list`). Videos already scheduled appear below, read-only.
+- **Staggered scheduling** — tick up to 15 videos, set the first publish date and an interval in days (same maths as the Shorts batch), review the video → date table, then CONFIRM AND SCHEDULE. Each video gets `publishAt` through `videos.update` (50 quota units each), keeping its other status fields. YouTube publishes them; the app does not need to stay open.
+- **Limits** — YouTube only accepts `publishAt` on a private video that has never been published, so a video that was public once is reported as an error for that video while the rest of the batch continues. Past dates are rejected.
+
+---
+
 ## Thumbnail
 
 - **Smart frame selection** — extracts 6 candidate frames between 18% and 78% of the video and scores each by sharpness (edge detection), brightness (penalises dark or washed-out frames), and colorfulness (per-channel standard deviation).

@@ -17,6 +17,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ### Añadido
 
+- Pestaña "Pendientes" (FEA-08): lista los vídeos del canal privados y sin `publishAt` (más antiguos primero,
+  Shorts etiquetados) y los ya programados en solo lectura; permite programar hasta 15 con primera fecha e
+  intervalo en días, con tabla de confirmación previa y estado por vídeo. Nuevos
+  `GET /api/youtube/pending_videos` y `POST /api/schedule_videos_batch`, y `list_pending_videos()` /
+  `schedule_video()` en `youtube_uploader.py` (la segunda reenvía el `status` actual para que
+  `videos.update` no borre `embeddable`, `license` ni `publicStatsViewable`). Soporta `DCS_SIMULATE=1`.
 - `CLAUDE.md` — reglas de trabajo, roles del equipo de agentes y Definition of Done.
 - `ARCHITECTURE.md` — arquitectura reconstruida a partir del código.
 - `DECISIONS.md` — decisiones técnicas y de proceso, y lecciones aprendidas.

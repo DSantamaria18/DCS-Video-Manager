@@ -902,6 +902,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="metadata" onclick="openTab('metadata')">Metadata</div>
       <div class="tab" data-tab="history" onclick="openTab('history')">History</div>
+      <div class="tab" data-tab="queue" onclick="openTab('queue')">Pendientes</div>
       <div class="tab" data-tab="stats" onclick="openTab('stats')">Stats</div>
       <div class="tab" data-tab="setup" onclick="openTab('setup')">Setup</div>
     </div>
@@ -1154,6 +1155,44 @@
         <div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:40px;">
           No history yet
         </div>
+      </div>
+    </div>
+
+    <!-- PENDIENTES TAB (FEA-08) -->
+    <div class="tab-content" id="tab-queue">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="section-label" style="margin:0">Videos pending publication</div>
+        <button class="copy-btn" id="queueReloadBtn" onclick="loadQueue()">RELOAD</button>
+      </div>
+      <div id="queueMsg" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin:8px 0;"></div>
+      <div id="queueList"></div>
+      <div id="queueControls" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+          <label style="font-family:var(--mono);font-size:10px;color:var(--text3);">
+            FIRST PUBLISH<br>
+            <input type="datetime-local" id="queueFirstPublishAt"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;margin-top:3px;">
+          </label>
+          <label style="font-family:var(--mono);font-size:10px;color:var(--text3);">
+            INTERVAL (DAYS)<br>
+            <input type="number" id="queueIntervalDays" value="3" min="1"
+              style="width:60px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;margin-top:3px;text-align:center;">
+          </label>
+          <button class="copy-btn" id="queuePreviewBtn" onclick="previewQueueBatch()">PROGRAM BATCH</button>
+        </div>
+        <div id="queuePreview" style="display:none;padding:12px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;margin-bottom:10px;">
+          <div class="section-label" style="margin:0 0 8px 0">CONFIRM SCHEDULE</div>
+          <div id="queuePreviewRows" style="font-family:var(--mono);font-size:10px;color:var(--text2);"></div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button class="copy-btn" id="queueConfirmBtn" onclick="confirmQueueBatch()"
+              style="background:var(--green3);border-color:var(--green2);">CONFIRM AND SCHEDULE</button>
+            <button class="copy-btn" onclick="cancelQueuePreview()">CANCEL</button>
+          </div>
+        </div>
+      </div>
+      <div id="queueScheduledWrap" style="display:none;margin-top:18px;">
+        <div class="section-label">Already scheduled (read-only)</div>
+        <div id="queueScheduled"></div>
       </div>
     </div>
 
@@ -1604,6 +1643,7 @@ function openTab(name) {
   if (content) content.classList.add('active');
   if (name === 'history') loadHistory();
   if (name === 'stats') loadStats();
+  if (name === 'queue') loadQueue();
   if (name === 'setup') { loadConfigForm(); loadDescriptionTemplates(); }
 }
 
@@ -2268,6 +2308,149 @@ async function uploadSelectedShorts() {
     btn.disabled = false;
     btn.textContent = 'PROGRAM BATCH';
   }
+}
+
+// ── Pendientes: schedule already-uploaded videos (FEA-08) ────────────────────
+let _queueVideos = [];
+let _queueInterval = null;
+let _queuePlan = null;   // {ids, firstPublishAt, intervalDays}: lo que se enseñó en la confirmación
+
+function _queueDate(iso) {
+  return iso ? new Date(iso).toLocaleString() : '';
+}
+
+function _queueDuration(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}h${String(m).padStart(2, '0')}m` : m ? `${m}m${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+async function loadQueue() {
+  const msg = document.getElementById('queueMsg');
+  const btn = document.getElementById('queueReloadBtn');
+  btn.disabled = true;
+  msg.textContent = 'Loading videos from the channel...';
+  cancelQueuePreview();
+  try {
+    const res = await fetch('/api/youtube/pending_videos');
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || 'Could not load videos'; msg.style.color = 'var(--red)'; return; }
+    msg.style.color = 'var(--text3)';
+    _queueVideos = data.pending || [];
+    renderQueue(_queueVideos, data.scheduled || []);
+    msg.textContent = `${_queueVideos.length} pending, ${(data.scheduled || []).length} scheduled`;
+  } catch (e) {
+    msg.textContent = 'Could not load videos';
+    msg.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderQueue(pending, scheduled) {
+  const list = document.getElementById('queueList');
+  list.innerHTML = pending.map((v, idx) => `
+    <label style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+      <input type="checkbox" class="queue-sel" data-idx="${idx}" style="accent-color:var(--amber);">
+      ${v.thumbnail_url ? `<img src="${escHtml(v.thumbnail_url)}" alt="" style="width:64px;height:36px;object-fit:cover;border-radius:2px;">` : ''}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(v.title)}">${escHtml(v.title)}</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);">
+          ${escHtml(_queueDate(v.uploaded_at))} · ${_queueDuration(v.duration_sec || 0)}
+          ${v.is_short ? '<span style="margin-left:6px;padding:1px 5px;border:1px solid var(--border);border-radius:2px;color:var(--amber);">Short</span>' : ''}
+        </div>
+      </div>
+      <span class="queue-status" data-id="${escHtml(v.video_id)}" style="font-family:var(--mono);font-size:9px;color:var(--text3);"></span>
+    </label>`).join('') ||
+    '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:30px;">No pending videos</div>';
+
+  document.getElementById('queueControls').style.display = pending.length ? '' : 'none';
+  const boxes = [...document.querySelectorAll('.queue-sel')];
+  const update = () => {
+    const n = boxes.filter(b => b.checked).length;
+    boxes.forEach(b => { b.disabled = !b.checked && n >= 15; });
+    cancelQueuePreview();
+  };
+  boxes.forEach(b => b.addEventListener('change', update));
+
+  document.getElementById('queueScheduledWrap').style.display = scheduled.length ? '' : 'none';
+  document.getElementById('queueScheduled').innerHTML = scheduled.map(v => `
+    <div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;">
+      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(v.title)}">${escHtml(v.title)}</span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--green);white-space:nowrap;">${escHtml(_queueDate(v.publish_at))}</span>
+    </div>`).join('');
+}
+
+function cancelQueuePreview() {
+  _queuePlan = null;
+  const p = document.getElementById('queuePreview');
+  if (p) p.style.display = 'none';
+}
+
+function previewQueueBatch() {
+  const ids = [...document.querySelectorAll('.queue-sel:checked')].map(b => _queueVideos[parseInt(b.dataset.idx, 10)]);
+  if (!ids.length) { showToast('Select at least one video', 'error'); return; }
+  const raw = document.getElementById('queueFirstPublishAt').value;
+  if (!raw) { showToast('Set the first publish date', 'error'); return; }
+  const first = new Date(raw);
+  if (first.getTime() <= Date.now()) { showToast('First publish date must be in the future', 'error'); return; }
+  const intervalDays = parseInt(document.getElementById('queueIntervalDays').value, 10) || 1;
+
+  _queuePlan = { ids: ids.map(v => v.video_id), firstPublishAt: first.toISOString(), intervalDays };
+  document.getElementById('queuePreviewRows').innerHTML = ids.map((v, i) => {
+    const when = new Date(first.getTime() + i * intervalDays * 86400000);
+    return `<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0;">
+      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${i + 1}. ${escHtml(v.title)}</span>
+      <span style="color:var(--green);white-space:nowrap;">${escHtml(when.toLocaleString())}</span></div>`;
+  }).join('');
+  document.getElementById('queuePreview').style.display = '';
+}
+
+async function confirmQueueBatch() {
+  const plan = _queuePlan;
+  if (!plan) return;
+  const btn = document.getElementById('queueConfirmBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/schedule_videos_batch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ video_ids: plan.ids, first_publish_at: plan.firstPublishAt, interval_days: plan.intervalDays }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Scheduling failed', 'error'); btn.disabled = false; return; }
+    cancelQueuePreview();
+    btn.disabled = false;
+    pollQueueJob(data.job_id, plan.ids.length);
+  } catch (e) {
+    showToast('Scheduling failed', 'error');
+    btn.disabled = false;
+  }
+}
+
+function pollQueueJob(jobId, total) {
+  if (_queueInterval) clearInterval(_queueInterval);
+  const badge = (v) => v.status === 'done' ? `✓ ${_queueDate(v.publish_at)}`
+    : v.status === 'error' ? `✗ ${v.error || 'failed'}` : v.status === 'scheduling' ? '⟳ scheduling...' : 'pending';
+  const color = (v) => v.status === 'done' ? 'var(--green)' : v.status === 'error' ? 'var(--red)' : 'var(--text3)';
+
+  document.getElementById('queuePreviewBtn').disabled = true;
+  _queueInterval = setInterval(async () => {
+    try {
+      const data = await (await fetch('/api/status/' + jobId)).json();
+      Object.entries(data.videos || {}).forEach(([id, v]) => {
+        const el = [...document.querySelectorAll('.queue-status')].find(e => e.dataset.id === id);
+        if (el) { el.textContent = badge(v); el.style.color = color(v); }
+      });
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(_queueInterval);
+        _queueInterval = null;
+        document.getElementById('queuePreviewBtn').disabled = false;
+        const r = data.result || {};
+        showToast(`${r.scheduled || 0}/${total} videos scheduled. ${r.failed || 0} failed.`,
+                  r.failed ? 'error' : undefined);
+      }
+    } catch (e) {}
+  }, 2000);
 }
 
 function showToast(msg, type) {
