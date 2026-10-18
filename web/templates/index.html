@@ -799,6 +799,12 @@
           ⬡ BROWSE
         </button>
       </div>
+      <div style="display:flex; gap:8px; align-items:center; margin-top:6px; font-family:var(--mono); font-size:10px; color:var(--text3);">
+        <label for="acmiOffset">ACMI OFFSET (s)</label>
+        <input type="number" id="acmiOffset" step="1" placeholder="auto" onchange="onAcmiOffsetChange()"
+          style="width:80px; font-size:11px;">
+        <span id="acmiOffsetInfo"></span>
+      </div>
       <div id="acmiEventsPreview"
         style="display:none; margin-top:6px; font-family:var(--mono); font-size:11px;
                color:var(--text2); background:rgba(0,229,160,0.04);
@@ -1505,7 +1511,7 @@ let currentAcmiEvents = null;
 // Guardado periódico en localStorage (en vez de enganchar cada evento de edición: cubre también los
 // valores que se asignan por código, como el selector de ficheros). Solo del navegador: no hay backend.
 const UI_STATE_KEY = 'dcs-ui-state';
-const _PERSISTED_FIELDS = ['videoPath', 'missionContext', 'acmiPath', 'shortsFirstPublishAt',
+const _PERSISTED_FIELDS = ['videoPath', 'missionContext', 'acmiPath', 'acmiOffset', 'shortsFirstPublishAt',
   'shortsIntervalDays', 'queueFirstPublishAt', 'queueIntervalDays'];
 
 function saveUiState() {
@@ -1572,6 +1578,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAppConfigBadges();
   loadDescriptionTemplates();
   document.getElementById('descEdit').addEventListener('input', scheduleSeoCheck);
+  document.getElementById('videoPath').addEventListener('change', onAcmiOffsetChange);
 });
 
 // ── File handling ─────────────────────────────────────────────────────────────
@@ -1584,6 +1591,7 @@ async function browseFile() {
 
     document.getElementById('videoPath').value = data.path;
     currentVideoPath = data.path;
+    onAcmiOffsetChange();
 
     const nameEl = document.getElementById('fileSelectedName');
     nameEl.textContent = '▶ ' + data.name;
@@ -1649,11 +1657,13 @@ async function parseAcmiFile(path) {
     const res = await fetch('/api/parse_acmi', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acmi_path: path }),
+      body: JSON.stringify({ acmi_path: path, video_path: document.getElementById('videoPath').value.trim(),
+                             offset_s: acmiOffsetValue() }),
     });
     const data = await res.json();
     if (data.error) { showAcmiPreview('⚠ ' + data.error, true); return; }
     currentAcmiEvents = data.events;
+    showAcmiOffset(data);
     const parts = [];
     if (data.kills > 0) parts.push(`${data.kills} kill(s)`);
     if (data.sam_launches > 0) parts.push(`${data.sam_launches} SAM launch(es)`);
@@ -1661,6 +1671,25 @@ async function parseAcmiFile(path) {
     showAcmiPreview(parts.length ? '✓ ' + parts.join('  ·  ') : '✓ ACMI loaded — no significant events', false);
   } catch(e) {
     showAcmiPreview('⚠ Could not parse ACMI file', true);
+  }
+}
+
+// BUG-06: el ACMI y el vídeo no empiezan a la vez; los eventos llegan ya en tiempo de vídeo.
+function acmiOffsetValue() {
+  const raw = document.getElementById('acmiOffset').value.trim();
+  return raw === '' ? null : Number(raw);
+}
+
+function onAcmiOffsetChange() {
+  if (currentAcmiPath) parseAcmiFile(currentAcmiPath);
+}
+
+function showAcmiOffset(data) {
+  const info = document.getElementById('acmiOffsetInfo');
+  if (data.offset_source === 'none') {
+    info.textContent = 'no date in the video name: set the offset if it started after the ACMI';
+  } else {
+    info.textContent = `${data.offset_source}: video starts ${Math.round(data.offset_s)} s after the ACMI`;
   }
 }
 
@@ -1735,6 +1764,7 @@ async function startAnalysis() {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ video_path: path, context, acmi_path: currentAcmiPath || '',
+                             acmi_offset_s: acmiOffsetValue(),
                              force: document.getElementById('forceReanalyze').checked })
     });
     const data = await res.json();

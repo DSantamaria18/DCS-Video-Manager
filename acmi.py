@@ -1,5 +1,8 @@
 """TacView ACMI 2.2 parsing — kills, launches, ejections, friendly losses."""
 
+import re
+import zipfile
+from datetime import datetime, tzinfo
 from pathlib import Path
 
 # ACMI classification sets
@@ -46,11 +49,79 @@ def _parse_acmi_props(props_str: str) -> tuple[dict, set]:
     return props, flags
 
 
-def parse_acmi_events(acmi_path: Path) -> dict:
+_RECORDING_TIME = re.compile(r"^0,RecordingTime=(\S+)", re.MULTILINE)
+# Nombre por defecto de OBS: 2026-10-17_00-34-43.mkv (hora local de la máquina)
+_VIDEO_TIMESTAMP = re.compile(r"(\d{4})-(\d{2})-(\d{2})[_ T](\d{2})-(\d{2})-(\d{2})")
+
+
+def read_recording_time(acmi_path: Path) -> datetime | None:
+    """Return the UTC instant Tacview started recording (header 'RecordingTime'), or None."""
+    acmi_path = Path(acmi_path)
+    try:
+        if zipfile.is_zipfile(acmi_path):
+            with zipfile.ZipFile(acmi_path) as zf:
+                inner = next((n for n in zf.namelist() if n.lower().endswith(".acmi")), zf.namelist()[0])
+                head = zf.open(inner).read(4096)
+        else:
+            head = acmi_path.read_bytes()[:4096]
+        m = _RECORDING_TIME.search(head.decode("utf-8-sig", errors="replace"))
+        return datetime.fromisoformat(m.group(1).replace("Z", "+00:00")) if m else None
+    except (OSError, ValueError):
+        return None
+
+
+def video_start_from_filename(video_path: Path, tz: tzinfo | None = None) -> datetime | None:
+    """Return when the recording started according to an OBS-style file name, or None.
+
+    The name carries local time; `tz` defaults to the machine's local zone (DST-aware).
+    """
+    m = _VIDEO_TIMESTAMP.search(Path(video_path).stem)
+    if not m:
+        return None
+    try:
+        naive = datetime(*(int(g) for g in m.groups()))
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=tz) if tz else naive.astimezone()
+
+
+def acmi_offset_seconds(video_path: Path, acmi_path: Path, tz: tzinfo | None = None) -> float:
+    """Seconds the video starts after the ACMI recording (video time = ACMI time - offset).
+
+    0.0 when either start time is unknown, which is the pre-BUG-06 behaviour.
+    """
+    video_start = video_start_from_filename(video_path, tz)
+    recording = read_recording_time(acmi_path)
+    if video_start is None or recording is None:
+        return 0.0
+    return (video_start - recording).total_seconds()
+
+
+def resolve_acmi_offset(video_path: Path, acmi_path: Path, manual: float | None = None) -> float:
+    """A manual offset (set in the UI) wins over the one derived from file names and headers."""
+    return float(manual) if manual is not None else acmi_offset_seconds(video_path, acmi_path)
+
+
+def _to_video_time(events: list, offset_s: float) -> list:
+    """Shift event times from ACMI time to video time; drop events before the video starts."""
+    from dcs_meta import _seconds_to_chapter_time
+
+    shifted = []
+    for ev in events:
+        t = ev["time_s"] - offset_s
+        if t >= 0:
+            shifted.append({**ev, "time_s": t, "time": _seconds_to_chapter_time(t)})
+    return shifted
+
+
+def parse_acmi_events(acmi_path: Path, offset_s: float = 0.0) -> dict:
     """Parse a Tacview ACMI 2.2 file and return kills, SAM/IR/bomb launches, BVR launches, and ejections.
 
+    Times are shifted by `offset_s` so they match the video's timeline (see acmi_offset_seconds);
+    events that happened before the video started are dropped. The default keeps raw ACMI times.
+
     Returns a dict with keys kills, sam_launches, bvr_launches, ir_launches, bomb_releases,
-    friendly_losses, ejection_events, events_text, duration_s.
+    friendly_losses, ejection_events, events_text, duration_s, offset_s.
     Returns empty dict on any parse or IO failure.
     """
     # Deferred import: avoids a circular import until TEC-01c moves this helper out of
@@ -70,7 +141,6 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
     try:
         import io as _io
-        import zipfile
 
         acmi_path = Path(acmi_path)
         if zipfile.is_zipfile(acmi_path):
@@ -200,6 +270,13 @@ def parse_acmi_events(acmi_path: Path) -> dict:
     except OSError:
         return {}
 
+    if offset_s:
+        kills, sam_launches, bvr_launches, ir_launches, bomb_releases, friendly_losses, ejection_events = (
+            _to_video_time(evs, offset_s)
+            for evs in (kills, sam_launches, bvr_launches, ir_launches, bomb_releases, friendly_losses,
+                        ejection_events)
+        )
+
     parts = []
     if kills:
         parts.append(f"{len(kills)} kill(s): {', '.join(k['name'] + ' at ' + k['time'] for k in kills[:5])}")
@@ -218,6 +295,7 @@ def parse_acmi_events(acmi_path: Path) -> dict:
 
     return {
         "duration_s": max_time_s,
+        "offset_s": offset_s,
         "kills": kills,
         "sam_launches": sam_launches,
         "bvr_launches": bvr_launches,

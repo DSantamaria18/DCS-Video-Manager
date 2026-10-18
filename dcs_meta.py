@@ -196,7 +196,7 @@ def save_analysis_cache(cache: dict) -> None:
         json.dump(cache, f, indent=2, ensure_ascii=False)
 
 
-def analysis_fingerprint(context: str, acmi_path: Path | None, config: dict) -> str:
+def analysis_fingerprint(context: str, acmi_path: Path | None, config: dict, acmi_offset: float = 0.0) -> str:
     """Hash of everything besides the video file that shapes a Gemini analysis.
 
     The cache must miss when any of these change, otherwise the user gets a stale result
@@ -205,7 +205,7 @@ def analysis_fingerprint(context: str, acmi_path: Path | None, config: dict) -> 
     acmi = None
     if acmi_path:
         stat = acmi_path.stat()
-        acmi = [str(acmi_path.resolve()), stat.st_size, stat.st_mtime]
+        acmi = [str(acmi_path.resolve()), stat.st_size, stat.st_mtime, acmi_offset]
     payload = [PROMPT_VERSION, context, acmi, config.get("model"), config.get("frames_to_extract")]
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
@@ -854,10 +854,12 @@ def call_gemini(frames_b64: list[str], prompt: str, model: str, json_mode: bool 
 # ── Main analysis ─────────────────────────────────────────────────────────────
 
 def generate_metadata(video_path: Path, user_context: str, config: dict, memory: dict,
-                      frames: list | None = None, acmi_path: Path | None = None) -> dict:
+                      frames: list | None = None, acmi_path: Path | None = None,
+                      acmi_offset_s: float | None = None) -> dict:
     """Analyse a video and return YouTube metadata via Gemini.
 
     Pass `frames` to skip re-extraction; pass `acmi_path` to inject TacView event context.
+    `acmi_offset_s` overrides the ACMI-to-video offset otherwise derived from the file names (BUG-06).
     """
     print(f"\n{'─'*60}")
     print(f"  Processing: {video_path.name}")
@@ -902,7 +904,7 @@ def generate_metadata(video_path: Path, user_context: str, config: dict, memory:
     acmi_events = None
     if acmi_path and acmi_path.exists():
         print("  Parsing TacView ACMI file...")
-        acmi_events = parse_acmi_events(acmi_path)
+        acmi_events = parse_acmi_events(acmi_path, offset_s=resolve_acmi_offset(video_path, acmi_path, acmi_offset_s))
         if acmi_events.get("events_text"):
             print(f"  ✓ ACMI events: {acmi_events['events_text']}")
         else:
@@ -1042,7 +1044,7 @@ def _recover_json(raw: str) -> dict:
 # ── ACMI / Thumbnail generation ────────────────────────────────────────────────
 # Extracted to acmi.py (TEC-01a) and thumbnail.py (TEC-01b); reexported here so
 # existing dcs_meta.X call sites keep working unchanged.
-from acmi import _parse_acmi_props, parse_acmi_events  # noqa: F401
+from acmi import _parse_acmi_props, parse_acmi_events, resolve_acmi_offset  # noqa: F401
 from thumbnail import generate_thumbnail_on_demand  # noqa: F401
 
 # ── Narration script ─────────────────────────────────────────────────────────
