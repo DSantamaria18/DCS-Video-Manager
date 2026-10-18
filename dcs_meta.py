@@ -284,6 +284,8 @@ def detect_audio_chapters(
             [
                 "ffmpeg", "-i", str(video_path),
                 "-af", f"silencedetect=noise={noise_db}dB:duration={min_silence_s}",
+                # Solo audio: sin -vn ffmpeg decodifica también el vídeo (52 s -> 1,6 s en 46 min medidos).
+                "-vn", "-sn", "-dn",
                 "-f", "null", "-",
             ],
             capture_output=True, text=True, check=False,
