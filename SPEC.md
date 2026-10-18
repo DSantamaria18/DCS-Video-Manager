@@ -460,7 +460,7 @@ confirmación y el estado por vídeo.
 
 ## Feature: Edición automática del vídeo (cortes, highlights y corrección de imagen)
 
-**Estado:** Borrador
+**Estado:** Aprobada 2026-10-18 (decisiones de David resueltas al final de "Riesgos y decisiones abiertas")
 **Entrada de BACKLOG.md:** FEA-09
 
 ### Problema
@@ -504,11 +504,17 @@ generando un fichero nuevo sin tocar el original.
   Nunca sobrescribe el original ni un fichero existente (se añade sufijo numérico).
 - RF-4 (Fase 1): El render informa de progreso por `/api/status/<job_id>` y mantiene el audio sincronizado.
 - RF-5 (Fase 2): Seleccionar N momentos (los de `_collect_candidate_timestamps` y su puntuación, reutilizados)
-  y montar un highlight 16:9 con una duración objetivo elegida por David.
-- RF-6 (Fase 3): `GET /api/edit/preview_frame` devuelve un frame con la corrección aplicada para comparar con el
-  original. Parámetros: brillo, contraste, saturación, gamma, balance de color y LUT `.cube` opcional.
-- RF-7 (Fase 3): Presets de corrección guardados en `config/config.json` y aplicables en el mismo render que los
-  cortes (una sola codificación).
+  y montar un highlight 16:9 con una duración objetivo, por defecto 9 minutos (rango 8 a 10, configurable).
+  Los tramos se unen con fundido corto (ver RF-9).
+- RF-9: Entre tramos conservados se aplica un fundido de 0,3 s por defecto (`xfade` y `acrossfade`), con
+  opción de corte seco. Cada fundido solapa 0,3 s, así que la duración resultante lo descuenta.
+- RF-6 (Fase 3): La corrección de imagen es automática, sin deslizadores ni LUT. La app mide el vídeo
+  (muestreo de frames, estadísticas de luminancia y color) y calcula sola los ajustes de contraste,
+  niveles, saturación y balance con filtros de ffmpeg (`eq`, `colorlevels`, `colorbalance`, `curves`),
+  acotados a una intensidad moderada para no estropear tomas que ya están bien.
+- RF-7 (Fase 3): `GET /api/edit/preview_frame` devuelve el original y el corregido de un mismo frame para
+  compararlos, y el render aplica la corrección en la misma codificación que los cortes. Una casilla
+  permite desactivarla.
 - RF-8: Con `DCS_SIMULATE=1` los endpoints responden con datos de ejemplo y no ejecutan ffmpeg.
 
 ### Requisitos no funcionales
@@ -523,7 +529,8 @@ generando un fichero nuevo sin tocar el original.
 ### Contratos afectados
 - Nuevos `POST /api/edit/analyze_cuts`, `POST /api/edit/render`, `POST /api/edit/highlights` y
   `GET /api/edit/preview_frame`; los jobs usan `processing_status` como el resto.
-- Nuevas claves en `config/config.json` para presets de corrección y calidad de codificación.
+- Nuevas claves en `config/config.json` para la calidad de codificación, la duración objetivo del highlight y
+  la duración del fundido. Sin claves de presets de color: la corrección es automática.
 - Cruza la frontera servidor ↔ navegador: exige verificación en navegador real con `run-app`.
 
 ### Impacto en ficheros
@@ -535,7 +542,7 @@ generando un fichero nuevo sin tocar el original.
   sintéticos de pocos segundos (se omiten si no hay ffmpeg).
 
 ### Dependencias externas
-- Ninguna nueva: ffmpeg ya es requisito. Una LUT `.cube` es opcional y la aporta David.
+- Ninguna nueva: ffmpeg ya es requisito (Pillow, ya instalado, sirve para medir los frames).
 
 ### Quality gates
 `ruff check .` y `pytest` en verde en CI. Comprobación en navegador real de la lista de tramos, la vista previa
@@ -549,17 +556,26 @@ y el render sobre un clip corto.
    sin eventos ACMI) antes de fijar umbrales.
 2. Un umbral agresivo puede cortar momentos buenos. Se mitiga con revisión obligatoria antes de renderizar.
 3. Cortar sin recodificar solo es exacto en fotogramas clave; por eso se recodifica con NVENC.
-4. Sin ACMI la detección pierde su mejor señal. Debe degradar a las señales de audio e imagen, y decirlo.
+4. David confirma que sus grabaciones llevan siempre ACMI, así que es la señal principal. Si falta, la
+   app avisa de que la detección será menos fiable y usa solo audio e imagen.
 5. Tiempo y espacio en disco con grabaciones de 2 a 3 horas.
+6. Los fundidos con muchos tramos generan filtros muy grandes (`xfade` encadenado). El plan de la Fase 1 debe
+   decidir si se renderiza por bloques y se une después, y medirlo con un caso de 50 o más tramos.
+7. La corrección automática puede empeorar tomas ya buenas: intensidad acotada, casilla para desactivarla y
+   vista previa antes/después. Hay que ajustarla con grabaciones reales.
 
-**Preguntas para David** (propuesta por defecto entre paréntesis)
-1. ¿Se entrega por fases (0, 1, 2 y 3 en PRs separadas)? (Sí.)
-2. ¿Revisión siempre obligatoria antes de renderizar? (Sí, sin modo automático.)
-3. ¿Salida h264 NVENC en MP4 en `output/edits/`, sin tocar el original? (Sí.)
-4. ¿Corrección de imagen con presets y deslizadores, y LUT opcional? (Sí; ¿tienes alguna LUT que uses?)
-5. ¿Entre tramos, corte seco o fundido corto (0,3 s)? (Corte seco por defecto, fundido opcional.)
-6. ¿Las grabaciones llevan siempre su ACMI asociado? (No lo doy por hecho: degradar sin ACMI.)
-7. ¿Duración típica del highlight? (Entre 3 y 10 min, configurable.)
+**Decisiones de David (2026-10-18)**
+1. Entrega por fases 0, 1, 2 y 3, en PRs separadas.
+2. Revisión siempre obligatoria antes de renderizar, sin modo automático.
+3. Salida h264 NVENC en MP4 en `output/edits/`, sin tocar el original.
+4. Corrección de imagen totalmente automática, sin LUT ni deslizadores.
+5. Fundido entre tramos (0,3 s por defecto, con opción de corte seco).
+6. Las grabaciones llevan siempre su ACMI asociado.
+7. Duración del highlight a criterio de Claude para YouTube: 9 minutos por defecto (rango 8 a 10), porque la
+   [documentación de YouTube](https://support.google.com/youtube/answer/6175006?hl=en) indica que los anuncios
+   intermedios solo están disponibles en vídeos monetizados de 8 minutos o más. Aplica solo si el canal
+   está monetizado (no verificado); si no, convendría un highlight más corto. La retención de audiencia
+   no se ha medido.
 
 ### Criterios de aceptación
 - Fase 0: un informe con, para 2 o 3 grabaciones reales, qué señales detectan tiempos muertos y con qué
