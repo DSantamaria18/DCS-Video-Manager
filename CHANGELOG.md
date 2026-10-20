@@ -15,6 +15,12 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ## [No publicado]
 
+### Corregido
+
+- Edición (FEA-09): la carrera de frenado tras el aterrizaje ya no se acelera. El rodaje posterior a una
+  aproximación empieza a acelerarse 45 s después del toque (antes 10 s), porque la fase "rodaje" arranca por
+  debajo de 60 kt, con el avión aún frenando.
+
 ### Añadido
 
 - Render de la edición (FEA-09, fase 1b): el botón RENDER EDIT de la pestaña "Edición" genera

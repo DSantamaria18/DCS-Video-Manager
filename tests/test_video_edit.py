@@ -86,6 +86,17 @@ def test_propose_segments_shifts_to_video_time_and_clamps_to_video_start():
     assert all(0 <= s["start"] < s["end"] <= 810.0 for s in segs)
 
 
+def test_propose_segments_keeps_landing_rollout_at_normal_speed():
+    taxi = (200, 1, 20, 5, 5, 270)
+    tel = _tel(GROUND, TAKEOFF, CRUISE, APPROACH, taxi)
+    touchdown = 200 + 30 + 570 + 60
+    segs = video_edit.propose_segments(tel, event_times=[], offset_s=0.0, video_duration=1100.0)
+    after_landing = [s for s in segs if s["start"] > touchdown - 10]
+    assert len(after_landing) == 1
+    assert after_landing[0]["start"] >= touchdown + 45
+    assert segs[0]["start"] == pytest.approx(10.0)  # el rodaje inicial conserva el margen normal
+
+
 def test_propose_segments_drops_runs_shorter_than_a_minute():
     tel = _tel((50, 1, 20, 5, 5, 0), CRUISE)
     segs = video_edit.propose_segments(tel, event_times=[], offset_s=0.0, video_duration=620.0)
