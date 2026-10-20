@@ -15,6 +15,17 @@ Categorías: `Añadido`, `Cambiado`, `Obsoleto`, `Eliminado`, `Corregido`, `Segu
 
 ## [No publicado]
 
+### Añadido
+
+- Highlights (FEA-09, fase 2): el modo HIGHLIGHT de la pestaña Edición propone los mejores momentos desde los
+  eventos del ACMI. Cada evento abre una ventana según su tipo (kill, eyección, bomba guiada, SAM, BVR), con
+  segundos antes y después editables en la UI y guardados en `highlight_windows`; las ventanas cercanas se
+  funden y se eligen por prioridad hasta `highlight_target_s` (540 por defecto, tope 10 min). Por debajo de
+  8 min se rellena con despegue, aterrizaje completo y ventanas de navegación no estática. La revisión permite
+  desmarcar ventanas y ajustar inicio y fin; el render las conserva en orden cronológico con fundido de 0,3 s y
+  mezcla una pista de la subcarpeta `highlight` de `music_folder` bajo el audio (`highlight_music_db`, -20).
+  Nuevos `POST /api/edit/highlights` y `mode: "highlight"` en `POST /api/edit/render`.
+
 ### Corregido
 
 - Edición (FEA-09): la carrera de frenado tras el aterrizaje ya no se acelera. El rodaje posterior a una

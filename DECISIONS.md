@@ -290,6 +290,25 @@ El PSNR frente al original se satura en ~31 dB, así que no es una prueba percep
 de menos de 0,7 s se descartan para poder hacer fundido; de un tramo que 16x no absorbe se corta el final; las
 pruebas con ffmpeg real se omiten si no hay ffmpeg.
 
+### Highlights: ventanas por tipo de evento y el mismo render que los cortes
+
+**Evidencia.** Fase 2 de FEA-09 (2026-10-20). `_collect_candidate_timestamps` solo da instante y tipo de evento, sin
+puntuación numérica, así que la selección usa la prioridad por tipo (kill, eyección, bomba guiada, SAM, BVR) y no
+"los de mayor puntuación" del SPEC original.
+
+**Motivo.** Un highlight es el inverso de un corte de tiempos muertos: se conservan las ventanas y se cortan los
+huecos. `video_edit.to_render_plan` lo expresa con acciones `keep` y `cut`, que `build_pieces` y el render por
+bloques ya entienden, así que no hay un segundo camino de render. La única novedad en `video_render.py` es la música
+de fondo, mezclada en el mismo grafo de audio antes de `loudnorm`, de modo que `highlight_music_db` es relativo al
+audio del juego y no un nivel absoluto.
+
+**Límites conocidos.** Las ventanas por defecto (kill 20 s antes y 10 después, etc.) son una estimación sin medir.
+Sobre `op_green_line-05` el parseo no devolvió ningún evento, y el highlight salió entero de relleno (despegue,
+aterrizaje y 12 ventanas de navegación, 8 min): falta comprobarlo con una grabación con combate. La música de fondo
+no baja con la radio (sin ducking). El resumen de duración de la UI suma las ventanas marcadas y resta los
+fundidos; el render valida solapes y rangos. La pestaña no se ha comprobado en navegador real (la extensión de
+Chrome no estaba conectada): solo sintaxis del JS y la API con `DCS_SIMULATE=1`.
+
 ### Cola de pendientes: playlist de subidas en vez de `search.list`, y `status` reenviado al programar
 
 **Evidencia.** `list_pending_videos()` y `schedule_video()` en `youtube_uploader.py`. Verificado contra la

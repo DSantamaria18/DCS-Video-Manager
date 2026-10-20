@@ -1165,15 +1165,20 @@
       </div>
     </div>
 
-    <!-- EDICIÓN TAB (FEA-09, fase 1a: propuesta y revisión, sin render) -->
+    <!-- EDICIÓN TAB (FEA-09: tiempos muertos y highlights; propuesta, revisión y render) -->
     <div class="tab-content" id="tab-edit">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div class="section-label" style="margin:0">Dead time from the ACMI telemetry</div>
-        <button class="copy-btn" id="editAnalyzeBtn" onclick="analyzeCuts()">ANALYZE CUTS</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="section-label" id="editTitle" style="margin:0">Dead time from the ACMI telemetry</div>
+        <div style="display:flex;gap:8px;">
+          <button class="copy-btn" id="editModeDead" onclick="setEditMode('dead')">DEAD TIME</button>
+          <button class="copy-btn" id="editModeHl" onclick="setEditMode('highlight')">HIGHLIGHT</button>
+          <button class="copy-btn" id="editAnalyzeBtn" onclick="analyzeEdit()">ANALYZE CUTS</button>
+        </div>
       </div>
       <div id="editMsg" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin:8px 0;">
         Uses the video, ACMI and ACMI offset from the left panel. This step only proposes and previews the edit.
       </div>
+      <div id="hlSettings" style="display:none;margin-bottom:10px;padding:10px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;font-family:var(--mono);font-size:10px;color:var(--text3);"></div>
       <div id="editSummary" style="display:none;margin-bottom:10px;padding:10px;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;font-family:var(--mono);font-size:11px;">
         <span id="editTotals"></span>
         <label style="margin-left:14px;color:var(--text3);cursor:pointer;">
@@ -1187,7 +1192,7 @@
             style="background:var(--green3);border-color:var(--green2);">RENDER EDIT</button>
           <label>MUSIC FOLDER
             <input type="text" id="editMusicFolder" onchange="saveMusicFolder()"
-              placeholder="folder with rodaje_despegue, navegacion and aproximacion_aterrizaje subfolders"
+              placeholder="folder with rodaje_despegue, navegacion, aproximacion_aterrizaje and highlight subfolders"
               style="width:440px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:2px;">
           </label>
         </div>
@@ -2592,6 +2597,130 @@ function _editClock(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+let _editMode = 'dead';       // 'dead' | 'highlight'
+let _hlPlan = null;           // {videoDuration, segments: [{start, end, on, reason, label, types}]}
+const _HL_TYPES = [['kill', 'Kill'], ['ejection', 'Ejection'], ['guided_bomb', 'Guided bomb'],
+                   ['sam', 'SAM launch'], ['bvr', 'BVR launch']];
+const _EDIT_INPUT = 'background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:10px;padding:3px 5px;border-radius:2px;';
+
+function setEditMode(mode) {
+  _editMode = mode;
+  const hl = mode === 'highlight';
+  document.getElementById('editTitle').textContent = hl ? 'Highlight from the ACMI events' : 'Dead time from the ACMI telemetry';
+  document.getElementById('editAnalyzeBtn').textContent = hl ? 'ANALYZE HIGHLIGHT' : 'ANALYZE CUTS';
+  document.getElementById('hlSettings').style.display = hl ? '' : 'none';
+  document.getElementById('editModeDead').style.opacity = hl ? '0.5' : '1';
+  document.getElementById('editModeHl').style.opacity = hl ? '1' : '0.5';
+  document.getElementById('editRender').style.display = 'none';
+  document.getElementById('editSummary').style.display = 'none';
+  document.getElementById('editList').innerHTML = '';
+  if (hl && _hlPlan) { renderHlList(); refreshHlSummary(); }
+  if (!hl && _editPlan) { renderEditList(); refreshEditSummary(); }
+}
+
+function analyzeEdit() { return _editMode === 'highlight' ? analyzeHighlight() : analyzeCuts(); }
+
+function renderHlSettings(cfg) {
+  const w = cfg.highlight_windows || {};
+  const num = (id, v, max) => `<input type="number" id="${id}" min="0" max="${max}" step="1" value="${v}" style="width:60px;${_EDIT_INPUT}">`;
+  document.getElementById('hlSettings').innerHTML =
+    `<div style="margin-bottom:6px;">SECONDS KEPT AROUND EACH EVENT (saved as the new default when you analyse)</div>` +
+    _HL_TYPES.map(([t, label]) => `<div style="display:flex;gap:10px;align-items:center;margin:4px 0;">
+      <span style="width:110px;">${label}</span>
+      <label>BEFORE ${num('hl_before_' + t, (w[t] || {}).before_s ?? 0, 120)}</label>
+      <label>AFTER ${num('hl_after_' + t, (w[t] || {}).after_s ?? 0, 120)}</label></div>`).join('') +
+    `<div style="margin-top:8px;"><label>TARGET MINUTES ${num('hlTarget', Math.round((cfg.highlight_target_s || 540) / 60), 60)}</label></div>`;
+}
+
+async function analyzeHighlight() {
+  const msg = document.getElementById('editMsg');
+  const btn = document.getElementById('editAnalyzeBtn');
+  const video = document.getElementById('videoPath').value.trim();
+  const acmi = document.getElementById('acmiPath').value.trim();
+  if (!video || !acmi) {
+    msg.textContent = 'Select the video and its ACMI file in the left panel first.';
+    msg.style.color = 'var(--amber)';
+    return;
+  }
+  const windows = {};
+  _HL_TYPES.forEach(([t]) => {
+    windows[t] = { before_s: Number(document.getElementById('hl_before_' + t).value),
+                   after_s: Number(document.getElementById('hl_after_' + t).value) };
+  });
+  const target = Number(document.getElementById('hlTarget').value) * 60;
+  btn.disabled = true;
+  msg.style.color = 'var(--text3)';
+  msg.textContent = 'Reading the ACMI events...';
+  try {
+    const saved = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ highlight_windows: windows, highlight_target_s: target }) });
+    if (!saved.ok) throw new Error((await saved.json()).error || 'Could not save the windows');
+    const res = await fetch('/api/edit/highlights', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ video_path: video, acmi_path: acmi, acmi_offset_s: acmiOffsetValue(),
+                             windows, target_s: target }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    const result = await _waitForJob(data.job_id);
+    _hlPlan = {
+      videoDuration: result.video_duration, warnings: result.warnings,
+      segments: result.segments.map(s => ({ start: s.start, end: s.end, on: true, reason: s.reason,
+                                            label: s.label || '', types: s.event_types || [] })),
+    };
+    msg.textContent = `${_hlPlan.segments.length} window(s) proposed (ACMI offset ${Math.round(result.offset_s)} s). Untick the ones you do not want.`;
+    renderHlList();
+    refreshHlSummary();
+  } catch (e) {
+    msg.textContent = '⚠ ' + e.message;
+    msg.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderHlList() {
+  const list = document.getElementById('editList');
+  if (!_hlPlan || !_hlPlan.segments.length) {
+    list.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:30px;">No highlight material found</div>';
+    document.getElementById('editSummary').style.display = 'none';
+    return;
+  }
+  list.innerHTML = _hlPlan.segments.map((s, i) => `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10px;">
+      <input type="checkbox" ${s.on ? 'checked' : ''} onchange="onHlField(${i}, 'on', this.checked)">
+      <span style="color:var(--text3);width:22px;">#${i + 1}</span>
+      <span style="width:130px;color:${s.reason === 'evento' ? 'var(--green)' : 'var(--text3)'};">${s.reason === 'evento' ? escHtml(s.types.join(' + ')) : 'fill: ' + escHtml(s.label)}</span>
+      <label>START <input type="number" min="0" step="1" value="${Math.round(s.start)}" style="width:70px;${_EDIT_INPUT}"
+        onchange="onHlField(${i}, 'start', this.value)"></label>
+      <label>END <input type="number" min="0" step="1" value="${Math.round(s.end)}" style="width:70px;${_EDIT_INPUT}"
+        onchange="onHlField(${i}, 'end', this.value)"></label>
+      <span id="hl_len_${i}" style="color:var(--text3);">${_editClock(s.start)}-${_editClock(s.end)} (${Math.round(s.end - s.start)} s)</span>
+    </div>`).join('');
+}
+
+function onHlField(i, field, value) {
+  const s = _hlPlan.segments[i];
+  if (field === 'on') s.on = value;
+  else s[field] = Number(value);
+  const len = document.getElementById('hl_len_' + i);
+  if (len) len.textContent = `${_editClock(s.start)}-${_editClock(s.end)} (${Math.round(s.end - s.start)} s)`;
+  refreshHlSummary();
+}
+
+// Suma simple de las ventanas marcadas menos los fundidos: el render valida solapes y rangos.
+function refreshHlSummary() {
+  const kept = _hlPlan.segments.filter(s => s.on && s.end > s.start);
+  const fade = document.getElementById('editFade').checked ? 0.3 : 0;
+  const total = kept.reduce((a, s) => a + (s.end - s.start), 0) - fade * Math.max(0, kept.length - 1);
+  document.getElementById('editTotals').textContent =
+    `Highlight ${_editClock(Math.max(total, 0))} from ${kept.length} window(s)  (video ${_editClock(_hlPlan.videoDuration)})`;
+  const warn = (_hlPlan.warnings || []).join(' ');
+  if (warn) { const msg = document.getElementById('editMsg'); msg.textContent = '⚠ ' + warn; msg.style.color = 'var(--amber)'; }
+  document.getElementById('editSummary').style.display = '';
+  document.getElementById('editRender').style.display = kept.length ? '' : 'none';
+}
+
 async function analyzeCuts() {
   const msg = document.getElementById('editMsg');
   const btn = document.getElementById('editAnalyzeBtn');
@@ -2681,6 +2810,7 @@ function onEditField(i, field, value) {
 
 // El cálculo vive en el servidor (video_edit.summarize_plan): la UI no duplica las reglas de velocidad.
 async function refreshEditSummary() {
+  if (_editMode === 'highlight') { if (_hlPlan) refreshHlSummary(); return; }
   if (!_editPlan) return;
   const msg = document.getElementById('editMsg');
   const body = {
@@ -2723,6 +2853,7 @@ async function loadEditSettings() {
   try {
     const cfg = await (await fetch('/api/config')).json();
     document.getElementById('editMusicFolder').value = cfg.music_folder || '';
+    if (!document.getElementById('hl_before_kill')) renderHlSettings(cfg);   // no pisa lo que se esté editando
   } catch (e) { /* la pestaña funciona sin esto */ }
 }
 
@@ -2736,7 +2867,8 @@ async function saveMusicFolder() {
 }
 
 async function renderEdit() {
-  if (!_editPlan) return;
+  const highlight = _editMode === 'highlight';
+  if (highlight ? !_hlPlan : !_editPlan) return;
   const btn = document.getElementById('editRenderBtn');
   const msg = document.getElementById('editRenderMsg');
   const fill = document.getElementById('editRenderFill');
@@ -2750,8 +2882,10 @@ async function renderEdit() {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         video_path: video, fade_s: document.getElementById('editFade').checked ? 0.3 : 0,
-        segments: _editPlan.segments.map(s => ({ start: s.start, end: s.end, action: s.action, fase: s.fase,
-                                                 ...(s.speed ? { speed: s.speed } : {}) })),
+        ...(highlight
+          ? { mode: 'highlight', segments: _hlPlan.segments.filter(s => s.on).map(s => ({ start: s.start, end: s.end })) }
+          : { segments: _editPlan.segments.map(s => ({ start: s.start, end: s.end, action: s.action, fase: s.fase,
+                                                       ...(s.speed ? { speed: s.speed } : {}) })) }),
       }),
     });
     const data = await res.json();
