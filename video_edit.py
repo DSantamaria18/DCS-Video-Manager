@@ -151,11 +151,13 @@ def steady_flags(tel: dict, win: int = 60) -> list:
 
 def propose_segments(tel: dict, event_times: list, offset_s: float, video_duration: float | None,
                      min_run_s: int = 60, margin_s: int = 10, min_kept_s: int = 40,
-                     event_guard_s: int = 20) -> list:
+                     event_guard_s: int = 20, landing_guard_s: int = 45) -> list:
     """Dead-time segments in video time: ground idling or steady cruise, away from combat events.
 
     event_times are in video time (parse_acmi_events with the same offset). Each segment is trimmed
     by margin_s on both sides to protect the transitions, then shifted to video time and clamped.
+    A ground run that follows an approach (touchdown) starts landing_guard_s late, so the rollout
+    plays at normal speed: rodaje starts below 60 kt, well before the aircraft is actually taxiing.
     """
     phases = classify_phases(tel)
     steady = steady_flags(tel)
@@ -174,18 +176,19 @@ def propose_segments(tel: dict, event_times: list, offset_s: float, video_durati
         if flag and start is None:
             start = i
         elif not flag and start is not None:
+            after_touchdown = start > 0 and phases[start - 1] == "aproximacion"
             seg = _trim_run(t, phases[start:i], start, i - 1, offset_s, video_duration,
-                            min_run_s, margin_s, min_kept_s)
+                            min_run_s, landing_guard_s if after_touchdown else margin_s, margin_s, min_kept_s)
             if seg:
                 segments.append(seg)
             start = None
     return segments
 
 
-def _trim_run(t, run_phases, a, b, offset_s, video_duration, min_run_s, margin_s, min_kept_s):
+def _trim_run(t, run_phases, a, b, offset_s, video_duration, min_run_s, start_margin_s, margin_s, min_kept_s):
     if b - a + 1 < min_run_s:
         return None
-    start, end = t[a] + margin_s - offset_s, t[b] - margin_s - offset_s
+    start, end = t[a] + start_margin_s - offset_s, t[b] - margin_s - offset_s
     start = max(start, 0.0)
     if video_duration is not None:
         end = min(end, video_duration)
