@@ -118,6 +118,16 @@ def test_audio_graph_fuses_tracks_uses_music_and_crossfades():
     assert graph.count("acrossfade=d=0.3") == 2 and "loudnorm" in graph and graph.rstrip().endswith("[aout]")
 
 
+def test_audio_graph_adds_a_looping_background_bed_under_the_edit():
+    pieces = [_normal(0, 10), _normal(20, 30)]
+    graph, extra = vr.audio_graph(pieces, [0], {}, 0.3, bed=Path("bed.mp3"), bed_db=-20.0)
+    assert extra == ["-i", "bed.mp3"]
+    assert "[1:a]aresample" in graph and "aloop=loop=-1" in graph and "volume=-20.0dB" in graph
+    assert "atrim=0:19.7000" in graph.split("[bed]")[0].splitlines()[-1]       # 10 + 10 - 0.3 de fundido
+    assert "[joined][bed]amix=inputs=2:normalize=0:duration=first[mixed]" in graph
+    assert "[mixed]loudnorm" in graph and "[joined]loudnorm" not in graph
+
+
 def test_audio_graph_without_tracks_or_music_uses_silence():
     pieces = [_normal(0, 10), _speed(10, 30, 4)]
     graph, extra = vr.audio_graph(pieces, [], {}, 0.3)
@@ -201,6 +211,33 @@ def test_render_edit_mixes_music_into_the_sped_up_section_and_never_overwrites(t
     assert not any("music" in w.lower() for w in first["warnings"])
     assert Path(second["output_path"]).name == "rec_editado_2.mp4"
     assert _durations(Path(first["output_path"]))["a"] == pytest.approx(EXPECTED, abs=0.25)
+
+
+HIGHLIGHT_PLAN = [{"start": 0, "end": 5, "action": "cut"}, {"start": 5, "end": 15, "action": "keep"},
+                  {"start": 15, "end": 25, "action": "cut"}, {"start": 25, "end": 35, "action": "keep"},
+                  {"start": 35, "end": 40, "action": "cut"}]
+
+
+@needs_ffmpeg
+def test_render_edit_highlight_mixes_a_background_bed_and_warns_without_one(tmp_path):
+    clip = tmp_path / "rec.mkv"
+    _make_clip(clip)
+    bed_dir = tmp_path / "music" / "highlight"
+    bed_dir.mkdir(parents=True)
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "sine=frequency=880:duration=3", str(bed_dir / "song.wav")], check=True)
+
+    with_bed = vr.render_edit(clip, HIGHLIGHT_PLAN, tmp_path / "edits", music_folder=str(tmp_path / "music"),
+                              music_bed_db=-20.0, seed=1)
+    without = vr.render_edit(clip, HIGHLIGHT_PLAN, tmp_path / "edits", music_folder=str(tmp_path / "none"),
+                             music_bed_db=-20.0)
+
+    expected = 20 - 0.3                     # dos ventanas de 10 s unidas con un fundido
+    for result in (with_bed, without):
+        d = _durations(Path(result["output_path"]))
+        assert d["v"] == pytest.approx(expected, abs=0.25) and d["a"] == pytest.approx(expected, abs=0.25)
+    assert not any("background music" in w.lower() for w in with_bed["warnings"])
+    assert any("background music" in w.lower() for w in without["warnings"])
 
 
 @needs_ffmpeg

@@ -308,3 +308,155 @@ def analyze_cuts(video_path: Path, acmi_path: Path, offset_s: float | None = Non
     tel = read_player_telemetry(acmi_path)
     segments = propose_segments(tel, event_times, offset, duration)
     return {**summarize_plan(segments, duration), "offset_s": offset}
+
+
+# ── Highlights (fase 2) ───────────────────────────────────────────────────────
+
+# Prioridad de mayor a menor (el orden de _deduplicate_candidates) y su clave en parse_acmi_events.
+HIGHLIGHT_TYPES = ("kill", "ejection", "guided_bomb", "sam", "bvr")
+_EVENT_KEYS = {"kill": "kills", "ejection": "ejection_events", "guided_bomb": "bomb_releases",
+               "sam": "sam_launches", "bvr": "bvr_launches"}
+DEFAULT_WINDOWS = {"kill": {"before_s": 20, "after_s": 10}, "ejection": {"before_s": 15, "after_s": 10},
+                   "guided_bomb": {"before_s": 20, "after_s": 15}, "sam": {"before_s": 15, "after_s": 10},
+                   "bvr": {"before_s": 20, "after_s": 15}}
+MAX_WINDOW_S = 120
+_FILL_TAKEOFF_S, _FILL_LANDING_BEFORE_S, _FILL_LANDING_AFTER_S, _FILL_NAV_S = 45, 60, 30, 30
+
+
+def validate_windows(windows: dict | None) -> dict:
+    """Window (seconds before/after) per event type: the given values over the defaults, range-checked."""
+    if windows is not None and not isinstance(windows, dict):
+        raise ValueError("windows must be an object")
+    merged = {t: dict(DEFAULT_WINDOWS[t]) for t in HIGHLIGHT_TYPES}
+    for event_type, window in (windows or {}).items():
+        if event_type not in merged:
+            raise ValueError(f"unknown event type {event_type!r}")
+        if not isinstance(window, dict) or set(window) - {"before_s", "after_s"}:
+            raise ValueError(f"window of {event_type} needs before_s and after_s")
+        for key, value in window.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= MAX_WINDOW_S:
+                raise ValueError(f"{event_type}.{key} must be a number between 0 and {MAX_WINDOW_S}")
+            merged[event_type][key] = value
+    return merged
+
+
+def _merge_windows(wins: list, gap_s: float) -> list:
+    merged = []
+    for w in sorted(wins, key=lambda w: w["start"]):
+        if merged and w["start"] - merged[-1]["end"] < gap_s:
+            last = merged[-1]
+            last["end"] = max(last["end"], w["end"])
+            last["event_types"] += [t for t in w["event_types"] if t not in last["event_types"]]
+        else:
+            merged.append({**w, "event_types": list(w["event_types"])})
+    return merged
+
+
+def _total(wins: list) -> float:
+    return sum(w["end"] - w["start"] for w in wins)
+
+
+def _overlaps(a: dict, wins: list) -> bool:
+    return any(a["start"] < w["end"] and w["start"] < a["end"] for w in wins)
+
+
+def _filler_windows(tel: dict, offset_s: float, video_duration: float) -> tuple:
+    """Takeoff and landing windows, plus the 30 s chunks of non-static navigation they can be topped up with."""
+    phases, t = classify_phases(tel), tel["t"]
+
+    def clamp(a, b):
+        return max(a, 0.0), min(b, video_duration)
+
+    takeoff = landing = None
+    for i, phase in enumerate(phases):
+        if phase == "despegue" and takeoff is None:
+            takeoff = clamp(t[i] - offset_s, t[i] - offset_s + _FILL_TAKEOFF_S)
+        if phase == "rodaje" and i and phases[i - 1] == "aproximacion":
+            touch = t[i] - offset_s
+            landing = clamp(touch - _FILL_LANDING_BEFORE_S, touch + _FILL_LANDING_AFTER_S)
+    steady = steady_flags(tel)
+    chunks, run = [], None
+    for i, phase in enumerate(phases + [None]):
+        free = phase == "navegacion" and not steady[i]
+        if free and run is None:
+            run = i
+        elif not free and run is not None:
+            start = t[run] - offset_s
+            while start + _FILL_NAV_S <= t[i - 1] - offset_s:
+                chunks.append(clamp(start, start + _FILL_NAV_S))
+                start += _FILL_NAV_S
+            run = None
+    return takeoff, landing, chunks
+
+
+def propose_highlights(events: dict, tel: dict | None, offset_s: float, video_duration: float,
+                       windows: dict | None = None, target_s: float = 540.0, min_s: float = 480.0,
+                       max_s: float = 600.0, merge_gap_s: float = 5.0) -> dict:
+    """Highlight windows in video time: combat events by priority up to target_s, topped up below min_s.
+
+    events come from acmi.parse_acmi_events with the same offset (time_s already in video time). If the
+    events fall short of min_s, takeoff, landing and spread navigation windows are added (reason "relleno"),
+    which needs the player telemetry; without it the highlight is just shorter and a warning says so.
+    """
+    windows = validate_windows(windows)
+    cands = []
+    for rank, event_type in enumerate(HIGHLIGHT_TYPES):
+        w = windows[event_type]
+        for ev in events.get(_EVENT_KEYS[event_type], []):
+            start, end = max(ev["time_s"] - w["before_s"], 0.0), min(ev["time_s"] + w["after_s"], video_duration)
+            if end > start:
+                cands.append((rank, start, {"start": start, "end": end, "event_types": [event_type]}))
+    accepted = []
+    for _, _, cand in sorted(cands, key=lambda c: c[:2]):
+        trial = _merge_windows(accepted + [cand], merge_gap_s)
+        if _total(trial) > max_s:
+            continue
+        accepted.append(cand)
+        if _total(trial) >= target_s:
+            break
+    segments = [{**w, "reason": "evento"} for w in _merge_windows(accepted, merge_gap_s)]
+
+    if _total(segments) < min_s and tel is not None:
+        takeoff, landing, chunks = _filler_windows(tel, offset_s, video_duration)
+        for label, span in (("despegue", takeoff), ("aterrizaje", landing)):
+            win = span and {"start": span[0], "end": span[1], "event_types": [], "reason": "relleno", "label": label}
+            if win and win["end"] > win["start"] and not _overlaps(win, segments):
+                segments.append(win)
+        free = [{"start": a, "end": b, "event_types": [], "reason": "relleno", "label": "navegacion"}
+                for a, b in chunks]
+        free = [c for c in free if not _overlaps(c, segments)]
+        need = math.ceil(max(min_s - _total(segments), 0) / _FILL_NAV_S)
+        if need and free:
+            picks = free if need >= len(free) else [free[int((k + 0.5) * len(free) / need)] for k in range(need)]
+            segments += picks
+    segments.sort(key=lambda w: w["start"])
+    duration = _total(segments)
+    warnings = [] if duration >= min_s else [f"Highlight shorter than {min_s / 60:g} min: not enough material"]
+    return {"segments": segments, "duration_s": duration, "warnings": warnings}
+
+
+def to_render_plan(segments: list, video_duration: float) -> list:
+    """Render plan of a highlight: its windows are kept and every gap between them is cut."""
+    plan, cursor = [], 0.0
+    for seg in sorted(segments, key=lambda s: s["start"]):
+        if seg["start"] > cursor:
+            plan.append({"start": cursor, "end": seg["start"], "action": "cut"})
+        plan.append({"start": seg["start"], "end": seg["end"], "action": "keep"})
+        cursor = seg["end"]
+    if cursor < video_duration:
+        plan.append({"start": cursor, "end": video_duration, "action": "cut"})
+    return plan
+
+
+def analyze_highlights(video_path: Path, acmi_path: Path, offset_s: float | None = None,
+                       windows: dict | None = None, target_s: float = 540.0) -> dict:
+    """Propose the highlight of a recording from its ACMI events and telemetry."""
+    from dcs_meta import _get_video_duration
+
+    windows = validate_windows(windows)
+    duration = _get_video_duration(Path(video_path))
+    offset = acmi.resolve_acmi_offset(Path(video_path), Path(acmi_path), offset_s)
+    events = acmi.parse_acmi_events(Path(acmi_path), offset_s=offset)
+    proposal = propose_highlights(events, read_player_telemetry(acmi_path), offset, duration, windows, target_s)
+    resulting = summarize_plan(to_render_plan(proposal["segments"], duration), duration)["resulting_duration"]         if proposal["segments"] else 0.0
+    return {**proposal, "resulting_duration": resulting, "video_duration": duration, "offset_s": offset}

@@ -199,6 +199,7 @@ VALID_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro"}
 _CONFIG_ALLOWED_KEYS = {"channel_name", "channel_description", "squadron",
                         "default_links", "frames_to_extract", "model",
                         "description_templates", "recordings_folder", "music_folder", "edit_cq",
+                        "highlight_target_s", "highlight_music_db", "highlight_windows",
                         "discord_webhook_url", "discord_bot_token", "discord_channel_id"}
 
 
@@ -239,6 +240,20 @@ def save_config():
         if not isinstance(folder, str) or (folder.strip() and not Path(folder.strip()).is_dir()):
             return jsonify({"error": "music_folder must be an existing folder (or empty)"}), 400
         data["music_folder"] = folder.strip()
+
+    if "highlight_target_s" in data:
+        error = _highlight_target_error(data["highlight_target_s"])
+        if error:
+            return jsonify({"error": error}), 400
+    if "highlight_music_db" in data:
+        db = data["highlight_music_db"]
+        if isinstance(db, bool) or not isinstance(db, (int, float)) or not -60 <= db <= 0:
+            return jsonify({"error": "highlight_music_db must be a number between -60 and 0"}), 400
+    if "highlight_windows" in data:
+        try:
+            video_edit.validate_windows(data["highlight_windows"])
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
     if "model" in data and data["model"] not in VALID_MODELS:
         return jsonify({"error": f"Invalid model. Allowed: {', '.join(sorted(VALID_MODELS))}"}), 400
@@ -1119,6 +1134,82 @@ def edit_analyze_cuts():
     return jsonify({"job_id": job_id})
 
 
+def _highlight_target_error(target) -> str | None:
+    if isinstance(target, bool) or not isinstance(target, (int, float)) or not 60 <= target <= 3600:
+        return "target_s must be a number between 60 and 3600"
+    return None
+
+
+_SIMULATED_HIGHLIGHT = {
+    "segments": [{"start": 300.0, "end": 330.0, "reason": "evento", "event_types": ["kill"]},
+                 {"start": 900.0, "end": 960.0, "reason": "relleno", "event_types": [], "label": "aterrizaje"}],
+    "duration_s": 90.0, "resulting_duration": 89.7, "warnings": [], "offset_s": 0.0, "video_duration": 3600.0,
+}
+
+
+@app.route("/api/edit/highlights", methods=["POST"])
+def edit_highlights():
+    """POST /api/edit/highlights — propose the highlight windows from the ACMI events (no rendering).
+
+    Request body: {"video_path": str, "acmi_path": str, "acmi_offset_s": number (optional),
+    "target_s": number 60-3600 (optional, default highlight_target_s), "windows": {type: {before_s, after_s}}
+    (optional, over the saved highlight_windows)}. Starts a background job; poll /api/status/<job_id>. The
+    result holds the windows in video time (start, end, reason, event_types, label), the duration with and
+    without fades, warnings, the offset used and the windows applied.
+    """
+    data = request.get_json() or {}
+    video_path = (data.get("video_path") or "").strip()
+    acmi_path = (data.get("acmi_path") or "").strip()
+    if not video_path:
+        return jsonify({"error": "Missing video_path"}), 400
+    video = Path(video_path)
+    if not video.is_file():
+        return jsonify({"error": f"File not found: {video_path}"}), 404
+    if not acmi_path:
+        return jsonify({"error": "Missing acmi_path: highlights come from the ACMI events"}), 400
+    acmi_file = Path(acmi_path)
+    if acmi_file.suffix.lower() != ".acmi":
+        return jsonify({"error": "File must be a .acmi file"}), 400
+    if not acmi_file.is_file():
+        return jsonify({"error": f"File not found: {acmi_path}"}), 404
+    cfg = dcs_meta.load_config()
+    target = data.get("target_s", cfg.get("highlight_target_s", 540))
+    error = _highlight_target_error(target)
+    if error:
+        return jsonify({"error": error}), 400
+    incoming = data.get("windows")
+    if incoming is not None and not isinstance(incoming, dict):
+        return jsonify({"error": "windows must be an object"}), 400
+    try:
+        offset = _parse_offset(data.get("acmi_offset_s"))
+        saved = video_edit.validate_windows(cfg.get("highlight_windows"))
+        windows = video_edit.validate_windows({**saved, **(incoming or {})})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    _evict_old_jobs()
+    job_id = str(uuid.uuid4())[:8]
+    processing_status[job_id] = {"status": "running", "progress": 0, "message": "Reading ACMI events...",
+                                 "result": None, "error": None}
+
+    def run_highlights():
+        try:
+            if os.environ.get("DCS_SIMULATE") == "1":
+                plan = dict(_SIMULATED_HIGHLIGHT)
+            else:
+                plan = video_edit.analyze_highlights(video, acmi_file, offset, windows, target)
+            processing_status[job_id]["status"] = "done"
+            processing_status[job_id]["progress"] = 100
+            processing_status[job_id]["message"] = f"Done! {len(plan['segments'])} window(s) proposed."
+            processing_status[job_id]["result"] = {**plan, "video_name": video.name, "windows": windows}
+        except Exception as e:  # noqa: BLE001 — boundary: cualquier fallo interno se convierte en resultado de error, no debe tumbar el hilo/petición
+            processing_status[job_id]["status"] = "error"
+            processing_status[job_id]["error"] = str(e)
+
+    threading.Thread(target=run_highlights, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
 def _plan_payload_error(segments, fade) -> str | None:
     """Shape checks shared by the plan endpoints; the real validation against the video is video_edit's."""
     if (not isinstance(segments, list) or not segments or len(segments) > _MAX_PLAN_SEGMENTS
@@ -1137,7 +1228,9 @@ def edit_render():
     """POST /api/edit/render — render the reviewed edit to output/edits/<name>_editado.mp4.
 
     Request body: {"video_path": str, "segments": [{start, end, action, speed (optional), fase}],
-    "fade_s": number (optional, 0-2)}. Starts a background job (one render at a time, else 409); poll
+    "fade_s": number (optional, 0-2), "mode": "dead_time" (default) | "highlight"}. In highlight mode the
+    segments are just the windows to keep ({start, end}): the gaps are cut and a background track from
+    <music_folder>/highlight is mixed under the edit at highlight_music_db. Starts a background job (one render at a time, else 409); poll
     /api/status/<job_id>. Never overwrites the original or an existing output; music comes from the
     configured music_folder and the quality from edit_cq.
     """
@@ -1149,13 +1242,22 @@ def edit_render():
     if not video.is_file():
         return jsonify({"error": f"File not found: {video_path}"}), 404
     segments, fade = data.get("segments"), data.get("fade_s", video_edit.DEFAULT_FADE_S)
+    mode = data.get("mode", "dead_time")
+    if mode not in ("dead_time", "highlight"):
+        return jsonify({"error": "mode must be dead_time or highlight"}), 400
     error = _plan_payload_error(segments, fade)
     if error:
         return jsonify({"error": error}), 400
     simulate = os.environ.get("DCS_SIMULATE") == "1"
     if not simulate:
         try:
-            video_edit.build_pieces(segments, dcs_meta._get_video_duration(video))
+            duration = dcs_meta._get_video_duration(video)
+            if mode == "highlight":
+                if not all(isinstance(s.get("start"), (int, float)) and isinstance(s.get("end"), (int, float))
+                           for s in segments):
+                    return jsonify({"error": "each window needs numeric start and end"}), 400
+                segments = video_edit.to_render_plan(segments, duration)
+            video_edit.build_pieces(segments, duration)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         except RuntimeError as e:
@@ -1184,6 +1286,8 @@ def edit_render():
                 result = video_render.render_edit(video, segments, out_dir, fade_s=float(fade),
                                                   cq=int(cfg.get("edit_cq", video_render.DEFAULT_CQ)),
                                                   music_folder=cfg.get("music_folder") or None,
+                                                  music_bed_db=float(cfg.get("highlight_music_db", -20))
+                                                  if mode == "highlight" else None,
                                                   on_progress=on_progress)
             processing_status[job_id]["status"] = "done"
             processing_status[job_id]["progress"] = 100

@@ -20,6 +20,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from video_edit import DEFAULT_WINDOWS
+
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config" / "config.json"
 # Discord secrets live in a separate, gitignored file (SEC-01) — config.json is
@@ -64,7 +66,10 @@ DEFAULT_CONFIG = {
     "description_templates": {},
     "recordings_folder": "",
     "music_folder": "",
-    "edit_cq": 28
+    "edit_cq": 28,
+    "highlight_target_s": 540,
+    "highlight_music_db": -20,
+    "highlight_windows": {t: dict(w) for t, w in DEFAULT_WINDOWS.items()}
 }
 
 # Discord secrets (SEC-01) — see SECRETS_PATH above.

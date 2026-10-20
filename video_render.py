@@ -21,6 +21,7 @@ DEFAULT_CQ = 28                  # ~11 Mbps en NVENC frente a los ~10 Mbps de la
 MAX_PIECES_PER_CHUNK = 12
 MUSIC_GAIN = 0.35                # ponytail: ganancia fija; ajustar con el primer render real o medir con loudnorm
 MUSIC_FADE_S = 1.0
+BED_FOLDER = "highlight"         # música de fondo del highlight (Fase 2)
 MUSIC_EXTENSIONS = (".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac")
 EMPTY_TRACK_DB = -90.0           # una pista cuyo máximo no pasa de aquí está vacía (p. ej. micro en monojugador)
 DUPLICATE_TOLERANCE_DB = 0.5
@@ -157,11 +158,13 @@ def video_chunk_graph(chunk: list, fps: str, fade_s: float) -> str:
     return ";\n".join(lines)
 
 
-def audio_graph(pieces: list, tracks: list, music: dict, fade_s: float) -> tuple:
+def audio_graph(pieces: list, tracks: list, music: dict, fade_s: float, bed: Path | None = None,
+                bed_db: float = -20.0) -> tuple:
     """(graph, extra_input_args) for the whole edit's audio.
 
     Normal pieces use the fused usable tracks; sped-up pieces use their music (index in `music` -> Path) or
-    silence. Input 0 is the recording; each music file is one more input, in the order of `music`.
+    silence. Input 0 is the recording; each music file is one more input, in the order of `music`. A `bed`
+    (highlight) is the last input: it loops under the whole edit, bed_db below it, fading in and out.
     """
     lines, extra, music_input = [], [], {}
     normals = [i for i, p in enumerate(pieces) if p["kind"] == "normal"]
@@ -205,7 +208,17 @@ def audio_graph(pieces: list, tracks: list, music: dict, fade_s: float) -> tuple
             cur = out
     else:
         lines.append("".join(f"[a{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=0:a=1[joined]")
-    lines.append("[joined]loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]")
+    source = "[joined]"
+    if bed:
+        total = sum(p["out_s"] for p in pieces) - fade_s * (len(pieces) - 1)
+        fade = min(MUSIC_FADE_S, total / 2)
+        extra += ["-i", str(bed)]
+        lines.append(f"[{len(music) + 1}:a]aresample={AUDIO_RATE},aformat=channel_layouts=stereo,"
+                     f"aloop=loop=-1:size=2147483647,atrim=0:{total:.4f},asetpts=PTS-STARTPTS,volume={bed_db}dB,"
+                     f"afade=t=in:d={fade:.3f},afade=t=out:st={total - fade:.4f}:d={fade:.3f}[bed]")
+        lines.append("[joined][bed]amix=inputs=2:normalize=0:duration=first[mixed]")
+        source = "[mixed]"
+    lines.append(f"{source}loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]")
     return ";\n".join(lines), extra
 
 
@@ -257,11 +270,13 @@ def _concat_entry(path: Path) -> str:
 
 
 def render_edit(video_path: Path, segments: list, out_dir: Path, *, fade_s: float = video_edit.DEFAULT_FADE_S,
-                cq: int = DEFAULT_CQ, music_folder: str | None = None, on_progress=None,
+                cq: int = DEFAULT_CQ, music_folder: str | None = None, music_bed_db: float | None = None,
+                on_progress=None,
                 max_pieces: int = MAX_PIECES_PER_CHUNK, seed: int | None = None) -> dict:
     """Render the reviewed edit to <out_dir>/<name>_editado.mp4 and return {output_path, duration, warnings}.
 
     Never touches the original or an existing file; temporary files live in a hidden folder inside out_dir.
+    music_bed_db (highlight) mixes a track of <music_folder>/highlight under the whole edit at that level.
     """
     video_path, out_dir = Path(video_path), Path(out_dir)
     progress = on_progress or (lambda pct, msg: None)
@@ -290,6 +305,12 @@ def render_edit(video_path: Path, segments: list, out_dir: Path, *, fade_s: floa
     if any(p["kind"] == "speed" for p in pieces) and len(music) < sum(p["kind"] == "speed" for p in pieces):
         warnings.append("Some sped-up sections have no music (music folder not set or empty): they are silent")
 
+    bed = None
+    if music_bed_db is not None:
+        bed = pick_music(music_folder, BED_FOLDER, rng, used)
+        if not bed:
+            warnings.append(f"No background music (no tracks in '{BED_FOLDER}' of the music folder): the highlight has none")
+
     encoder = encoder_args(cq)
     chunks = split_into_chunks(pieces, max_pieces)
     total = sum(chunk_length(c, fade_s) for c in chunks)
@@ -311,7 +332,7 @@ def render_edit(video_path: Path, segments: list, out_dir: Path, *, fade_s: floa
 
         progress(85, "Rendering audio")
         audio_file, audio_graph_file = tmp / "audio.m4a", tmp / "audio.graph"
-        graph, extra = audio_graph(pieces, tracks, music, fade_s)
+        graph, extra = audio_graph(pieces, tracks, music, fade_s, bed, music_bed_db or -20.0)
         audio_graph_file.write_text(graph, encoding="utf-8")
         _run_ffmpeg(["-i", str(video_path), *extra, "-filter_complex_script", str(audio_graph_file), "-map", "[aout]",
                      "-c:a", "aac", "-b:a", "192k", "-ar", str(AUDIO_RATE), str(audio_file)])

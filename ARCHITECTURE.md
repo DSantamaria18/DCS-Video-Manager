@@ -183,9 +183,13 @@ Todos los endpoints viven en `web/app.py`. El servidor escucha en `localhost:500
 - `POST /api/debrief`, `POST /api/narration`, `POST /api/social_captions` — generaciones adicionales con Gemini.
 - `POST /api/generate_shorts` — job de detección y recorte de clips 9:16.
 - `POST /api/edit/analyze_cuts` — job que propone tramos muertos desde la telemetría del ACMI (`video_edit.py`).
+- `POST /api/edit/highlights` — job que propone las ventanas del highlight desde los eventos del ACMI
+  (`video_edit.propose_highlights`: ventana por tipo, fusión, prioridad, relleno).
 - `POST /api/edit/plan_summary` — velocidad, duración de salida y duración total de una lista de tramos editada.
 - `POST /api/edit/render` — job que renderiza la edición revisada (`video_render.py`): vídeo por bloques unidos sin
   recodificar, audio en un grafo aparte y muxado final. Un render a la vez (409 si hay otro en curso).
+  Con `mode: "highlight"` recibe las ventanas a conservar, `video_edit.to_render_plan` corta los huecos y el
+  grafo de audio mezcla una pista de fondo de la subcarpeta `highlight`.
 
 **YouTube**
 

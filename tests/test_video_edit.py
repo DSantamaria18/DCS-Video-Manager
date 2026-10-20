@@ -1,5 +1,6 @@
 """Tests for video_edit: dead-time proposal from ACMI telemetry (FEA-09, Phase 1a)."""
 
+import itertools
 import zipfile
 
 import pytest
@@ -224,3 +225,94 @@ def test_build_pieces_speed_covers_only_the_accelerated_part():
     speed = pieces[0]
     assert speed["end"] == pytest.approx(320.0)          # 16x * 20 s; el resto se corta
     assert pieces[1]["kind"] == "normal" and pieces[1]["start"] == 582
+
+
+# ── highlights (FEA-09, fase 2) ───────────────────────────────────────────────
+
+def _events(**by_key):
+    return {key: [{"time_s": float(t)} for t in times] for key, times in by_key.items()}
+
+
+def test_validate_windows_fills_defaults_and_rejects_bad_values():
+    defaults = video_edit.validate_windows(None)
+    assert defaults["kill"] == {"before_s": 20, "after_s": 10} and set(defaults) == set(video_edit.HIGHLIGHT_TYPES)
+    custom = video_edit.validate_windows({"kill": {"before_s": 30}})
+    assert custom["kill"] == {"before_s": 30, "after_s": 10} and custom["sam"] == defaults["sam"]
+    for bad in ({"tank": {"before_s": 5}}, {"kill": {"before_s": 121}}, {"kill": {"after_s": -1}},
+                {"kill": {"before_s": "x"}}, {"kill": {"nope": 1}}, {"kill": 5}):
+        with pytest.raises(ValueError):
+            video_edit.validate_windows(bad)
+
+
+def test_propose_highlights_opens_a_window_per_event_type_clamped_to_the_video():
+    res = video_edit.propose_highlights(_events(kills=[5, 500], sam_launches=[300]), None, 0.0, 600.0,
+                                        target_s=1000, min_s=0)
+    spans = [(s["start"], s["end"], s["event_types"]) for s in res["segments"]]
+    assert spans == [(0, 15, ["kill"]), (285, 310, ["sam"]), (480, 510, ["kill"])]
+    assert all(s["reason"] == "evento" for s in res["segments"])
+
+
+def test_propose_highlights_merges_windows_closer_than_five_seconds():
+    close = video_edit.propose_highlights(_events(kills=[100, 134]), None, 0.0, 600.0, target_s=1000, min_s=0)
+    assert [(s["start"], s["end"]) for s in close["segments"]] == [(80, 144)]
+    apart = video_edit.propose_highlights(_events(kills=[100, 135]), None, 0.0, 600.0, target_s=1000, min_s=0)
+    assert len(apart["segments"]) == 2
+
+
+def test_propose_highlights_picks_by_event_priority_until_the_target():
+    ev = _events(sam_launches=[100], kills=[500, 900])
+    res = video_edit.propose_highlights(ev, None, 0.0, 1200.0, target_s=60, min_s=0)
+    assert [s["event_types"] for s in res["segments"]] == [["kill"], ["kill"]]
+
+
+def test_propose_highlights_skips_windows_that_would_pass_the_maximum():
+    ev = _events(kills=[100, 500], sam_launches=[900])
+    res = video_edit.propose_highlights(ev, None, 0.0, 1200.0, target_s=100, min_s=0, max_s=60)
+    assert res["duration_s"] == 60 and len(res["segments"]) == 2
+
+
+def test_propose_highlights_drops_empty_windows():
+    res = video_edit.propose_highlights(_events(kills=[100]), None, 0.0, 600.0,
+                                        windows={"kill": {"before_s": 0, "after_s": 0}}, target_s=1000, min_s=0)
+    assert res["segments"] == []        # una ventana vacía no es un tramo
+
+
+def test_propose_highlights_fills_with_takeoff_and_landing_below_the_minimum():
+    tel = _tel(GROUND, TAKEOFF, CRUISE, APPROACH, (200, 1, 20, 5, 5, 270))
+    res = video_edit.propose_highlights({}, tel, 0.0, 1100.0, target_s=1000, min_s=100)
+    spans = [(s["start"], s["end"]) for s in res["segments"]]
+    assert spans == [(200, 245), (800, 890)]                    # despegue (45 s); 60 s antes y 30 s después del toque
+    assert all(s["reason"] == "relleno" for s in res["segments"]) and not res["warnings"]
+
+
+def test_propose_highlights_fills_with_spread_navigation_windows_and_never_overlaps():
+    tel = _tel(GROUND, TAKEOFF, CRUISE, APPROACH, (200, 1, 20, 5, 5, 270))
+    tel["alt"] = [a + (300 if (i // 10) % 2 else 0) for i, a in enumerate(tel["alt"])]   # crucero no estático
+    res = video_edit.propose_highlights({}, tel, 0.0, 1100.0, target_s=1000, min_s=300)
+    segs = res["segments"]
+    assert res["duration_s"] >= 300 and any(s.get("label") == "navegacion" for s in segs)
+    assert all(a["end"] <= b["start"] for a, b in itertools.pairwise(segs))
+
+
+def test_propose_highlights_warns_when_there_is_not_enough_material():
+    res = video_edit.propose_highlights(_events(kills=[100]), None, 0.0, 600.0, target_s=540, min_s=480)
+    assert res["duration_s"] == 30 and "shorter" in res["warnings"][0]
+
+
+def test_to_render_plan_keeps_the_windows_and_cuts_the_gaps():
+    plan = video_edit.to_render_plan([{"start": 0, "end": 15}, {"start": 100, "end": 130}], 600.0)
+    assert plan == [{"start": 0, "end": 15, "action": "keep"}, {"start": 15, "end": 100, "action": "cut"},
+                    {"start": 100, "end": 130, "action": "keep"}, {"start": 130, "end": 600.0, "action": "cut"}]
+    summary = video_edit.summarize_plan(plan, 600.0, fade_s=0.3)
+    assert summary["resulting_duration"] == pytest.approx(45 - 0.3)
+
+
+def test_analyze_highlights_reports_the_duration_with_fades_and_the_video_duration(monkeypatch, tmp_path):
+    import dcs_meta
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda p: 600.0)
+    monkeypatch.setattr(video_edit.acmi, "resolve_acmi_offset", lambda v, a, o: 12.0)
+    monkeypatch.setattr(video_edit.acmi, "parse_acmi_events", lambda a, offset_s: _events(kills=[100, 300]))
+    monkeypatch.setattr(video_edit, "read_player_telemetry", lambda a: None)
+    res = video_edit.analyze_highlights(tmp_path / "v.mkv", tmp_path / "a.acmi", target_s=1000)
+    assert res["video_duration"] == 600.0 and res["offset_s"] == 12.0
+    assert res["duration_s"] == 60 and res["resulting_duration"] == pytest.approx(60 - 0.3)
