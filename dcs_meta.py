@@ -64,7 +64,10 @@ DEFAULT_CONFIG = {
     "description_templates": {},
     "recordings_folder": "",
     "music_folder": "",
-    "edit_cq": 28
+    "edit_cq": 28,
+    "highlight_target_s": 540,
+    "highlight_music_db": -20,
+    "highlight_windows": {}    # vacío = ventanas por defecto de video_edit.DEFAULT_WINDOWS; solo guarda los tipos cambiados
 }
 
 # Discord secrets (SEC-01) — see SECRETS_PATH above.

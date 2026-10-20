@@ -457,5 +457,6 @@ def analyze_highlights(video_path: Path, acmi_path: Path, offset_s: float | None
     duration = _get_video_duration(Path(video_path))
     offset = acmi.resolve_acmi_offset(Path(video_path), Path(acmi_path), offset_s)
     events = acmi.parse_acmi_events(Path(acmi_path), offset_s=offset)
-    return {**propose_highlights(events, read_player_telemetry(acmi_path), offset, duration, windows, target_s),
-            "offset_s": offset}
+    proposal = propose_highlights(events, read_player_telemetry(acmi_path), offset, duration, windows, target_s)
+    resulting = summarize_plan(to_render_plan(proposal["segments"], duration), duration)["resulting_duration"]         if proposal["segments"] else 0.0
+    return {**proposal, "resulting_duration": resulting, "video_duration": duration, "offset_s": offset}

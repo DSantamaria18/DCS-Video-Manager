@@ -305,3 +305,14 @@ def test_to_render_plan_keeps_the_windows_and_cuts_the_gaps():
                     {"start": 100, "end": 130, "action": "keep"}, {"start": 130, "end": 600.0, "action": "cut"}]
     summary = video_edit.summarize_plan(plan, 600.0, fade_s=0.3)
     assert summary["resulting_duration"] == pytest.approx(45 - 0.3)
+
+
+def test_analyze_highlights_reports_the_duration_with_fades_and_the_video_duration(monkeypatch, tmp_path):
+    import dcs_meta
+    monkeypatch.setattr(dcs_meta, "_get_video_duration", lambda p: 600.0)
+    monkeypatch.setattr(video_edit.acmi, "resolve_acmi_offset", lambda v, a, o: 12.0)
+    monkeypatch.setattr(video_edit.acmi, "parse_acmi_events", lambda a, offset_s: _events(kills=[100, 300]))
+    monkeypatch.setattr(video_edit, "read_player_telemetry", lambda a: None)
+    res = video_edit.analyze_highlights(tmp_path / "v.mkv", tmp_path / "a.acmi", target_s=1000)
+    assert res["video_duration"] == 600.0 and res["offset_s"] == 12.0
+    assert res["duration_s"] == 60 and res["resulting_duration"] == pytest.approx(60 - 0.3)

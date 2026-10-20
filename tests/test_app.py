@@ -1432,3 +1432,86 @@ def test_config_accepts_a_music_folder_that_exists(client, tmp_path, monkeypatch
     resp = client.post("/api/config", json={"music_folder": str(tmp_path), "edit_cq": 26})
     assert resp.status_code == 200
     assert resp.json["music_folder"] == str(tmp_path) and resp.json["edit_cq"] == 26
+
+
+# ── POST /api/edit/highlights y modo highlight del render (FEA-09, Fase 2) ─────
+
+def test_highlights_rejects_bad_windows_and_target(client, tmp_path):
+    video, acmi_file = _edit_files(tmp_path)
+    base = {"video_path": str(video), "acmi_path": str(acmi_file)}
+    for extra in ({"windows": {"kill": {"before_s": 999}}}, {"windows": {"tank": {}}}, {"windows": 5},
+                  {"target_s": 5}, {"target_s": "x"}):
+        assert client.post("/api/edit/highlights", json={**base, **extra}).status_code == 400
+    assert client.post("/api/edit/highlights", json={"video_path": str(video)}).status_code == 400
+
+
+def test_highlights_job_merges_request_windows_over_the_saved_ones(client, tmp_path):
+    video, acmi_file = _edit_files(tmp_path)
+    cfg = {**dcs_meta.DEFAULT_CONFIG, "highlight_target_s": 500,
+           "highlight_windows": {"kill": {"before_s": 40, "after_s": 5}}}
+    plan = {"segments": [{"start": 1.0, "end": 31.0}], "duration_s": 30.0, "resulting_duration": 30.0,
+            "warnings": [], "offset_s": 0.0}
+    with patch("dcs_meta.load_config", return_value=cfg), \
+         patch("video_edit.analyze_highlights", return_value=plan) as mock_analyze:
+        resp = client.post("/api/edit/highlights", json={"video_path": str(video), "acmi_path": str(acmi_file),
+                                                         "windows": {"sam": {"before_s": 1, "after_s": 2}}})
+        status = _wait_done(client, resp.json["job_id"])
+
+    args = mock_analyze.call_args.args
+    assert args[3]["kill"] == {"before_s": 40, "after_s": 5} and args[3]["sam"] == {"before_s": 1, "after_s": 2}
+    assert args[4] == 500
+    assert status["result"]["resulting_duration"] == 30.0 and status["result"]["windows"]["sam"]["after_s"] == 2
+
+
+def test_highlights_simulate_mode_skips_real_analysis(client, tmp_path, monkeypatch):
+    video, acmi_file = _edit_files(tmp_path)
+    monkeypatch.setenv("DCS_SIMULATE", "1")
+    with patch("video_edit.analyze_highlights", side_effect=AssertionError("must not run in simulate mode")):
+        resp = client.post("/api/edit/highlights", json={"video_path": str(video), "acmi_path": str(acmi_file)})
+        status = _wait_done(client, resp.json["job_id"])
+    assert status["status"] == "done" and status["result"]["segments"]
+
+
+def test_render_highlight_mode_keeps_the_windows_cuts_the_gaps_and_adds_the_bed(client, tmp_path):
+    video = _render_video(tmp_path)
+    seen = {}
+
+    def fake_render(video_path, segments, out_dir, **kwargs):
+        seen.update(kwargs, segments=segments)
+        return {"output_path": str(tmp_path / "rec_editado.mp4"), "duration": 1.0, "warnings": [],
+                "encoder": "libx264", "chunks": 1}
+
+    cfg = {**dcs_meta.DEFAULT_CONFIG, "highlight_music_db": -25}
+    with patch("dcs_meta._get_video_duration", return_value=500.0), patch("dcs_meta.load_config", return_value=cfg), \
+         patch("video_render.render_edit", side_effect=fake_render):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "mode": "highlight",
+                                                     "segments": [{"start": 10, "end": 40}, {"start": 100, "end": 130}]})
+        _wait_done(client, resp.json["job_id"])
+
+    assert [s["action"] for s in seen["segments"]] == ["cut", "keep", "cut", "keep", "cut"]
+    assert seen["music_bed_db"] == -25
+
+
+@pytest.mark.parametrize("segments", [[{"start": 40, "end": 10}], [{"start": "a", "end": 5}], [{"start": 400, "end": 600}]])
+def test_render_highlight_mode_rejects_bad_windows(client, tmp_path, segments):
+    video = _render_video(tmp_path)
+    with patch("dcs_meta._get_video_duration", return_value=500.0):
+        resp = client.post("/api/edit/render", json={"video_path": str(video), "mode": "highlight", "segments": segments})
+    assert resp.status_code == 400
+
+
+def test_render_rejects_an_unknown_mode(client, tmp_path):
+    video = _render_video(tmp_path)
+    resp = client.post("/api/edit/render", json={"video_path": str(video), "mode": "x", "segments": _RENDER_SEGMENTS})
+    assert resp.status_code == 400
+
+
+def test_config_saves_valid_highlight_settings_and_rejects_bad_ones(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dcs_meta, "CONFIG_PATH", tmp_path / "config.json")
+    good = {"highlight_target_s": 480, "highlight_music_db": -18,
+            "highlight_windows": {"kill": {"before_s": 25, "after_s": 8}}}
+    resp = client.post("/api/config", json=good)
+    assert resp.status_code == 200 and resp.json["highlight_windows"]["kill"] == {"before_s": 25, "after_s": 8}
+    for bad in ({"highlight_target_s": 10}, {"highlight_music_db": 5}, {"highlight_music_db": "x"},
+                {"highlight_windows": {"kill": {"before_s": 500}}}, {"highlight_windows": {"tank": {}}}):
+        assert client.post("/api/config", json=bad).status_code == 400
