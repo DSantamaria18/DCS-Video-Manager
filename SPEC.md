@@ -486,8 +486,8 @@ cortarse (se puede elegir cortar), y la música cambia según la fase de vuelo.
 ### Fuera de alcance
 - Controlar Resolve u otro editor, o exportar EDL/FCPXML/OTIO (posible extra futuro).
 - Editor de línea de tiempo completo: la revisión es una lista de tramos con casillas, no un NLE.
-- Transiciones elaboradas, títulos o efectos. La música se limita a los tramos acelerados (RF-12 y RF-13);
-  una música de fondo bajo el vídeo a velocidad normal sería otra feature.
+- Transiciones elaboradas, títulos o efectos. La música se limita a los tramos acelerados (RF-12 y RF-13) y
+  al fondo del highlight (Fase 2); bajo el vídeo normal de la Fase 1 no hay música.
 - Subida automática del resultado (sigue el flujo actual de Metadata y Pendientes).
 
 ### Entrega por fases (una PR por fase)
@@ -623,6 +623,51 @@ y el render sobre un clip corto.
   vuelve el audio normal fusionado al acabar el tramo, sin saltos de sincronía.
 - Fase 2: el highlight dura lo pedido (±5 %) y contiene los momentos de mayor puntuación.
 - Fase 3: la vista previa y el render dan el mismo aspecto sobre el mismo frame.
+
+### Detalle de la Fase 2: highlights (borrador 2026-10-20, pendiente de aprobación)
+
+Decisiones de David (2026-10-20): ventana de recorte por tipo de evento, relleno con tramos de navegación si no
+se llega al mínimo, orden cronológico y música de fondo bajo el audio original.
+
+**Flujo.** Pestaña Edición, modo "Highlight": `POST /api/edit/highlights` (job) devuelve los tramos propuestos;
+David los revisa (casilla por tramo, inicio y fin editables, duración resultante) y pulsa render. Nada se
+renderiza sin pulsar el botón. El render reutiliza el de la Fase 1: el highlight se expresa como una lista de
+tramos a conservar y el resto se corta, así que no hay un segundo camino de render.
+
+**Selección (RF-5 concretado).**
+1. Cada evento ACMI (ya en tiempo de vídeo) abre una ventana según su tipo. Valores por defecto, ajustables
+   con grabaciones reales: kill 20 s antes y 10 s después; eyección 15 y 10; bomba guiada 20 y 15; SAM 15 y 10;
+   BVR 20 y 15. **Configurables desde la UI:** el modo Highlight muestra, para cada tipo, dos campos (segundos
+   antes y después) con esos valores; se pueden cambiar antes de analizar y se guardan como nuevo valor por
+   defecto en `config/config.json` (`highlight_windows`). Rango válido de 0 a 120 s por campo; un valor fuera de
+   rango se rechaza con un error claro.
+2. Las ventanas que se solapan o distan menos de 5 s se funden en un solo tramo.
+3. Se añaden por prioridad de tipo (kill, eyección, bomba guiada, SAM, BVR, el orden de `_deduplicate_candidates`)
+   hasta alcanzar la duración objetivo (9 min por defecto, tope 10). Si un tramo hace pasar de 10 min, se salta.
+4. Si el total queda por debajo de 8 min, se rellena con tramos de navegación, marcados "relleno" en la lista:
+   primero el despegue (máx. 45 s) y la aproximación con aterrizaje (máx. 90 s, con el aterrizaje completo y sin
+   acelerar), y luego ventanas de 30 s repartidas por la navegación no estática, hasta llegar a 8 min.
+5. Orden cronológico. Entre tramos, fundido de 0,3 s (RF-9).
+
+**Audio.** Tramos con el audio original fusionado como en la Fase 1 y, debajo, una pista de música de fondo
+continua con fundido de 1 s al inicio y al final. Pista al azar de la subcarpeta `highlight` de `music_folder`
+(nueva, además de las 3 por fase), en bucle si es más corta que el vídeo. Volumen fijo relativo, clave
+`highlight_music_db` (por defecto -20). Sin ducking en esta fase. `# ponytail:` si hiciera falta bajar la música
+con la radio, se amplía con `sidechaincompress`. Subcarpeta vacía: sin música y aviso, no se bloquea el render.
+
+**Contratos.** `POST /api/edit/highlights` con `{video_path, acmi_path, acmi_offset_s?, target_s?, windows?}`
+(`windows`: `{tipo: {before_s, after_s}}`, con los tipos kill, ejection, guided_bomb, sam y bvr; los que falten
+usan el valor guardado en la config); resultado
+`{segments: [{start, end, reason, event_type?}], duration_s, offset_s, warnings}`. `POST /api/edit/render` admite
+música de fondo opcional. Nuevas claves: `highlight_target_s` (540), `highlight_music_db` (-20) y `highlight_windows` (las ventanas por tipo).
+
+**Pruebas.** Selección con eventos sintéticos (ventanas, fusión, prioridad, tope de 10 min, relleno), validación
+de `windows` (rango y tipos desconocidos) y render
+con ffmpeg real sobre un clip corto con música de fondo.
+
+**Criterios de aceptación.** El highlight dura lo pedido (±5 %), contiene las ventanas de mayor prioridad, queda en
+orden cronológico, el aterrizaje de relleno no se acelera, la música de fondo no tapa el audio original y
+cambiar la ventana de un tipo en la UI cambia el tramo propuesto para sus eventos.
 
 ### Resultados de la Fase 0 (2026-10-18)
 
