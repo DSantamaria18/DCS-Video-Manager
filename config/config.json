@@ -17,5 +17,7 @@
   "description_templates": {
     "es_long": "DESCRIPTION RULES — LONG VIDEO (>30 min) — \"complete mission debrief\":\n[2 frases de hook: qué era la misión + el momento culminante o resultado]\n\n✈ Aeronave: [nombre]\n🗺 Mapa: [mapa]\n🎯 Tipo de misión: [tipo]\n👥 Escuadrón: Escuadrón 111 (E111) — https://www.escuadron111.eu/\n\n[Resumen de misión: 1 frase de overview]\n\n[3-4 frases con desglose detallado: fases de la misión, compromisos clave, errores y éxitos, momentos memorables]\n\n💬 ¿Cómo lo habrías hecho tú? Déjanos tu análisis en los comentarios.\n\n---\n🕐 CAPÍTULOS\n[OBLIGATORIO para vídeos largos — incluir siempre aunque sea con tiempos aproximados]\n\n---\n📺 MÁS VÍDEOS DCS\n[playlists relevantes]\n\n🔗 SÍGUENOS\nTwitter: https://twitter.com/thecylonpilot\nTwitch: https://www.twitch.tv/thecylonpilot\nTikTok: https://www.tiktok.com/@cylon.pilot\n\n#DCSWorld #[Aeronave] #[tags relevantes]"
   },
-  "recordings_folder": ""
+  "recordings_folder": "",
+  "music_folder": "C:\\Users\\dsant\\repos\\DCS-Video-Manager\\output\\audio",
+  "edit_cq": 28
 }
